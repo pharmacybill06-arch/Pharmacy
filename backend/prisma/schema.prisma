@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// REDESIGNED SCHEMA - ALL FIELDS NORMALIZED
+// ============================================
+// All invoice data is now stored in individual columns
+// Items are in a separate table with proper relationships
+
+// User model: Stores pharmacy app users (patients, staff)
+model User {
+  id        String     @id @default(cuid())
+  email     String?    @unique
+  name      String?
+  phone     String     @unique
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  bills     Bill[]
+
+  @@index([email])
+  @@index([phone])
+}
+
+// OTP model: Stores OTPs for phone verification
+model Otp {
+  id        String     @id @default(cuid())
+  phone     String
+  otp       String
+  expiresAt DateTime
+  verified  Boolean    @default(false)
+  attempts  Int        @default(0)
+  
+  createdAt DateTime   @default(now())
+
+  @@index([phone])
+  @@index([expiresAt])
+}
+
+// Bill model: Main invoice/bill record with all extracted fields
+model Bill {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // ========== FILE STORAGE ==========
+  fileName    String
+  filePath    String
+  fileSize    Int
+  mimeType    String
+  
+  // ========== PHARMACY DETAILS ==========
+  pharmacyName    String?
+  shopAddress     String?                           // Full shop address
+  phoneNumbers    String?                           // JSON array of phone numbers
+  
+  // ========== INVOICE IDENTIFICATION ==========
+  invoiceNumber   String?
+  invoiceDate     DateTime?
+  
+  // ========== CUSTOMER DETAILS ==========
+  customerName    String?
+  customerPhone   String?
+  customerAddress String?
+  doctorName      String?
+  
+  // ========== FINANCIAL TOTALS ==========
+  subtotal        Float?                            // Sum of all items before tax/discount
+  
+  // Tax breakdown
+  cgst            Float?                            // Central GST amount
+  sgst            Float?                            // State GST amount
+  totalGst        Float?                            // Total GST (CGST + SGST)
+  
+  // Discounts and adjustments
+  discountAmount  Float?                            // Total discount applied
+  roundOff        Float?                            // Round-off adjustment
+  
+  grandTotal      Float?                            // Final payable amount
+  
+  // ========== PAYMENT DETAILS ==========
+  paymentType     String?                           // cash, credit, card, upi, etc.
+  amountPaid      Float?                            // Amount actually paid
+  balanceAmount   Float?                            // Remaining balance
+  
+  // ========== ADDITIONAL INFO ==========
+  remarks         String?                           // Any special notes or remarks
+  
+  // ========== OCR & PROCESSING ==========
+  status          String     @default("uploaded")   // uploaded, processing, completed, failed
+  rawOcrText      String?                           // Raw text extracted from OCR
+  
+  // Processing metadata
+  ocrEngine       String?                           // ml-kit, tesseract, etc.
+  aiParser        String?                           // gemini-ai, groq, etc.
+  processedAt     DateTime?                         // When AI parsing was completed
+  
+  // Timestamps
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
+  // ========== RELATIONSHIPS ==========
+  items           BillItem[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([invoiceDate])
+  @@index([pharmacyName])
+  @@index([invoiceNumber])
+}
+
+// BillItem model: Individual line items from invoice (medicines, products)
+model BillItem {
+  id              String     @id @default(cuid())
+  billId          String
+  bill            Bill       @relation(fields: [billId], references: [id], onDelete: Cascade)
+  
+  // ========== ITEM IDENTIFICATION ==========
+  serialNumber    Int?                              // S.N. from bill
+  name            String                            // Medicine/product name
+  manufacturer    String?                           // Manufacturer name
+  
+  // ========== BATCH & EXPIRY ==========
+  batchNumber     String?                           // Batch number
+  expiryDate      String?                           // Expiry date (stored as string as it varies in format)
+  hsnCode         String?                           // HSN/SAC code for taxation
+  
+  // ========== QUANTITY ==========
+  quantity        Float                             // Quantity purchased
+  freeQuantity    Float?                            // Free quantity (offers)
+  unit            String     @default("units")      // tabs, caps, ml, bottle, sachet, etc.
+  
+  // ========== PRICING ==========
+  mrp             Float?                            // Maximum Retail Price per unit
+  rate            Float                             // Selling price per unit
+  
+  // ========== TAXES ==========
+  gstPercent      Float?                            // Overall GST percentage
+  cgstPercent     Float?                            // CGST percentage
+  sgstPercent     Float?                            // SGST percentage
+  
+  // ========== DISCOUNT ==========
+  discount        Float?                            // Discount on this item
+  
+  // ========== TOTALS ==========
+  itemTotal       Float                             // Total for this line item
+  
+  // ========== METADATA ==========
+  confidence      Float?     @default(1.0)          // OCR confidence (0-1)
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([billId])
+  @@index([name])
+}

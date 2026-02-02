@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backend QR Code Scanner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        .subtitle {
+            color: #666;
+            margin: 0 0 30px 0;
+            font-size: 14px;
+        }
+        #qrcode {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        .url {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            text-align: left;
+            border-radius: 5px;
+        }
+        .url-text {
+            font-family: 'Courier New', monospace;
+            color: #1976d2;
+            word-break: break-all;
+            font-weight: bold;
+        }
+        .instructions {
+            margin-top: 30px;
+            text-align: left;
+            padding: 20px;
+            background: #fff3e0;
+            border-radius: 10px;
+            border-left: 4px solid #ff9800;
+        }
+        .instructions h3 {
+            color: #e65100;
+            margin-top: 0;
+        }
+        .instructions ol {
+            margin: 10px 0;
+            color: #555;
+        }
+        .instructions li {
+            margin: 8px 0;
+        }
+        .success {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            border-radius: 5px;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏥 Pharmacy Bill Backend</h1>
+        <p class="subtitle">Scan this QR code from your Expo app</p>
+        
+        <div id="qrcode"></div>
+        
+        <div class="url">
+            <strong>Backend URL:</strong><br>
+            <div class="url-text">http://192.168.68.4:5000</div>
+        </div>
+
+        <div class="instructions">
+            <h3>📱 How to Connect from Expo Go:</h3>
+            <ol>
+                <li>Open <strong>Expo Go</strong> app on your mobile</li>
+                <li>Tap the <strong>QR code icon</strong> (top right)</li>
+                <li><strong>Scan this QR code</strong> above</li>
+                <li>Your app will connect to the backend</li>
+            </ol>
+        </div>
+
+        <div class="success">
+            ✅ <strong>Make sure:</strong> Phone and computer are on the <strong>same WiFi network</strong>
+        </div>
+    </div>
+
+    <script>
+        // Generate QR code
+        new QRCode(document.getElementById("qrcode"), {
+            text: "http://192.168.68.4:5000",
+            width: 300,
+            height: 300,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+        });
+    </script>
+</body>
+</html>

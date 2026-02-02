@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "pharmacy-bill-app",
+    "slug": "pharmacy-bill-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.pharmacybillapp",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs camera access to scan pharmacy bills and extract text",
+        "NSPhotoLibraryUsageDescription": "This app needs photo library access to select bill images for scanning"
+      }
+    },
+    "android": {
+      "package": "com.yourcompany.pharmacybillapp",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan pharmacy bills"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to select bill images"
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "26bfafbd-7f63-41ae-84b7-86c8e3449eaf"
+      }
+    }
+  }
+}
