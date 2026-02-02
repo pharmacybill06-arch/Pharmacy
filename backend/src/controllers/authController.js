@@ -60,8 +60,8 @@ exports.sendOtp = async (req, res) => {
       message: 'OTP sent successfully',
       isNewUser: !existingUser,
       expiresIn: OTP_EXPIRY_MINUTES * 60, // in seconds
-      // Remove this in production - only for development testing
-      ...(process.env.NODE_ENV !== 'production' && { devOtp: otp })
+      // Show OTP in response for testing (remove when SMS is integrated)
+      devOtp: otp
     });
 
   } catch (error) {
