@@ -18,6 +18,8 @@ import PrimaryButton from '@/components/ui/PrimaryButton';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import ItemRowEditor from '@/components/bill-form/ItemRowEditor';
+import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * Item Row Component for table-like display
@@ -85,7 +87,17 @@ export default function BillFormScreen({
   onUpdateEditingItem,
   onRemoveEditingItem,
   onSaveEditingItem,
+  // Distributor-related props
+  selectedDistributor = null,
+  distributorSearchQuery = '',
+  onDistributorSearchChange,
+  onDistributorSelect,
+  onAddNewDistributor,
 }) {
+  // Get user ID for product suggestions
+  const { user } = useAuth();
+  const userId = user?.id;
+
   // Calculate discount amount from percentage
   const discountAmount = ((formData.subtotal || 0) * ((formData.discountPercent || 0) / 100));
 
@@ -119,61 +131,64 @@ export default function BillFormScreen({
             </View>
           )}
 
-          {/* Pharmacy Details Section */}
+          {/* Distributor Details Section */}
           <CollapsibleSection
-            title="Pharmacy Details"
-            icon="storefront-outline"
+            title="Distributor Details"
+            icon="business-outline"
             defaultExpanded={true}
           >
-            <FormInput
-              label="Pharmacy Name"
-              value={formData.pharmacyName}
-              onChangeText={(text) =>
-                onUpdatePharmacyDetails({ pharmacyName: text })
-              }
-              placeholder="Enter pharmacy name"
-            />
-            <FormInput
-              label="Shop Address"
-              value={formData.shopAddress}
-              onChangeText={(text) =>
-                onUpdatePharmacyDetails({ shopAddress: text })
-              }
-              placeholder="Enter address"
-              multiline
-              numberOfLines={2}
-            />
-            <View style={styles.row}>
-              <View style={styles.halfWidth}>
-                <FormInput
-                  label="Phone Numbers"
-                  value={formData.phoneNumbers}
-                  onChangeText={(text) =>
-                    onUpdatePharmacyDetails({ phoneNumbers: text })
-                  }
-                  placeholder="Phone"
-                  keyboardType="phone-pad"
-                />
-              </View>
-              <View style={styles.halfWidth}>
-                <FormInput
-                  label="GSTIN"
-                  value={formData.gstin}
-                  onChangeText={(text) =>
-                    onUpdatePharmacyDetails({ gstin: text })
-                  }
-                  placeholder="GSTIN"
-                />
-              </View>
+            <View style={styles.distributorSection}>
+              <ThemedText style={styles.fieldLabel}>Distributor Name *</ThemedText>
+              <DistributorAutocomplete
+                userId={userId}
+                value={distributorSearchQuery || formData.pharmacyName}
+                onChangeText={onDistributorSearchChange}
+                onDistributorSelect={onDistributorSelect}
+                onAddNew={onAddNewDistributor}
+                placeholder="Search or add distributor"
+                selectedDistributor={selectedDistributor}
+              />
+              
+              {/* Show additional details when distributor is selected */}
+              {selectedDistributor && (
+                <View style={styles.distributorInfo}>
+                  {selectedDistributor.gstin && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="document-text-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.infoText}>GSTIN: {selectedDistributor.gstin}</ThemedText>
+                    </View>
+                  )}
+                  {selectedDistributor.phone && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="call-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.infoText}>{selectedDistributor.phone}</ThemedText>
+                    </View>
+                  )}
+                  {selectedDistributor.address && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="location-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.infoText}>{selectedDistributor.address}</ThemedText>
+                    </View>
+                  )}
+                  {selectedDistributor.dlNumber && (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="card-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.infoText}>DL: {selectedDistributor.dlNumber}</ThemedText>
+                    </View>
+                  )}
+                </View>
+              )}
+              
+              {/* Show manual entry fields if no distributor selected */}
+              {!selectedDistributor && distributorSearchQuery && distributorSearchQuery.length > 0 && (
+                <View style={styles.manualEntryHint}>
+                  <Ionicons name="information-circle-outline" size={16} color="#1D4ED8" />
+                  <ThemedText style={styles.hintText}>
+                    Type at least 2 characters to search, or add as new distributor
+                  </ThemedText>
+                </View>
+              )}
             </View>
-            <FormInput
-              label="DL Number"
-              value={formData.dlNumber}
-              onChangeText={(text) =>
-                onUpdatePharmacyDetails({ dlNumber: text })
-              }
-              placeholder="Drug License Number"
-            />
           </CollapsibleSection>
 
           {/* Invoice Metadata Section */}
@@ -245,6 +260,8 @@ export default function BillFormScreen({
                           item={item}
                           onUpdate={onUpdateEditingItem}
                           onRemove={onRemoveEditingItem}
+                          userId={userId}
+                          enableProductSuggestions={!!userId}
                         />
                         <PrimaryButton
                           title="Done Editing"
@@ -554,5 +571,47 @@ const styles = StyleSheet.create({
   },
   buttonSpacer: {
     height: 10,
+  },
+  // Distributor section styles
+  distributorSection: {
+    position: 'relative',
+    zIndex: 100,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  distributorInfo: {
+    marginTop: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#4B5563',
+    flex: 1,
+  },
+  manualEntryHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+  hintText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#1D4ED8',
+    flex: 1,
   },
 });

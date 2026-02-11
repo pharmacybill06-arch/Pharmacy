@@ -25,6 +25,16 @@ const BillListItem = React.memo(({ item, onPress }) => {
     return 'default';
   };
 
+  // Get distributor name (prefer distributor relation, fallback to pharmacyName)
+  const getDistributorName = () => {
+    if (item.distributor?.name) return item.distributor.name;
+    if (item.pharmacyName) return item.pharmacyName;
+    return 'Unknown Distributor';
+  };
+
+  // Check if this is a legacy record (no distributor linked)
+  const isLegacyRecord = !item.distributorId && item.pharmacyName;
+
   return (
     <Pressable
       onPress={() => onPress(item)}
@@ -34,11 +44,18 @@ const BillListItem = React.memo(({ item, onPress }) => {
       ]}
     >
       <Card style={styles.billCardInner}>
-        {/* Top Row: Pharmacy Name + Amount */}
+        {/* Top Row: Distributor Name + Amount */}
         <View style={styles.billCardHeader}>
-          <ThemedText style={styles.pharmacyName} numberOfLines={1}>
-            {item.pharmacyName}
-          </ThemedText>
+          <View style={styles.distributorNameContainer}>
+            <ThemedText style={styles.pharmacyName} numberOfLines={1}>
+              {getDistributorName()}
+            </ThemedText>
+            {isLegacyRecord && (
+              <View style={styles.legacyBadge}>
+                <ThemedText style={styles.legacyBadgeText}>Legacy</ThemedText>
+              </View>
+            )}
+          </View>
           <ThemedText style={styles.amount}>
             ₹{item.grandTotal || item.totalAmount || '0'}
           </ThemedText>
@@ -223,12 +240,29 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
+  distributorNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
   pharmacyName: {
     fontSize: 15,
     fontWeight: '800',
     color: '#111827',
-    flex: 1,
-    marginRight: 8,
+    flexShrink: 1,
+  },
+  legacyBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  legacyBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#92400E',
   },
   amount: {
     fontSize: 15,

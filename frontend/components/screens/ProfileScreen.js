@@ -77,7 +77,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
       
       {/* Header */}
@@ -89,7 +89,6 @@ export default function ProfileScreen() {
           >
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile</Text>
           <TouchableOpacity
             style={styles.editButton}
             onPress={() => setIsEditing(!isEditing)}
@@ -260,9 +259,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f6fa',
-    paddingTop: Platform.OS === 'android' ? 25 : 0,
   },
   header: {
+    paddingTop: 16,
     paddingBottom: 40,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,

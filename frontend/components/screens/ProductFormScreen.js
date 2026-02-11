@@ -1,0 +1,503 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ThemedView } from '@/components/themed-view';
+import { ThemedText } from '@/components/themed-text';
+import { Ionicons } from '@expo/vector-icons';
+import AppBar from '@/components/ui/AppBar';
+import Card from '@/components/ui/Card';
+import PrimaryButton from '@/components/ui/PrimaryButton';
+import DateField from '@/components/ui/DateField';
+import { useProductCRUD } from '@/hooks/useProducts';
+
+/**
+ * Form Input Component with validation
+ */
+const FormField = ({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType = 'default',
+  required = false,
+  error = null,
+  autoFocus = false,
+  inputRef,
+  onSubmitEditing,
+  returnKeyType = 'next',
+}) => (
+  <View style={styles.fieldContainer}>
+    <View style={styles.labelRow}>
+      <ThemedText style={styles.label}>{label}</ThemedText>
+      {required && <ThemedText style={styles.required}>*</ThemedText>}
+    </View>
+    <TextInput
+      ref={inputRef}
+      style={[styles.input, error && styles.inputError]}
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor="#9CA3AF"
+      keyboardType={keyboardType}
+      autoFocus={autoFocus}
+      autoCapitalize="words"
+      autoCorrect={false}
+      onSubmitEditing={onSubmitEditing}
+      returnKeyType={returnKeyType}
+    />
+    {error && (
+      <View style={styles.errorRow}>
+        <Ionicons name="alert-circle" size={14} color="#DC2626" />
+        <ThemedText style={styles.errorText}>{error}</ThemedText>
+      </View>
+    )}
+  </View>
+);
+
+/**
+ * ProductFormScreen
+ * Add/Edit product form with validation
+ */
+export default function ProductFormScreen({
+  userId,
+  product = null, // null for create, object for edit
+  onBack,
+  onSave,
+}) {
+  const isEditing = !!product;
+  
+  // Form state
+  const [formData, setFormData] = useState({
+    name: product?.name || '',
+    batchNumber: product?.batchNumber || '',
+    expiryDate: product?.expiryDate || '',
+    manufacturer: product?.manufacturer || '',
+    quantity: product?.quantity?.toString() || '1',
+    purchaseDate: product?.purchaseDate || '',
+    defaultMrp: product?.defaultMrp?.toString() || '',
+    defaultRate: product?.defaultRate?.toString() || '',
+    ptr: product?.ptr?.toString() || '',
+    notes: product?.notes || '',
+  });
+  
+  // Validation errors
+  const [errors, setErrors] = useState({});
+  
+  // Refs for field navigation
+  const batchRef = useRef(null);
+  const expiryRef = useRef(null);
+  const manufacturerRef = useRef(null);
+  const quantityRef = useRef(null);
+  const purchaseRef = useRef(null);
+  const mrpRef = useRef(null);
+  const rateRef = useRef(null);
+  const ptrRef = useRef(null);
+  const notesRef = useRef(null);
+  
+  const { createProduct, updateProduct, isLoading, error: apiError } = useProductCRUD(userId);
+
+  // Show API errors
+  useEffect(() => {
+    if (apiError) {
+      Alert.alert('Error', apiError);
+    }
+  }, [apiError]);
+
+  // Update form field
+  const updateField = useCallback((field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error when user types
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: null }));
+    }
+  }, [errors]);
+
+  // Validate form
+  const validate = useCallback(() => {
+    const newErrors = {};
+    
+    // Name is required
+    if (!formData.name.trim()) {
+      newErrors.name = 'Item name is required';
+    }
+    
+    // Expiry date is required
+    if (!formData.expiryDate.trim()) {
+      newErrors.expiryDate = 'Expiry date is required';
+    }
+    
+    // Quantity validation
+    if (formData.quantity) {
+      const qty = parseFloat(formData.quantity);
+      if (isNaN(qty) || qty <= 0) {
+        newErrors.quantity = 'Quantity must be greater than 0';
+      }
+    }
+    
+    // MRP validation
+    if (formData.defaultMrp) {
+      const mrp = parseFloat(formData.defaultMrp);
+      if (isNaN(mrp) || mrp < 0) {
+        newErrors.defaultMrp = 'MRP must be a positive number';
+      }
+    }
+    
+    // Rate validation
+    if (formData.defaultRate) {
+      const rate = parseFloat(formData.defaultRate);
+      if (isNaN(rate) || rate < 0) {
+        newErrors.defaultRate = 'Rate must be a positive number';
+      }
+    }
+    
+    // PTR validation
+    if (formData.ptr) {
+      const ptr = parseFloat(formData.ptr);
+      if (isNaN(ptr) || ptr < 0) {
+        newErrors.ptr = 'PTR must be a positive number';
+      }
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }, [formData]);
+
+  // Handle form submission
+  const handleSubmit = useCallback(async () => {
+    if (!validate()) {
+      return;
+    }
+    
+    try {
+      const productData = {
+        name: formData.name.trim(),
+        batchNumber: formData.batchNumber.trim() || null,
+        expiryDate: formData.expiryDate.trim(),
+        manufacturer: formData.manufacturer.trim() || null,
+        quantity: formData.quantity ? parseFloat(formData.quantity) : 1,
+        purchaseDate: formData.purchaseDate.trim() || null,
+        defaultMrp: formData.defaultMrp ? parseFloat(formData.defaultMrp) : null,
+        defaultRate: formData.defaultRate ? parseFloat(formData.defaultRate) : null,
+        ptr: formData.ptr ? parseFloat(formData.ptr) : null,
+        notes: formData.notes.trim() || null,
+      };
+      
+      let savedProduct;
+      if (isEditing) {
+        savedProduct = await updateProduct(product.id, productData);
+      } else {
+        savedProduct = await createProduct(productData);
+      }
+      
+      onSave?.(savedProduct);
+    } catch (err) {
+      // Error is handled by the hook
+    }
+  }, [formData, validate, isEditing, product, createProduct, updateProduct, onSave]);
+
+  return (
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <AppBar
+          title={isEditing ? 'Edit Product' : 'Add Product'}
+          onBack={onBack}
+        />
+        
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Card style={styles.formCard}>
+              <ThemedText style={styles.sectionTitle}>Item Details</ThemedText>
+              <ThemedText style={styles.sectionSubtitle}>Enter item details to track expiry dates</ThemedText>
+              
+              <FormField
+                label="Item Name"
+                value={formData.name}
+                onChangeText={(v) => updateField('name', v)}
+                placeholder="e.g., Paracetamol 500mg"
+                required
+                error={errors.name}
+                autoFocus={!isEditing}
+                onSubmitEditing={() => batchRef.current?.focus()}
+              />
+              
+              <FormField
+                label="Batch Number"
+                value={formData.batchNumber}
+                onChangeText={(v) => updateField('batchNumber', v)}
+                placeholder="e.g., B12345"
+                inputRef={batchRef}
+                onSubmitEditing={() => expiryRef.current?.focus()}
+              />
+              
+              <DateField
+                label="Expiry Date"
+                value={formData.expiryDate}
+                onChange={(v) => updateField('expiryDate', v)}
+                placeholder="Select expiry date"
+                required
+                error={errors.expiryDate}
+              />
+              
+              <FormField
+                label="Manufacturer"
+                value={formData.manufacturer}
+                onChangeText={(v) => updateField('manufacturer', v)}
+                placeholder="e.g., ABC Pharma"
+                inputRef={manufacturerRef}
+                onSubmitEditing={() => quantityRef.current?.focus()}
+              />
+              
+              <View style={styles.row}>
+                <View style={styles.halfField}>
+                  <FormField
+                    label="Quantity"
+                    value={formData.quantity}
+                    onChangeText={(v) => updateField('quantity', v)}
+                    placeholder="1"
+                    keyboardType="decimal-pad"
+                    error={errors.quantity}
+                    inputRef={quantityRef}
+                    onSubmitEditing={() => purchaseRef.current?.focus()}
+                  />
+                </View>
+                <View style={styles.halfField}>
+                  <DateField
+                    label="Purchase Date"
+                    value={formData.purchaseDate}
+                    onChange={(v) => updateField('purchaseDate', v)}
+                    placeholder="Select purchase date"
+                  />
+                </View>
+              </View>
+            </Card>
+            
+            <Card style={styles.formCard}>
+              <ThemedText style={styles.sectionTitle}>Pricing</ThemedText>
+              
+              <View style={styles.row}>
+                <View style={styles.halfField}>
+                  <FormField
+                    label="MRP (₹)"
+                    value={formData.defaultMrp}
+                    onChangeText={(v) => updateField('defaultMrp', v)}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    error={errors.defaultMrp}
+                    inputRef={mrpRef}
+                    onSubmitEditing={() => rateRef.current?.focus()}
+                  />
+                </View>
+                <View style={styles.halfField}>
+                  <FormField
+                    label="Rate (₹)"
+                    value={formData.defaultRate}
+                    onChangeText={(v) => updateField('defaultRate', v)}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    error={errors.defaultRate}
+                    inputRef={rateRef}
+                    onSubmitEditing={() => ptrRef.current?.focus()}
+                  />
+                </View>
+              </View>
+              
+              <FormField
+                label="PTR (₹)"
+                value={formData.ptr}
+                onChangeText={(v) => updateField('ptr', v)}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                error={errors.ptr}
+                inputRef={ptrRef}
+                onSubmitEditing={() => notesRef.current?.focus()}
+              />
+            </Card>
+            
+            <Card style={styles.formCard}>
+              <ThemedText style={styles.sectionTitle}>Additional Notes</ThemedText>
+              
+              <View style={styles.fieldContainer}>
+                <ThemedText style={styles.label}>Notes</ThemedText>
+                <TextInput
+                  ref={notesRef}
+                  style={styles.notesInput}
+                  value={formData.notes}
+                  onChangeText={(v) => updateField('notes', v)}
+                  placeholder="Add any additional notes..."
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSubmit}
+                />
+              </View>
+            </Card>
+            
+            {/* Info Card */}
+            <View style={styles.infoCard}>
+              <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+              <ThemedText style={styles.infoText}>
+                Track inventory and monitor expiry dates for better stock management.
+              </ThemedText>
+            </View>
+          </ScrollView>
+          
+          {/* Submit Button */}
+          <View style={styles.buttonContainer}>
+            <PrimaryButton
+              title={isEditing ? 'Save Changes' : 'Add Product'}
+              onPress={handleSubmit}
+              icon={isEditing ? 'checkmark' : 'add'}
+              loading={isLoading}
+              disabled={isLoading}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </ThemedView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  safeArea: {
+    flex: 1,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingTop: 24,
+    paddingBottom: 32,
+  },
+  formCard: {
+    padding: 16,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    marginBottom: 16,
+  },
+  fieldContainer: {
+    marginBottom: 16,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  required: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#DC2626',
+    marginLeft: 2,
+  },
+  input: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  inputError: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+  },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    fontWeight: '500',
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfField: {
+    flex: 1,
+  },
+  notesInput: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#111827',
+    minHeight: 100,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F3F4F6',
+    padding: 14,
+    borderRadius: 12,
+    gap: 10,
+    marginTop: 8,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  buttonContainer: {
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+});

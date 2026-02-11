@@ -285,11 +285,227 @@ export const healthApi = {
   },
 };
 
+// ============================================================================
+// PRODUCT API
+// ============================================================================
+
+export const productApi = {
+  /**
+   * Create a new product
+   * @param {string} userId - User ID
+   * @param {Object} productData - Product data
+   */
+  createProduct: async (userId, productData) => {
+    return apiFetch(`/products/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(productData),
+    });
+  },
+
+  /**
+   * Get all products for a user (paginated)
+   * @param {string} userId - User ID
+   * @param {Object} options - Query options (page, limit, search, sortBy, sortOrder)
+   */
+  getProducts: async (userId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.page) params.append('page', options.page);
+    if (options.limit) params.append('limit', options.limit);
+    if (options.search) params.append('search', options.search);
+    if (options.sortBy) params.append('sortBy', options.sortBy);
+    if (options.sortOrder) params.append('sortOrder', options.sortOrder);
+    if (options.activeOnly !== undefined) params.append('activeOnly', options.activeOnly);
+    
+    const queryString = params.toString();
+    return apiFetch(`/products/${userId}${queryString ? `?${queryString}` : ''}`);
+  },
+
+  /**
+   * Search products for autocomplete
+   * @param {string} userId - User ID
+   * @param {string} query - Search query
+   * @param {number} limit - Max results
+   * @param {boolean} fuzzy - Use fuzzy matching
+   */
+  searchProducts: async (userId, query, limit = 10, fuzzy = false) => {
+    const params = new URLSearchParams({
+      q: query,
+      limit: limit.toString(),
+      fuzzy: fuzzy.toString(),
+    });
+    return apiFetch(`/products/${userId}/search?${params.toString()}`);
+  },
+
+  /**
+   * Get single product by ID
+   * @param {string} userId - User ID
+   * @param {string} productId - Product ID
+   */
+  getProductById: async (userId, productId) => {
+    return apiFetch(`/products/${userId}/${productId}`);
+  },
+
+  /**
+   * Update a product
+   * @param {string} userId - User ID
+   * @param {string} productId - Product ID
+   * @param {Object} productData - Data to update
+   */
+  updateProduct: async (userId, productId, productData) => {
+    return apiFetch(`/products/${userId}/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(productData),
+    });
+  },
+
+  /**
+   * Delete a product
+   * @param {string} userId - User ID
+   * @param {string} productId - Product ID
+   * @param {boolean} permanent - Hard delete if true
+   */
+  deleteProduct: async (userId, productId, permanent = false) => {
+    const params = permanent ? '?permanent=true' : '';
+    return apiFetch(`/products/${userId}/${productId}${params}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Get product statistics
+   * @param {string} userId - User ID
+   */
+  getProductStats: async (userId) => {
+    return apiFetch(`/products/${userId}/stats`);
+  },
+
+  /**
+   * Find matching product for an item name
+   * @param {string} userId - User ID
+   * @param {string} itemName - Item name to match
+   */
+  matchProduct: async (userId, itemName) => {
+    const params = new URLSearchParams({ name: itemName });
+    return apiFetch(`/products/${userId}/match?${params.toString()}`);
+  },
+
+  /**
+   * Sync products from bill items
+   * @param {string} userId - User ID
+   * @param {Array} items - Bill items to sync
+   */
+  syncFromBill: async (userId, items) => {
+    return apiFetch(`/products/${userId}/sync`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+  },
+};
+
+// ============================================================================
+// DISTRIBUTOR API
+// ============================================================================
+
+export const distributorApi = {
+  /**
+   * Get all distributors for a user
+   * @param {string} userId - User ID
+   * @param {Object} options - Query options (search, includeInactive, sortBy, sortOrder)
+   */
+  getDistributors: async (userId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.search) params.append('search', options.search);
+    if (options.includeInactive) params.append('includeInactive', 'true');
+    if (options.sortBy) params.append('sortBy', options.sortBy);
+    if (options.sortOrder) params.append('sortOrder', options.sortOrder);
+    
+    const queryString = params.toString();
+    return apiFetch(`/distributors/user/${userId}${queryString ? `?${queryString}` : ''}`);
+  },
+
+  /**
+   * Search distributors for autocomplete
+   * @param {string} userId - User ID
+   * @param {string} query - Search query
+   */
+  searchDistributors: async (userId, query) => {
+    return apiFetch(`/distributors/user/${userId}/search?q=${encodeURIComponent(query)}`);
+  },
+
+  /**
+   * Get single distributor by ID
+   * @param {string} distributorId - Distributor ID
+   */
+  getDistributorById: async (distributorId) => {
+    return apiFetch(`/distributors/${distributorId}`);
+  },
+
+  /**
+   * Get bills for a distributor
+   * @param {string} distributorId - Distributor ID
+   * @param {Object} options - Query options (page, limit)
+   */
+  getDistributorBills: async (distributorId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.page) params.append('page', options.page);
+    if (options.limit) params.append('limit', options.limit);
+    
+    const queryString = params.toString();
+    return apiFetch(`/distributors/${distributorId}/bills${queryString ? `?${queryString}` : ''}`);
+  },
+
+  /**
+   * Create a new distributor
+   * @param {string} userId - User ID
+   * @param {Object} data - Distributor data (name, phone, gstin, address, dlNumber)
+   */
+  createDistributor: async (userId, data) => {
+    return apiFetch(`/distributors/user/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Update a distributor
+   * @param {string} distributorId - Distributor ID
+   * @param {Object} data - Data to update
+   */
+  updateDistributor: async (distributorId, data) => {
+    return apiFetch(`/distributors/${distributorId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Delete a distributor (soft delete)
+   * @param {string} distributorId - Distributor ID
+   */
+  deleteDistributor: async (distributorId) => {
+    return apiFetch(`/distributors/${distributorId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Migrate existing pharmacyName to distributors
+   * @param {string} userId - User ID
+   */
+  migratePharmacyNames: async (userId) => {
+    return apiFetch(`/distributors/user/${userId}/migrate`, {
+      method: 'POST',
+    });
+  },
+};
+
 // Default export with all APIs
 export default {
   auth: authApi,
   user: userApi,
   bill: billApi,
   health: healthApi,
+  product: productApi,
+  distributor: distributorApi,
   baseUrl: API_BASE_URL,
 };

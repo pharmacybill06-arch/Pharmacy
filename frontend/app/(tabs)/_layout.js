@@ -48,6 +48,20 @@ function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="invoices/list"
+        options={{
+          title: 'Invoices',
+          tabBarIcon: ({ color }) => <MaterialIcons name="receipt" size={28} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="invoices/inventory"
+        options={{
+          title: 'Inventory',
+          tabBarIcon: ({ color }) => <MaterialIcons name="inventory" size={28} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',

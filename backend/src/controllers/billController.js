@@ -1,6 +1,8 @@
 const prisma = require('../models/prisma');
 const path = require('path');
 const fs = require('fs');
+const productService = require('../services/productService');
+const distributorService = require('../services/distributorService');
 
 // Helper function to parse date string
 function parseDateString(dateStr) {
@@ -40,16 +42,40 @@ exports.uploadBill = async (req, res) => {
 
     console.log(`[SAVE_BILL] Saving parsed bill data for user: ${userId}`);
 
+    // ========== FIND OR CREATE DISTRIBUTOR ==========
+    let distributorId = null;
+    if (parsedData?.pharmacyName || parsedData?.distributor?.name) {
+      try {
+        const distributorData = {
+          name: parsedData?.distributor?.name || parsedData?.pharmacyName,
+          gstin: parsedData?.distributor?.gstin || parsedData?.gstin,
+          phone: parsedData?.distributor?.phone || (parsedData?.phoneNumbers ? 
+            (Array.isArray(parsedData.phoneNumbers) ? parsedData.phoneNumbers[0] : parsedData.phoneNumbers) : null),
+          address: parsedData?.distributor?.address || parsedData?.shopAddress,
+          dlNumber: parsedData?.distributor?.dlNumber || parsedData?.dlNumber
+        };
+        
+        const distributor = await distributorService.findOrCreateDistributor(userId, distributorData);
+        if (distributor) {
+          distributorId = distributor.id;
+          console.log(`[SAVE_BILL] Linked to distributor: ${distributor.name} (${distributor.id})`);
+        }
+      } catch (distError) {
+        console.error('[SAVE_BILL] Distributor error (non-fatal):', distError.message);
+      }
+    }
+
     // Create bill record with normalized fields
     const bill = await prisma.bill.create({
       data: {
         userId,
+        distributorId,  // Link to distributor
         fileName: parsedData?.invoiceNumber || 'bill.jpg',
         filePath: imageUri || '/temp/bill.jpg',
         fileSize: 0,
         mimeType: 'image/jpeg',
         
-        // ========== PHARMACY DETAILS ==========
+        // ========== PHARMACY DETAILS (LEGACY - for backward compatibility) ==========
         pharmacyName: parsedData?.pharmacyName || null,
         shopAddress: parsedData?.shopAddress || null,
         phoneNumbers: parsedData?.phoneNumbers ? JSON.stringify(parsedData.phoneNumbers) : null,
@@ -133,6 +159,19 @@ exports.uploadBill = async (req, res) => {
 
     console.log(`[SAVE_BILL] ✓ Bill saved: ${bill.id}`);
 
+    // ========== AUTO-SYNC PRODUCTS FROM BILL ITEMS ==========
+    // Automatically create/update products catalog from parsed items
+    if (bill.items && bill.items.length > 0) {
+      try {
+        console.log(`[SAVE_BILL] Syncing ${bill.items.length} items to product catalog...`);
+        const syncResult = await productService.syncProductsFromBillItems(userId, bill.items);
+        console.log(`[SAVE_BILL] ✓ Product sync: ${syncResult.created} created, ${syncResult.updated} updated, ${syncResult.linked} linked`);
+      } catch (syncError) {
+        // Don't fail the bill save if product sync fails
+        console.error('[SAVE_BILL] Product sync warning:', syncError.message);
+      }
+    }
+
     res.status(201).json({
       message: 'Bill saved successfully',
       bill: {
@@ -167,6 +206,16 @@ exports.getUserBills = async (req, res) => {
     const bills = await prisma.bill.findMany({
       where: { userId },
       include: {
+        distributor: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            gstin: true,
+            address: true,
+            dlNumber: true
+          }
+        },
         items: {
           select: {
             id: true,
@@ -219,6 +268,16 @@ exports.getBillById = async (req, res) => {
             name: true
           }
         },
+        distributor: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            gstin: true,
+            address: true,
+            dlNumber: true
+          }
+        },
         items: true
       }
     });
@@ -255,7 +314,10 @@ exports.updateBill = async (req, res) => {
     // Build update object with all normalized fields
     const data = {};
     
-    // Pharmacy details
+    // Distributor relation
+    if (updateData.distributorId !== undefined) data.distributorId = updateData.distributorId;
+    
+    // Pharmacy details (legacy)
     if (updateData.pharmacyName !== undefined) data.pharmacyName = updateData.pharmacyName;
     if (updateData.shopAddress !== undefined) data.shopAddress = updateData.shopAddress;
     if (updateData.phoneNumbers !== undefined) {

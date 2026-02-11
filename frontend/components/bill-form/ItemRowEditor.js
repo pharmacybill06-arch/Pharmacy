@@ -6,14 +6,17 @@ import {
     Text,
 } from 'react-native';
 import EditableField from './EditableField';
+import ProductAutocomplete from '@/components/ui/ProductAutocomplete';
+import { Ionicons } from '@expo/vector-icons';
 
-
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function ItemRowEditor({
   item,
   onUpdate,
   onRemove,
+  userId, // Required for product search
+  enableProductSuggestions = true, // Feature flag
 }) {
   // Maintain local string state for all editable fields
   const [fields, setFields] = useState({
@@ -34,6 +37,10 @@ export default function ItemRowEditor({
     gstPercent: item.gstPercent?.toString() || '',
   });
 
+  // Product match state
+  const [isProductMatched, setIsProductMatched] = useState(item.isProductMatched || false);
+  const [linkedProductId, setLinkedProductId] = useState(item.productId || null);
+
   // Sync local state with item prop changes
   useEffect(() => {
     setFields({
@@ -53,6 +60,8 @@ export default function ItemRowEditor({
       cgstPercent: item.cgstPercent?.toString() || '',
       gstPercent: item.gstPercent?.toString() || '',
     });
+    setIsProductMatched(item.isProductMatched || false);
+    setLinkedProductId(item.productId || null);
   }, [item]);
 
   const handleChange = (field, value) => {
@@ -71,6 +80,8 @@ export default function ItemRowEditor({
         sgstPercent: updated.sgstPercent === '' ? 0 : parseFloat(updated.sgstPercent),
         cgstPercent: updated.cgstPercent === '' ? 0 : parseFloat(updated.cgstPercent),
         gstPercent: updated.gstPercent === '' ? 0 : parseFloat(updated.gstPercent),
+        isProductMatched,
+        productId: linkedProductId,
       };
       // Calculate itemTotal if relevant field changes
       if (["quantity","rate","discount"].includes(field)) {
@@ -85,6 +96,53 @@ export default function ItemRowEditor({
     });
   };
 
+  // Handle product selection from autocomplete
+  const handleProductSelect = useCallback((product, autofillData) => {
+    if (!product) return;
+
+    setIsProductMatched(true);
+    setLinkedProductId(product.id || null);
+
+    // Update fields with autofill data
+    setFields(prev => {
+      const updated = {
+        ...prev,
+        name: autofillData.name || prev.name,
+        manufacturer: autofillData.manufacturer || prev.manufacturer,
+        hsnCode: autofillData.hsnCode || prev.hsnCode,
+        mrp: autofillData.mrp?.toString() || prev.mrp,
+        rate: autofillData.rate?.toString() || prev.rate,
+        gstPercent: autofillData.gstPercent?.toString() || prev.gstPercent,
+      };
+
+      // Update parent with all changes
+      const updatedForParent = {
+        ...item,
+        ...updated,
+        sn: updated.sn === '' ? undefined : parseInt(updated.sn),
+        quantity: updated.quantity === '' ? 0 : parseFloat(updated.quantity),
+        freeQuantity: updated.freeQuantity === '' ? 0 : parseFloat(updated.freeQuantity),
+        mrp: updated.mrp === '' ? 0 : parseFloat(updated.mrp),
+        rate: updated.rate === '' ? 0 : parseFloat(updated.rate),
+        discount: updated.discount === '' ? 0 : parseFloat(updated.discount),
+        sgstPercent: updated.sgstPercent === '' ? 0 : parseFloat(updated.sgstPercent),
+        cgstPercent: updated.cgstPercent === '' ? 0 : parseFloat(updated.cgstPercent),
+        gstPercent: updated.gstPercent === '' ? 0 : parseFloat(updated.gstPercent),
+        isProductMatched: true,
+        productId: product.id || null,
+      };
+
+      // Recalculate item total
+      const qty = parseFloat(updated.quantity) || 0;
+      const rate = parseFloat(updated.rate) || 0;
+      const discount = parseFloat(updated.discount) || 0;
+      updatedForParent.itemTotal = Math.round((qty * rate - discount) * 100) / 100;
+
+      onUpdate(updatedForParent);
+      return updated;
+    });
+  }, [item, onUpdate]);
+
   const calculatePreviewTotal = () => {
     // Always calculate as qty * rate - discount (no GST)
     const subtotal = item.quantity * item.rate;
@@ -94,6 +152,21 @@ export default function ItemRowEditor({
 
   return (
     <View style={styles.expandedContent}>
+      {/* Product Match Badge */}
+      {isProductMatched && (
+        <View style={styles.productMatchBadge}>
+          <Ionicons name="checkmark-circle" size={16} color="#059669" />
+          <Text style={styles.productMatchText}>Linked to catalog</Text>
+        </View>
+      )}
+      
+      {!isProductMatched && fields.name && (
+        <View style={styles.newProductBadge}>
+          <Ionicons name="sparkles" size={16} color="#1D4ED8" />
+          <Text style={styles.newProductText}>New product - will be added to catalog</Text>
+        </View>
+      )}
+
       {item.needsReview && (
         <View style={styles.reviewBadgeContainer}>
           <Text style={styles.reviewBadgeIcon}>⚠️</Text>
@@ -125,13 +198,33 @@ export default function ItemRowEditor({
             />
           </View>
           <View style={[styles.column, {flex: 2}]}>
-            <EditableField
-              label="Item Name & Packing *"
-              value={fields.name}
-              onChangeText={(value) => handleChange('name', value)}
-              placeholder="Medicine/product name"
-              small
-            />
+            {enableProductSuggestions && userId ? (
+              <View style={styles.autocompleteContainer}>
+                <Text style={styles.fieldLabel}>Item Name & Packing *</Text>
+                <ProductAutocomplete
+                  userId={userId}
+                  value={fields.name}
+                  onChangeText={(value) => {
+                    // Clear product match when user types
+                    if (value !== fields.name) {
+                      setIsProductMatched(false);
+                      setLinkedProductId(null);
+                    }
+                    handleChange('name', value);
+                  }}
+                  onProductSelect={handleProductSelect}
+                  placeholder="Medicine/product name"
+                />
+              </View>
+            ) : (
+              <EditableField
+                label="Item Name & Packing *"
+                value={fields.name}
+                onChangeText={(value) => handleChange('name', value)}
+                placeholder="Medicine/product name"
+                small
+              />
+            )}
           </View>
           <View style={[styles.column, {flex: 1}]}>
             <EditableField
@@ -418,5 +511,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#e65100',
     marginTop: 2,
+  },
+  productMatchBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D1FAE5',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 12,
+    gap: 6,
+  },
+  productMatchText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#059669',
+  },
+  newProductBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBF5FF',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 12,
+    gap: 6,
+  },
+  newProductText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1D4ED8',
+  },
+  autocompleteContainer: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 4,
+    textTransform: 'uppercase',
   },
 });

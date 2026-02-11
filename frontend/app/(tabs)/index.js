@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
 import { billApi } from '@/services/api';
@@ -37,6 +38,13 @@ const RecentBillRow = React.memo(({ item, onPress }) => {
     return `₹${parseFloat(amount).toFixed(2)}`;
   };
 
+  // Get distributor name (prefer distributor relation, fallback to pharmacyName)
+  const getDistributorName = () => {
+    if (item.distributor?.name) return item.distributor.name;
+    if (item.pharmacyName) return item.pharmacyName;
+    return 'Unknown Distributor';
+  };
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -47,7 +55,7 @@ const RecentBillRow = React.memo(({ item, onPress }) => {
     >
       <View style={styles.billRowLeft}>
         <ThemedText style={styles.billRowPharmacy}>
-          {item.pharmacyName || 'Unknown Pharmacy'}
+          {getDistributorName()}
         </ThemedText>
         <ThemedText style={styles.billRowDate}>
           {item.invoiceNumber || ''} {item.invoiceDate ? '• ' + formatDate(item.invoiceDate) : ''}
@@ -74,14 +82,7 @@ export default function BillsHomeScreen() {
   // Only use authenticated user ID; do not fetch with placeholder
   const userId = user?.id;
 
-  // Fetch recent bills on mount, only if userId exists
-  useEffect(() => {
-    if (userId) {
-      fetchRecentBills();
-    }
-  }, [userId]);
-
-  const fetchRecentBills = async () => {
+  const fetchRecentBills = useCallback(async () => {
     if (!userId) return;
     try {
       setIsLoading(true);
@@ -96,7 +97,16 @@ export default function BillsHomeScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId]);
+
+  // Refresh bills whenever the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (userId) {
+        fetchRecentBills();
+      }
+    }, [userId, fetchRecentBills])
+  );
 
   const showToast = (message, type = 'info', title = '') => {
     setToast({ visible: true, message, type, title });
@@ -282,6 +292,57 @@ export default function BillsHomeScreen() {
                 ))}
               </View>
             )}
+          </View>
+
+          {/* Quick Actions Section */}
+          <View style={styles.quickActionsSection}>
+            <ThemedText style={styles.sectionTitle}>Quick Actions</ThemedText>
+            <View style={styles.quickActionsGrid}>
+              {/* Products Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/products')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#EBF5FF' }]}>
+                  <MaterialIcons name="inventory-2" size={24} color="#1D4ED8" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Products</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage catalog</ThemedText>
+              </Pressable>
+
+              {/* Scan Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={handleScanBill}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#D1FAE5' }]}>
+                  <MaterialIcons name="qr-code-scanner" size={24} color="#059669" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Scan Bill</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Add new bill</ThemedText>
+              </Pressable>
+
+              {/* Distributors Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/distributors')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#FEF3C7' }]}>
+                  <MaterialIcons name="business" size={24} color="#D97706" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Distributors</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage suppliers</ThemedText>
+              </Pressable>
+            </View>
           </View>
 
           {/* Add bottom padding for FAB */}
@@ -651,6 +712,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
+  },
+
+  // Quick Actions Section
+  quickActionsSection: {
+    paddingHorizontal: 16,
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
+  },
+  quickActionCard: {
+    flex: 1,
+    minWidth: '30%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  quickActionCardPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
+  },
+  quickActionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  quickActionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    numberOfLines: 1,
+  },
+  quickActionSubtitle: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+    textAlign: 'center',
+    numberOfLines: 1,
   },
 
   // Floating Action Button Styles

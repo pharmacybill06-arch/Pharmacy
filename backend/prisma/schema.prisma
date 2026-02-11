@@ -24,9 +24,95 @@ model User {
   updatedAt DateTime   @updatedAt
   
   bills     Bill[]
+  products  Product[]
+  distributors Distributor[]
 
   @@index([email])
   @@index([phone])
+}
+
+// Distributor model: Suppliers/Distributors (Bhalla, Laksh, etc.)
+// Normalized from pharmacyName field in bills
+model Distributor {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // ========== DISTRIBUTOR DETAILS ==========
+  name        String                              // Distributor name (e.g., Bhalla Medical)
+  address     String?                             // Full address
+  phone       String?                             // Contact phone
+  gstin       String?                             // GST Identification Number
+  dlNumber    String?                             // Drug License Number
+  email       String?                             // Contact email
+  
+  // ========== METADATA ==========
+  notes       String?                             // Additional notes
+  isActive    Boolean  @default(true)             // Soft delete flag
+  
+  // ========== RELATIONSHIPS ==========
+  bills       Bill[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, name, gstin])
+  @@index([userId])
+  @@index([name])
+  @@index([gstin])
+}
+
+// Product model: Unique products catalog for quick billing
+// Auto-populated from OCR-parsed BillItems + manual entries
+model Product {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // ========== PRODUCT IDENTIFICATION ==========
+  name          String                              // Product/medicine name
+  nameNormalized String                             // Normalized name for matching (lowercase, no spaces)
+  manufacturer  String?                             // Manufacturer name
+  hsnCode       String?                             // HSN/SAC code for taxation
+  batchNumber   String?                             // Batch number for tracking
+  expiryDate    String?                             // Expiry date (dd-mm-yyyy format)
+  
+  // ========== INVENTORY ==========
+  quantity      Float?                              // Current quantity in stock
+  purchaseDate  String?                             // Purchase date (dd-mm-yyyy format)
+  stock         Float      @default(0)              // Current stock quantity (for sales tracking)
+  minStock      Float?                              // Alert threshold for low stock
+  unit          String     @default("units")        // tabs, bottle, ml, etc.
+  
+  // ========== DEFAULT PRICING ==========
+  defaultMrp    Float?                              // Default MRP
+  defaultRate   Float?                              // Default selling rate
+  mrp           Float?                              // MRP per unit
+  purchaseRate  Float?                              // Purchase rate per unit
+  sellingRate   Float?                              // Selling rate per unit
+  ptr           Float?                              // PTR (Price to Retailer)
+  gstPercent    Float?                              // Default GST percentage
+  
+  // ========== USAGE TRACKING ==========
+  usageCount    Int        @default(0)              // Times used in bills
+  lastUsedAt    DateTime?                           // Last time used in a bill
+  
+  // ========== METADATA ==========
+  notes         String?                             // Additional notes
+  isActive      Boolean    @default(true)           // Soft delete flag
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  // ========== RELATIONSHIPS ==========
+  billItems     BillItem[]
+
+  @@unique([userId, nameNormalized])
+  @@index([userId])
+  @@index([name])
+  @@index([nameNormalized])
+  @@index([lastUsedAt])
+  @@index([expiryDate])
 }
 
 // OTP model: Stores OTPs for phone verification
@@ -50,14 +136,21 @@ model Bill {
   userId      String
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  // ========== BILL TYPE ==========
+  billType    String     @default("purchase")       // purchase (from distributor) or sale (to customer)
+  
+  // ========== DISTRIBUTOR RELATION ==========
+  distributorId String?
+  distributor   Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+  
   // ========== FILE STORAGE ==========
   fileName    String
   filePath    String
   fileSize    Int
   mimeType    String
   
-  // ========== PHARMACY DETAILS ==========
-  pharmacyName    String?
+  // ========== PHARMACY DETAILS (DEPRECATED - Use Distributor) ==========
+  pharmacyName    String?                         // LEGACY: Kept for backward compatibility
   shopAddress     String?                           // Full shop address
   phoneNumbers    String?                           // JSON array of phone numbers
   
@@ -110,6 +203,8 @@ model Bill {
   items           BillItem[]
 
   @@index([userId])
+  @@index([billType])
+  @@index([distributorId])
   @@index([status])
   @@index([invoiceDate])
   @@index([pharmacyName])
@@ -121,6 +216,10 @@ model BillItem {
   id              String     @id @default(cuid())
   billId          String
   bill            Bill       @relation(fields: [billId], references: [id], onDelete: Cascade)
+  
+  // ========== PRODUCT LINK ==========
+  productId       String?                           // Link to Product catalog (optional)
+  product         Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
   
   // ========== ITEM IDENTIFICATION ==========
   serialNumber    Int?                              // S.N. from bill
@@ -154,10 +253,12 @@ model BillItem {
   
   // ========== METADATA ==========
   confidence      Float?     @default(1.0)          // OCR confidence (0-1)
+  isProductMatched Boolean   @default(false)        // Whether linked to product catalog
   
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   @@index([billId])
+  @@index([productId])
   @@index([name])
 }

@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { View, Modal, StyleSheet } from 'react-native';
 import BillFormScreen from '@/components/screens/BillFormScreen';
 import Toast from '@/components/ui/Toast';
 import LoadingOverlay from '@/components/ui/LoadingOverlay';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ItemRowEditor from './ItemRowEditor';
+import DistributorFormScreen from '@/components/screens/DistributorFormScreen';
+import { distributorApi } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   calculateParseConfidence,
   formatParsedDataForForm,
@@ -26,12 +29,16 @@ export default function BillFormRedesigned({
   onCancel,
   initialData,
 }) {
+  const { user } = useAuth();
+  const userId = user?.id;
+
   const [formData, setFormData] = useState({
     pharmacyName: initialData?.pharmacyName || '',
     shopAddress: initialData?.shopAddress || '',
     phoneNumbers: initialData?.phoneNumbers || '',
     gstin: initialData?.gstin || '',
     dlNumber: initialData?.dlNumber || '',
+    distributorId: initialData?.distributorId || null,
     invoiceNumber: initialData?.invoiceNumber || '',
     invoiceDate: initialData?.invoiceDate || '',
     dueDate: initialData?.dueDate || '',
@@ -53,6 +60,12 @@ export default function BillFormRedesigned({
   const [geminiConfidence, setGeminiConfidence] = useState(null);
   const [itemsNeedingManualReview, setItemsNeedingManualReview] = useState(0);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
+
+  // Distributor state
+  const [selectedDistributor, setSelectedDistributor] = useState(initialData?.distributor || null);
+  const [distributorSearchQuery, setDistributorSearchQuery] = useState(initialData?.pharmacyName || '');
+  const [showAddDistributorModal, setShowAddDistributorModal] = useState(false);
+  const [newDistributorName, setNewDistributorName] = useState('');
 
   // Toast state
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
@@ -195,6 +208,74 @@ export default function BillFormRedesigned({
     setFormData((prev) => ({ ...prev, roundOff }));
   };
 
+  // Distributor handlers
+  const handleDistributorSearchChange = (text) => {
+    setDistributorSearchQuery(text);
+    // Also update pharmacyName for backward compatibility
+    setFormData((prev) => ({ ...prev, pharmacyName: text }));
+  };
+
+  const handleDistributorSelect = (distributor) => {
+    setSelectedDistributor(distributor);
+    if (distributor) {
+      setDistributorSearchQuery(distributor.name);
+      setFormData((prev) => ({
+        ...prev,
+        distributorId: distributor.id,
+        pharmacyName: distributor.name,
+        gstin: distributor.gstin || prev.gstin,
+        phoneNumbers: distributor.phone || prev.phoneNumbers,
+        shopAddress: distributor.address || prev.shopAddress,
+        dlNumber: distributor.dlNumber || prev.dlNumber,
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        distributorId: null,
+      }));
+    }
+  };
+
+  const handleAddNewDistributor = (name) => {
+    setNewDistributorName(name);
+    setShowAddDistributorModal(true);
+  };
+
+  const handleDistributorCreated = async (distributorData) => {
+    if (!distributorData || !userId) {
+      setShowAddDistributorModal(false);
+      return;
+    }
+    
+    try {
+      // Create the distributor via API
+      const response = await distributorApi.createDistributor(userId, distributorData);
+      
+      if (response.success && response.data) {
+        const newDistributor = response.data;
+        setShowAddDistributorModal(false);
+        setSelectedDistributor(newDistributor);
+        setDistributorSearchQuery(newDistributor.name);
+        setFormData((prev) => ({
+          ...prev,
+          distributorId: newDistributor.id,
+          pharmacyName: newDistributor.name,
+          gstin: newDistributor.gstin || '',
+          phoneNumbers: newDistributor.phone || '',
+          shopAddress: newDistributor.address || '',
+          dlNumber: newDistributor.dlNumber || '',
+        }));
+        showToast('Distributor created and selected', 'success', 'Success');
+      } else {
+        showToast(response.message || 'Failed to create distributor', 'error', 'Error');
+      }
+    } catch (error) {
+      console.error('Error creating distributor:', error);
+      showToast(error.message || 'Failed to create distributor', 'error', 'Error');
+      setShowAddDistributorModal(false);
+    }
+  };
+
   const handleAddItem = () => {
     // Add a new empty item
     const newItem = {
@@ -313,6 +394,12 @@ export default function BillFormRedesigned({
         onUpdateEditingItem={handleUpdateEditingItem}
         onRemoveEditingItem={handleRemoveEditingItem}
         onSaveEditingItem={handleSaveEditingItem}
+        // Distributor props
+        selectedDistributor={selectedDistributor}
+        distributorSearchQuery={distributorSearchQuery}
+        onDistributorSearchChange={handleDistributorSearchChange}
+        onDistributorSelect={handleDistributorSelect}
+        onAddNewDistributor={handleAddNewDistributor}
       />
 
       {/* Loading Overlay for Gemini Parsing */}
@@ -344,6 +431,20 @@ export default function BillFormRedesigned({
         onConfirm={confirmRemoveItem}
         onCancel={cancelRemoveItem}
       />
+
+      {/* Add Distributor Modal */}
+      <Modal
+        visible={showAddDistributorModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowAddDistributorModal(false)}
+      >
+        <DistributorFormScreen
+          initialData={{ name: newDistributorName }}
+          onSave={handleDistributorCreated}
+          onCancel={() => setShowAddDistributorModal(false)}
+        />
+      </Modal>
     </View>
   );
 }
