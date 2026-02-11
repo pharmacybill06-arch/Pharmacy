@@ -18,7 +18,7 @@ export function useGeminiOCRParser(backendUrl = process.env.REACT_APP_BACKEND_UR
           confidence: null,
         });
 
-        const response = await fetch(`${backendUrl}/api/parse-ocr`, {
+        const response = await fetch(`${backendUrl}/ai/parse-ocr`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ocrText }),
