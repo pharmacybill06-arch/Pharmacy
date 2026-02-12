@@ -1,7 +1,37 @@
 // NOTE: GoogleGenerativeAI is not imported here because it uses Web Workers which are not available in React Native
 // Instead, we use the backend API or the HTTP fallback method
+
+// Import app.json for API keys (most reliable way for built APKs)
+let APP_CONFIG = null;
+try {
+  // Try to get constants first
+  const expo = require('expo-constants');
+  APP_CONFIG = expo.Constants;
+} catch (e) {
+  // Fallback: try to require app.json directly
+  try {
+    APP_CONFIG = require('../../../app.json');
+  } catch (e2) {
+    console.log('[Gemini] Could not load app config');
+  }
+}
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Sanitize text to remove invalid characters and fix encoding issues
+ * This prevents garbage characters like ΓåÆ in API requests
+ */
+function sanitizeText(text) {
+  if (!text || typeof text !== 'string') return '';
+  
+  // Remove control characters and invalid UTF-8 sequences
+  return text
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
+    .replace(/[\uFFFD\uFEFF]/g, '') // Remove replacement chars
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
 }
 
 function inferUnit(name = "") {
@@ -146,13 +176,13 @@ function fallbackParseOcrText(ocrText) {
   const text = ocrText;
 
   const result = {
-    pharmacyName: extractPharmacyName(lines),
-    shopAddress: extractAddress(lines),
-    phoneNumbers: extractPhoneNumbers(text),
-    gstin: extractGSTIN(text),
-    dlNumber: extractDLNumber(text),
-    invoiceNumber: extractInvoiceNumber(text),
-    invoiceDate: extractInvoiceDate(text),
+    pharmacyName: sanitizeText(extractPharmacyName(lines)),
+    shopAddress: sanitizeText(extractAddress(lines)),
+    phoneNumbers: sanitizeText(extractPhoneNumbers(text)),
+    gstin: sanitizeText(extractGSTIN(text)),
+    dlNumber: sanitizeText(extractDLNumber(text)),
+    invoiceNumber: sanitizeText(extractInvoiceNumber(text)),
+    invoiceDate: sanitizeText(extractInvoiceDate(text)),
     paymentType: extractPaymentType(text),
     items: extractItems(lines, text),
     subtotal: 0,
@@ -198,7 +228,7 @@ async function generateViaHttpFallback(apiKey, prompt) {
   const json = await res.json();
 
   // ✅ DEBUG THIS ONCE
-  console.log("[Gemini] raw response json:", JSON.stringify(json, null, 2));
+  console.log("[Gemini] API response status:", res.status, "- has candidates:", !!json?.candidates?.[0]);
 
   if (!res.ok) {
     console.warn("[Gemini] request failed:", json);
@@ -240,7 +270,7 @@ async function generateViaGroqFallback(apiKey, prompt) {
     });
 
     const json = await res.json();
-    console.log("[Groq] raw response:", JSON.stringify(json, null, 2));
+    console.log("[Groq] API response status:", res.status, "- has choices:", !!json?.choices?.[0]);
 
     if (!res.ok) {
       console.warn("[Groq] request failed:", json);
@@ -259,17 +289,55 @@ async function generateViaGroqFallback(apiKey, prompt) {
 
 
 function extractPharmacyName(lines) {
+  const excludePatterns = [
+    /^PHONE/i,
+    /^DATE/i,
+    /^INVOICE/i,
+    /^GST/i,
+    /^[A-Z]{2}\/[A-Z]{2}\/\d{4}/i, // Date format
+    /^GOODS\s+ONCE\s+SOLD/i, // Disclaimer
+    /^WILL\s+NOT\s+BE/i, // Disclaimer continuation
+    /^OR\s+EXCHANGED/i, // Disclaimer continuation
+    /THIS IS TAX INVOICE/i,
+    /^\d{2}\/\d{2}\/\d{4}/i, // Date
+    /^\d{10}$/i, // Phone
+    /^GSTIN/i,
+    /^D\.?L\.?/i,
+    /^S[\d]+[-]/i, // Serial numbers
+    /^[A-Z0-9\s]*WARD/i,
+    /^[A-Z0-9\s]*ROAD/i,
+    /^[A-Z0-9\s]*MARKET/i,
+    /^[A-Z0-9\s]*NEAR/i,
+    /^EMAIL/i,
+    /^SUBJECT\s+TO/i,
+    /^NOTE/i,
+    /^TERMS/i,
+    /^AUTHORIZED/i,
+    /^\(/,  // Lines starting with parentheses
+    /^[0-9.]*$/,  // Lines that are only numbers
+  ];
+
   for (const line of lines) {
-    const trimmed = line.trim().toUpperCase();
-    if (trimmed.length > 3 && 
-        !trimmed.includes('PHONE') && 
-        !trimmed.includes('DATE') &&
-        !trimmed.includes('INVOICE') &&
-        !trimmed.includes('GST') &&
-        !trimmed.includes('SN') &&
-        !trimmed.includes('QTY')) {
-      return line.trim();
-    }
+    const trimmed = line.trim();
+    const upper = trimmed.toUpperCase();
+    
+    // Skip empty lines and lines too short
+    if (trimmed.length < 4) continue;
+    
+    // Skip lines matching exclude patterns
+    if (excludePatterns.some(pattern => pattern.test(upper))) continue;
+    
+    // Must have at least some letters
+    if (!/[A-Z]/i.test(trimmed)) continue;
+    
+    // Skip lines that are mostly numbers
+    const digitCount = (trimmed.match(/\d/g) || []).length;
+    if (digitCount > trimmed.length / 2) continue;
+    
+    // Prefer shorter pharmacy names (usually 5-30 chars)
+    if (trimmed.length > 50) continue;
+    
+    return trimmed;
   }
   return '';
 }
@@ -618,39 +686,66 @@ export async function parseOcrWithGemini(ocrText, backendUrl) {
     const isReactNative = typeof window === 'undefined' || typeof Worker === 'undefined';
     
   if (isReactNative) {
-  const env = (globalThis.process?.env ?? {});
-  const configuredBackend = backendUrl || env.EXPO_PUBLIC_PARSER_API_URL || env.PARSER_API_URL;
-
-  // ✅ If backend exists, prefer it
-  if (configuredBackend) {
-    console.log('[Gemini] React Native detected - using backend API:', configuredBackend);
-    try {
-      return await callBackendParser(ocrText, configuredBackend);
-    } catch (e) {
-      console.warn('[Gemini] Backend unavailable, trying direct HTTP Gemini...');
-      // continue to direct Gemini
+    // Helper function to get API key from multiple sources
+    const getConfigValue = (key) => {
+      // First try: process.env (Expo injected vars)
+      const envKey = `EXPO_PUBLIC_${key}`;
+      if (process.env[envKey]) return process.env[envKey];
+      
+      // Second try: Constants from expo-constants
+      if (APP_CONFIG?.Constants?.expoConfig?.extra?.[envKey]) {
+        return APP_CONFIG.Constants.expoConfig.extra[envKey];
+      }
+      
+      // Third try: app.json extra
+      if (APP_CONFIG?.expo?.extra?.[envKey]) {
+        return APP_CONFIG.expo.extra[envKey];
+      }
+      
+      // Fourth try: Constants.manifest
+      if (APP_CONFIG?.Constants?.manifest?.extra?.[envKey]) {
+        return APP_CONFIG.Constants.manifest.extra[envKey];
+      }
+      
+      return null;
+    };
+    
+    // Get API keys from best available source
+    const apiKey = (getConfigValue('GEMINI_API_KEY') || '').toString().trim();
+    const groqApiKey = (getConfigValue('GROQ_API_KEY') || '').toString().trim();
+    let enableGemini = getConfigValue('ENABLE_GEMINI') ?? true;
+    
+    // Parse boolean
+    if (typeof enableGemini !== 'boolean') {
+      enableGemini = ['true', '1', 'yes', 'on'].includes(String(enableGemini).toLowerCase());
     }
-  }
+    
+    const configuredBackend = backendUrl || getConfigValue('PARSER_API_URL') || getConfigValue('BACKEND_URL');
 
-  // ✅ Direct Gemini in RN (temporary, insecure)
-  const rawEnable = env.EXPO_PUBLIC_ENABLE_GEMINI ?? env.ENABLE_GEMINI;
-  const ENABLE_GEMINI = rawEnable
-    ? ['true', '1', 'yes', 'on'].includes(String(rawEnable).toLowerCase())
-    : true;
+    // ✅ If backend exists, prefer it
+    if (configuredBackend) {
+      try {
+        return await callBackendParser(ocrText, configuredBackend);
+      } catch (e) {
+        // Backend failed, continue to direct Gemini
+      }
+    }
 
-  const apiKey = env.EXPO_PUBLIC_GEMINI_API_KEY || env.GEMINI_API_KEY || '';
-  const groqApiKey = env.EXPO_PUBLIC_GROQ_API_KEY || env.GROQ_API_KEY || '';
+    // Check if we have API keys to proceed
+    const hasApiKey = apiKey && apiKey.length > 10;
+    const hasGroqKey = groqApiKey && groqApiKey.length > 10;
+    
+    if (!hasApiKey && !hasGroqKey) {
+      console.warn('[Gemini] No API keys found. Using fallback parser.');
+      return fallbackParseOcrText(ocrText);
+    }
+    
+    if (!enableGemini) {
+      console.log('[Gemini] AI parsing disabled. Using fallback parser.');
+      return fallbackParseOcrText(ocrText);
+    }
 
-  console.log('[Gemini] React Native direct mode. ENABLE_GEMINI:', ENABLE_GEMINI);
-  console.log('[Gemini] Gemini API Key present:', !!apiKey);
-  console.log('[Gemini] Groq API Key present:', !!groqApiKey);
-
-  if (!ENABLE_GEMINI || (!apiKey && !groqApiKey)) {
-    console.warn('[Gemini] Disabled or missing all API keys. Using fallback parser.');
-    return fallbackParseOcrText(ocrText);
-  }
-
-const prompt = `
+    const prompt = `
 You extract data from an Indian pharmacy bill OCR.
 
 Return ONLY valid JSON (no markdown, no extra text).
@@ -726,69 +821,56 @@ OCR TEXT:
 ${ocrText}
 `;
 
-
-
-  const httpText = await generateViaHttpFallback(apiKey, prompt);
-  if (!httpText) {
-    console.warn('[Gemini] HTTP fallback failed, trying Groq free alternative...');
-    
-    // Try Groq as free alternative
-    if (groqApiKey) {
-      const groqText = await generateViaGroqFallback(groqApiKey, prompt);
-      if (groqText) {
-        console.log('[Groq] Successfully parsed with free alternative');
-        let responseText = groqText.trim();
-        if (responseText.startsWith('```json')) {
-          responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
-        } else if (responseText.startsWith('```')) {
-          responseText = responseText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
-        }
-
-        const jsonText = extractJson(responseText);
-        if (jsonText) {
-          const parsed = JSON.parse(jsonText);
-          if (parsed.items) {
-            parsed.items = parsed.items.map((item, index) => ({
-              id: `${Date.now()}${index}`,
-              ...item,
-            }));
-          }
-          return normalizeBill(parsed);
-        }
+    // Try Gemini first if available
+    let httpText = null;
+    if (hasApiKey) {
+      try {
+        httpText = await generateViaHttpFallback(apiKey, prompt);
+      } catch (e) {
+        console.warn('[Gemini] Direct Gemini failed:', e?.message);
       }
     }
     
-    console.warn('[Gemini] All AI services failed, using local parser.');
-    return fallbackParseOcrText(ocrText);
+    // Try Groq if Gemini failed or unavailable
+    if (!httpText && hasGroqKey) {
+      try {
+        console.log('[Gemini] Trying Groq free alternative...');
+        httpText = await generateViaGroqFallback(groqApiKey, prompt);
+      } catch (e) {
+        console.warn('[Gemini] Groq also failed:', e?.message);
+      }
+    }
+    
+    // If all AI services failed, use fallback
+    if (!httpText) {
+      console.warn('[Gemini] All AI services failed, using local parser.');
+      return fallbackParseOcrText(ocrText);
+    }
+
+    // Process the response
+    let responseText = httpText.trim();
+    if (responseText.startsWith('```json')) {
+      responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
+    } else if (responseText.startsWith('```')) {
+      responseText = responseText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
+    }
+
+    const jsonText = extractJson(responseText);
+    if (!jsonText) {
+      console.warn("[Gemini] No valid JSON found in response");
+      return fallbackParseOcrText(ocrText);
+    }
+
+    const parsed = JSON.parse(jsonText);
+    if (parsed.items) {
+      parsed.items = parsed.items.map((item, index) => ({
+        id: `${Date.now()}${index}`,
+        ...item,
+      }));
+    }
+
+    return normalizeBill(parsed);
   }
-
-  let responseText = httpText.trim();
-  if (responseText.startsWith('```json')) {
-    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
-  } else if (responseText.startsWith('```')) {
-    responseText = responseText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
-  }
-
-console.log("[Gemini] responseText raw:", responseText);
-
-const jsonText = extractJson(responseText);
-
-if (!jsonText) {
-  console.warn("[Gemini] No valid JSON found in response");
-  return fallbackParseOcrText(ocrText);
-}
-
-const parsed = JSON.parse(jsonText);
-  if (parsed.items) {
-    parsed.items = parsed.items.map((item, index) => ({
-      id: `${Date.now()}${index}`,
-      ...item,
-    }));
-  }
-
-return normalizeBill(parsed);
-}
-
     
   } catch (error) {
     console.warn('[Gemini] Error during generation, using fallback:', error);
@@ -798,17 +880,17 @@ return normalizeBill(parsed);
 
 export function formatParsedDataForForm(parsedData) {
   return {
-    pharmacyName: parsedData.pharmacyName || '',
-    shopAddress: parsedData.shopAddress || '',
-phoneNumbers: Array.isArray(parsedData.phoneNumbers)
-  ? parsedData.phoneNumbers.join(', ')
-  : (parsedData.phoneNumbers || ''),
-    gstin: parsedData.gstin || '',
-    dlNumber: parsedData.dlNumber || '',
-    invoiceNumber: parsedData.invoiceNumber || '',
-    invoiceDate: parsedData.invoiceDate || '',
-    dueDate: parsedData.dueDate || undefined,
-paymentType: (parsedData.paymentType || 'cash').toLowerCase(),
+    pharmacyName: sanitizeText(parsedData.pharmacyName || ''),
+    shopAddress: sanitizeText(parsedData.shopAddress || ''),
+    phoneNumbers: Array.isArray(parsedData.phoneNumbers)
+      ? parsedData.phoneNumbers.map(p => sanitizeText(p)).join(', ')
+      : sanitizeText(parsedData.phoneNumbers || ''),
+    gstin: sanitizeText(parsedData.gstin || ''),
+    dlNumber: sanitizeText(parsedData.dlNumber || ''),
+    invoiceNumber: sanitizeText(parsedData.invoiceNumber || ''),
+    invoiceDate: sanitizeText(parsedData.invoiceDate || ''),
+    dueDate: parsedData.dueDate ? sanitizeText(parsedData.dueDate) : undefined,
+    paymentType: (parsedData.paymentType || 'cash').toLowerCase(),
     currentBalance: parsedData.currentBalance || 0,
     items: formatItems(parsedData.items || []),
     subtotal: Number(parsedData.subtotal) || 0,
@@ -823,14 +905,14 @@ paymentType: (parsedData.paymentType || 'cash').toLowerCase(),
 function formatItems(items) {
   return items.map((item, index) => ({
     id: item.id || `item-${Date.now()}-${index}`,
-    name: item.name || '',
-    manufacturer: item.manufacturer || undefined,
-    batchNumber: item.batchNumber || undefined,
-    expiryDate: item.expiryDate || undefined,
-    hsnCode: item.hsnCode || undefined,
+    name: sanitizeText(item.name || ''),
+    manufacturer: sanitizeText(item.manufacturer || undefined),
+    batchNumber: sanitizeText(item.batchNumber || undefined),
+    expiryDate: sanitizeText(item.expiryDate || undefined),
+    hsnCode: sanitizeText(item.hsnCode || undefined),
     quantity: Number(item.quantity) || 0,
     freeQuantity: item.freeQuantity ? Number(item.freeQuantity) : undefined,
-    unit: item.unit || '',
+    unit: sanitizeText(item.unit || ''),
     mrp: item.mrp ? Number(item.mrp) : undefined,
     rate: Number(item.rate) || 0,
     discount: item.discount ? Number(item.discount) : undefined,
