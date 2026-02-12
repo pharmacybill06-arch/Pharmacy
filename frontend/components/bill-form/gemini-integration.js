@@ -1,18 +1,27 @@
 // NOTE: GoogleGenerativeAI is not imported here because it uses Web Workers which are not available in React Native
 // Instead, we use the backend API or the HTTP fallback method
 
-// Import app.json for API keys (most reliable way for built APKs)
+// Import app.json and Constants for reliable API key access in built APKs
 let APP_CONFIG = null;
+
+// Try to get Constants from expo-constants first (most reliable for APK)
 try {
-  // Try to get constants first
-  const expo = require('expo-constants');
-  APP_CONFIG = expo.Constants;
+  const { Constants } = require('expo-constants');
+  if (Constants?.expoConfig?.extra) {
+    APP_CONFIG = Constants;
+    console.log('[Config] Loaded Constants from expo-constants');
+  }
 } catch (e) {
-  // Fallback: try to require app.json directly
+  console.log('[Config] expo-constants not available, trying app.json');
+}
+
+// Fallback: try to require app.json directly
+if (!APP_CONFIG) {
   try {
     APP_CONFIG = require('../../../app.json');
-  } catch (e2) {
-    console.log('[Gemini] Could not load app config');
+    console.log('[Config] Loaded app.json directly');
+  } catch (e) {
+    console.warn('[Config] Could not load app.json');
   }
 }
 function round2(n) {
@@ -290,24 +299,32 @@ async function generateViaGroqFallback(apiKey, prompt) {
 
 function extractPharmacyName(lines) {
   const excludePatterns = [
+    // Invoice/bill metadata
     /^PHONE/i,
     /^DATE/i,
     /^INVOICE/i,
     /^GST/i,
     /^[A-Z]{2}\/[A-Z]{2}\/\d{4}/i, // Date format
-    /^GOODS\s+ONCE\s+SOLD/i, // Disclaimer
-    /^WILL\s+NOT\s+BE/i, // Disclaimer continuation
-    /^OR\s+EXCHANGED/i, // Disclaimer continuation
-    /THIS IS TAX INVOICE/i,
     /^\d{2}\/\d{2}\/\d{4}/i, // Date
     /^\d{10}$/i, // Phone
     /^GSTIN/i,
     /^D\.?L\.?/i,
     /^S[\d]+[-]/i, // Serial numbers
+    
+    // Address components
     /^[A-Z0-9\s]*WARD/i,
     /^[A-Z0-9\s]*ROAD/i,
     /^[A-Z0-9\s]*MARKET/i,
     /^[A-Z0-9\s]*NEAR/i,
+    
+    // Common disclaimers & terms
+    /^GOODS\s+ONCE\s+SOLD/i,
+    /^WILL\s+NOT\s+BE/i,
+    /^OR\s+EXCHANGED/i,
+    /^BILLS?\s+NOT\s+PAID/i, // "Bills not paid due date..."
+    /^DUE\s+DATE/i,
+    /INTEREST/i,
+    /THIS IS TAX INVOICE/i,
     /^EMAIL/i,
     /^SUBJECT\s+TO/i,
     /^NOTE/i,
@@ -315,6 +332,9 @@ function extractPharmacyName(lines) {
     /^AUTHORIZED/i,
     /^\(/,  // Lines starting with parentheses
     /^[0-9.]*$/,  // Lines that are only numbers
+    /^SUBJECT/i,
+    /^PLEASE/i,
+    /^THANK/i,
   ];
 
   for (const line of lines) {
@@ -688,23 +708,25 @@ export async function parseOcrWithGemini(ocrText, backendUrl) {
   if (isReactNative) {
     // Helper function to get API key from multiple sources
     const getConfigValue = (key) => {
-      // First try: process.env (Expo injected vars)
+      // First try: process.env (Expo injected at build time - usually empty in APK)
       const envKey = `EXPO_PUBLIC_${key}`;
-      if (process.env[envKey]) return process.env[envKey];
-      
-      // Second try: Constants from expo-constants
-      if (APP_CONFIG?.Constants?.expoConfig?.extra?.[envKey]) {
-        return APP_CONFIG.Constants.expoConfig.extra[envKey];
+      if (process.env[envKey]) {
+        return process.env[envKey];
       }
       
-      // Third try: app.json extra
+      // Second try: Constants.expoConfig.extra (from expo-constants in built APK)
+      if (APP_CONFIG?.expoConfig?.extra?.[envKey]) {
+        return APP_CONFIG.expoConfig.extra[envKey];
+      }
+      
+      // Third try: app.json extra (direct require fallback)
       if (APP_CONFIG?.expo?.extra?.[envKey]) {
         return APP_CONFIG.expo.extra[envKey];
       }
       
-      // Fourth try: Constants.manifest
-      if (APP_CONFIG?.Constants?.manifest?.extra?.[envKey]) {
-        return APP_CONFIG.Constants.manifest.extra[envKey];
+      // Fourth try: Constants.manifest (older Expo versions)
+      if (APP_CONFIG?.manifest?.extra?.[envKey]) {
+        return APP_CONFIG.manifest.extra[envKey];
       }
       
       return null;
@@ -719,6 +741,13 @@ export async function parseOcrWithGemini(ocrText, backendUrl) {
     if (typeof enableGemini !== 'boolean') {
       enableGemini = ['true', '1', 'yes', 'on'].includes(String(enableGemini).toLowerCase());
     }
+    
+    // Debug: log key lengths (not the actual keys for security)
+    const hasGemini = apiKey && apiKey.length > 10;
+    const hasGroq = groqApiKey && groqApiKey.length > 10;
+    console.log(`[Config] Gemini key found: ${hasGemini} (${apiKey.length} chars)`);
+    console.log(`[Config] Groq key found: ${hasGroq} (${groqApiKey.length} chars)`);
+    console.log(`[Config] APP_CONFIG available: ${!!APP_CONFIG}`);
     
     const configuredBackend = backendUrl || getConfigValue('PARSER_API_URL') || getConfigValue('BACKEND_URL');
 
