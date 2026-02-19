@@ -29,6 +29,7 @@ export default function OtpScreen() {
   
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [name, setName] = useState('');
+  const [shopName, setShopName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState('');
@@ -122,10 +123,16 @@ export default function OtpScreen() {
       return;
     }
 
+    if (isNewUser === 'true' && !shopName.trim()) {
+      setError('Please enter your shop/pharmacy name');
+      shake();
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const response = await authApi.verifyOtp(phone, fullOtp, name || null);
+      const response = await authApi.verifyOtp(phone, fullOtp, name || null, shopName || null);
       
       if (response.success) {
         // Store user in auth context
@@ -232,6 +239,23 @@ export default function OtpScreen() {
                       value={name}
                       onChangeText={(text) => {
                         setName(text);
+                        setError('');
+                      }}
+                      editable={!isLoading}
+                    />
+                  </View>
+                )}
+
+                {isNewUser === 'true' && (
+                    <View style={styles.nameInputContainer}>
+                    <Text style={styles.nameLabel}>Shop / Pharmacy Name</Text>
+                    <TextInput
+                      style={styles.nameInput}
+                      placeholder="Enter your shop or pharmacy name"
+                      placeholderTextColor="#999"
+                      value={shopName}
+                      onChangeText={(text) => {
+                        setShopName(text);
                         setError('');
                       }}
                       editable={!isLoading}

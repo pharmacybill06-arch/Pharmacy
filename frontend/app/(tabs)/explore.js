@@ -11,6 +11,17 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { Ionicons } from '@expo/vector-icons';
+import { parseSpreadsheetFile, isSpreadsheetFile } from '@/components/bill-form/spreadsheet-parser';
+
+// Lazy-load expo-document-picker so the app doesn't crash if the native module is missing
+let DocumentPicker = null;
+try {
+  DocumentPicker = require('expo-document-picker');
+} catch (e) {
+  console.warn('[ExploreScreen] expo-document-picker not available:', e.message);
+}
+
+const SPREADSHEET_SUPPORT_ENABLED = !!DocumentPicker;
 
 export default function ExploreScreen() {
   const { user } = useAuth();
@@ -22,6 +33,8 @@ export default function ExploreScreen() {
   const [rawOcrText, setRawOcrText] = useState('');
   const [photoUri, setPhotoUri] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
+  const [parsedFileData, setParsedFileData] = useState(null); // For CSV/Excel pre-parsed data
+  const [fileOcrText, setFileOcrText] = useState(''); // CSV text for Gemini fallback
   const cameraRef = useRef(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
 
@@ -48,6 +61,81 @@ export default function ExploreScreen() {
     } catch (error) {
       console.error('Error picking image:', error);
       showToast('Failed to pick image. Please try again.', 'error', 'Error');
+    }
+  };
+
+  const handlePickFile = async () => {
+    if (!DocumentPicker) {
+      showToast(
+        'CSV/Excel import requires a development build. Run: npx expo prebuild && npx expo run:android',
+        'warning',
+        'Native Module Missing'
+      );
+      return;
+    }
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'text/csv',
+          'text/comma-separated-values',
+          'application/csv',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/wps-office.xlsx',
+          'application/octet-stream', // fallback for some devices
+        ],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const file = result.assets[0];
+      console.log('[FilePicker] Picked file:', file.name, 'mime:', file.mimeType, 'uri:', file.uri);
+
+      // Validate it's a spreadsheet
+      if (!isSpreadsheetFile(file.mimeType, file.name)) {
+        showToast('Please select a CSV or Excel (.xlsx) file', 'warning', 'Invalid File');
+        return;
+      }
+
+      await processSpreadsheet(file.uri, file.mimeType, file.name);
+    } catch (error) {
+      console.error('[FilePicker] Error picking file:', error);
+      showToast('Failed to pick file. Please try again.', 'error', 'Error');
+    }
+  };
+
+  const processSpreadsheet = async (fileUri, mimeType, fileName) => {
+    setScanning(true);
+    try {
+      console.log('[Spreadsheet] Processing:', fileName || fileUri);
+      const parsedData = await parseSpreadsheetFile(fileUri, mimeType);
+
+      console.log('[Spreadsheet] Parsed items:', parsedData.items?.length, 'Grand total:', parsedData.grandTotal);
+
+      // Set pre-parsed data so BillFormRedesigned skips Gemini OCR
+      setParsedFileData(parsedData);
+      setFileOcrText(''); // No OCR text needed for spreadsheets
+      setRawOcrText('');  // Clear any previous OCR text
+      setCurrentScreen('bill-form');
+
+      showToast(
+        `${parsedData.items?.length || 0} items imported from spreadsheet`,
+        'success',
+        'Import Successful'
+      );
+    } catch (error) {
+      console.error('[Spreadsheet] Parse error:', error);
+      showToast(
+        error.message || 'Failed to parse the spreadsheet. Ensure it has a header row with column names.',
+        'error',
+        'Import Failed'
+      );
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -161,6 +249,8 @@ export default function ExploreScreen() {
         setCurrentScreen('upload');
         setRawOcrText('');
         setPhotoUri('');
+        setParsedFileData(null);
+        setFileOcrText('');
       }, 1500);
     } catch (error) {
       console.error('Error saving bill:', error);
@@ -175,6 +265,8 @@ export default function ExploreScreen() {
     setRawOcrText('');
     setPhotoUri('');
     setCameraActive(false);
+    setParsedFileData(null);
+    setFileOcrText('');
     router.back();
   };
 
@@ -258,6 +350,7 @@ export default function ExploreScreen() {
         <BillUploadScreen
           onPickImage={handlePickImage}
           onTakePhoto={handleTakePhoto}
+          onPickFile={handlePickFile}
           onBack={handleCancel}
         />
         <Toast
@@ -276,9 +369,10 @@ export default function ExploreScreen() {
     return (
       <>
         <BillFormRedesigned
-          ocrText={rawOcrText}
+          ocrText={rawOcrText || fileOcrText}
           onSubmit={handleSubmitBill}
           onCancel={handleCancel}
+          initialData={parsedFileData}
         />
         <LoadingOverlay
           visible={saving}

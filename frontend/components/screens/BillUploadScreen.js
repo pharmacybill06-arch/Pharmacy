@@ -15,6 +15,7 @@ import SecondaryButton from '@/components/ui/SecondaryButton';
 export default function BillUploadScreen({
   onPickImage,
   onTakePhoto,
+  onPickFile,
   onBack,
 }) {
   return (
@@ -38,7 +39,7 @@ export default function BillUploadScreen({
               Upload Pharmacy Bill
             </ThemedText>
             <ThemedText style={styles.headerSubtitle}>
-              Choose from gallery or take a photo
+              Choose from gallery, take a photo, or import a file
             </ThemedText>
           </View>
 
@@ -61,7 +62,7 @@ export default function BillUploadScreen({
                 Bill Photo
               </ThemedText>
               <ThemedText style={styles.uploadSubtitle}>
-                JPG, PNG or PDF formats
+                JPG, PNG, CSV or Excel formats
               </ThemedText>
               <View style={styles.fileTypeHint}>
                 <Ionicons name="checkmark-circle" size={16} color="#10B981" />
@@ -110,6 +111,27 @@ export default function BillUploadScreen({
               </View>
               <Ionicons name="chevron-forward" size={20} color="#1D4ED8" />
             </Pressable>
+
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <ThemedText style={styles.dividerText}>OR</ThemedText>
+              <View style={styles.divider} />
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.fileButton,
+                pressed && styles.fileButtonPressed,
+              ]}
+              onPress={onPickFile}
+            >
+              <Ionicons name="document-attach" size={24} color="#059669" />
+              <View style={styles.buttonTextContainer}>
+                <ThemedText style={styles.fileButtonTitle}>Import CSV / Excel</ThemedText>
+                <ThemedText style={styles.fileButtonSubtitle}>Upload .csv or .xlsx file</ThemedText>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#059669" />
+            </Pressable>
           </View>
 
           {/* Helper Text with Tips */}
@@ -126,6 +148,10 @@ export default function BillUploadScreen({
             <View style={styles.tipItem}>
               <View style={styles.tipBullet} />
               <ThemedText style={styles.tipText}>Keep all text clearly visible and readable</ThemedText>
+            </View>
+            <View style={styles.tipItem}>
+              <View style={styles.tipBullet} />
+              <ThemedText style={styles.tipText}>For CSV/Excel, ensure a header row with column names</ThemedText>
             </View>
           </View>
         </ScrollView>
@@ -331,6 +357,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#93C5FD',
+    marginTop: 2,
+  },
+
+  // File Button (CSV/Excel)
+  fileButton: {
+    width: '100%',
+    height: 64,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#A7F3D0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  fileButtonPressed: {
+    opacity: 0.7,
+    backgroundColor: '#ECFDF5',
+  },
+  fileButtonTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  fileButtonSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6EE7B7',
     marginTop: 2,
   },
 

@@ -15,6 +15,8 @@ export default function FormInput({
   multiline = false,
   numberOfLines = 1,
   editable = true,
+  onFocus,
+  onBlur,
 }) {
   return (
     <View style={styles.container}>
@@ -33,6 +35,8 @@ export default function FormInput({
         multiline={multiline}
         numberOfLines={numberOfLines}
         editable={editable}
+        onFocus={onFocus}
+        onBlur={onBlur}
       />
     </View>
   );

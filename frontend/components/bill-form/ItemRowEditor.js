@@ -32,6 +32,7 @@ export default function ItemRowEditor({
     mrp: item.mrp?.toString() || '',
     rate: item.rate?.toString() || '',
     discount: item.discount?.toString() || '',
+    discountPercent: item.discountPercent?.toString() || '',
     sgstPercent: item.sgstPercent?.toString() || '',
     cgstPercent: item.cgstPercent?.toString() || '',
     gstPercent: item.gstPercent?.toString() || '',
@@ -56,6 +57,7 @@ export default function ItemRowEditor({
       mrp: item.mrp?.toString() || '',
       rate: item.rate?.toString() || '',
       discount: item.discount?.toString() || '',
+      discountPercent: item.discountPercent?.toString() || '',
       sgstPercent: item.sgstPercent?.toString() || '',
       cgstPercent: item.cgstPercent?.toString() || '',
       gstPercent: item.gstPercent?.toString() || '',
@@ -67,6 +69,33 @@ export default function ItemRowEditor({
   const handleChange = (field, value) => {
     setFields((prev) => {
       const updated = { ...prev, [field]: value };
+
+      // Link discount % ↔ discount ₹ bidirectionally
+      const qty = parseFloat(updated.quantity) || 0;
+      const rate = parseFloat(updated.rate) || 0;
+      const base = qty * rate;
+
+      if (field === 'discountPercent') {
+        const pct = parseFloat(value);
+        if (!isNaN(pct)) {
+          const amt = base > 0 ? Math.round((base * pct / 100) * 100) / 100 : 0;
+          updated.discount = amt.toString();
+        }
+      } else if (field === 'discount') {
+        const amt = parseFloat(value);
+        if (!isNaN(amt)) {
+          const pct = base > 0 ? Math.round((amt / base * 100) * 100) / 100 : 0;
+          updated.discountPercent = pct.toString();
+        }
+      } else if (field === 'quantity' || field === 'rate') {
+        // Recalculate discount ₹ from % when qty or rate changes
+        const pct = parseFloat(updated.discountPercent) || 0;
+        if (pct > 0 && base > 0) {
+          const amt = Math.round((base * pct / 100) * 100) / 100;
+          updated.discount = amt.toString();
+        }
+      }
+
       // Prepare object for parent update (convert to number where needed)
       const updatedForParent = {
         ...item,
@@ -77,6 +106,7 @@ export default function ItemRowEditor({
         mrp: updated.mrp === '' ? 0 : parseFloat(updated.mrp),
         rate: updated.rate === '' ? 0 : parseFloat(updated.rate),
         discount: updated.discount === '' ? 0 : parseFloat(updated.discount),
+        discountPercent: updated.discountPercent === '' ? 0 : parseFloat(updated.discountPercent),
         sgstPercent: updated.sgstPercent === '' ? 0 : parseFloat(updated.sgstPercent),
         cgstPercent: updated.cgstPercent === '' ? 0 : parseFloat(updated.cgstPercent),
         gstPercent: updated.gstPercent === '' ? 0 : parseFloat(updated.gstPercent),
@@ -84,11 +114,9 @@ export default function ItemRowEditor({
         productId: linkedProductId,
       };
       // Calculate itemTotal if relevant field changes
-      if (["quantity","rate","discount"].includes(field)) {
-        const qty = parseFloat(updated.quantity) || 0;
-        const rate = parseFloat(updated.rate) || 0;
-        const discount = parseFloat(updated.discount) || 0;
-        const calculatedTotal = qty * rate - discount;
+      if (["quantity","rate","discount","discountPercent"].includes(field)) {
+        const discountAmt = parseFloat(updated.discount) || 0;
+        const calculatedTotal = qty * rate - discountAmt;
         updatedForParent.itemTotal = Math.round(calculatedTotal * 100) / 100;
       }
       onUpdate(updatedForParent);
@@ -125,6 +153,7 @@ export default function ItemRowEditor({
         mrp: updated.mrp === '' ? 0 : parseFloat(updated.mrp),
         rate: updated.rate === '' ? 0 : parseFloat(updated.rate),
         discount: updated.discount === '' ? 0 : parseFloat(updated.discount),
+        discountPercent: updated.discountPercent === '' ? 0 : parseFloat(updated.discountPercent),
         sgstPercent: updated.sgstPercent === '' ? 0 : parseFloat(updated.sgstPercent),
         cgstPercent: updated.cgstPercent === '' ? 0 : parseFloat(updated.cgstPercent),
         gstPercent: updated.gstPercent === '' ? 0 : parseFloat(updated.gstPercent),
@@ -320,9 +349,19 @@ export default function ItemRowEditor({
               small
             />
           </View>
-          <View style={styles.column}>
+          <View style={[styles.column, {flex: 0.8}]}>
             <EditableField
-              label="DIS"
+              label="DIS %"
+              value={fields.discountPercent}
+              onChangeText={(value) => handleChange('discountPercent', value)}
+              placeholder="0"
+              keyboardType="decimal-pad"
+              small
+            />
+          </View>
+          <View style={[styles.column, {flex: 0.8}]}>
+            <EditableField
+              label="DIS ₹"
               value={fields.discount}
               onChangeText={(value) => handleChange('discount', value)}
               placeholder="0.00"

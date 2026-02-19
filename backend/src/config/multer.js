@@ -22,14 +22,25 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter for image uploads only (for bill images)
+// File filter for bill uploads (images, PDF, CSV, Excel)
 const fileFilter = (req, file, cb) => {
-  const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+  const allowedMimes = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/pdf',
+    'text/csv',
+    'text/comma-separated-values',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/wps-office.xlsx',
+  ];
   
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only JPEG, PNG, WebP, and PDF files are allowed'), false);
+    cb(new Error('Only JPEG, PNG, WebP, PDF, CSV, and Excel files are allowed'), false);
   }
 };
 

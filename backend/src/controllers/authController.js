@@ -75,7 +75,7 @@ exports.sendOtp = async (req, res) => {
  */
 exports.verifyOtp = async (req, res) => {
   try {
-    const { phone, otp, name } = req.body;
+    const { phone, otp, name, shopName } = req.body;
 
     // Validate inputs
     if (!phone || !otp) {
@@ -141,14 +141,24 @@ exports.verifyOtp = async (req, res) => {
       user = await prisma.user.create({
         data: {
           phone,
-          name: name || null
+          name: name || null,
+          shopName: shopName || null
         }
       });
     } else if (name && !user.name) {
-      // Update name if provided and user doesn't have one
+      // Update name and shopName if provided and user doesn't have one
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { name }
+        data: { 
+          name,
+          ...(shopName && !user.shopName ? { shopName } : {})
+        }
+      });
+    } else if (shopName && !user.shopName) {
+      // Update shopName if provided and user doesn't have one
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { shopName }
       });
     }
 
@@ -162,6 +172,7 @@ exports.verifyOtp = async (req, res) => {
         id: user.id,
         phone: user.phone,
         name: user.name,
+        shopName: user.shopName,
         email: user.email,
         createdAt: user.createdAt
       },
@@ -237,11 +248,14 @@ exports.updateProfile = async (req, res) => {
       }
     }
 
+    const { shopName: newShopName } = req.body;
+
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
         name: name !== undefined ? name : user.name,
-        email: email !== undefined ? email : user.email
+        email: email !== undefined ? email : user.email,
+        shopName: newShopName !== undefined ? newShopName : user.shopName
       }
     });
 
@@ -252,6 +266,7 @@ exports.updateProfile = async (req, res) => {
         id: updatedUser.id,
         phone: updatedUser.phone,
         name: updatedUser.name,
+        shopName: updatedUser.shopName,
         email: updatedUser.email,
         createdAt: updatedUser.createdAt
       }
@@ -289,6 +304,7 @@ exports.getProfile = async (req, res) => {
         id: user.id,
         phone: user.phone,
         name: user.name,
+        shopName: user.shopName,
         email: user.email,
         createdAt: user.createdAt,
         billCount: user._count.bills

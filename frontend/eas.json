@@ -12,7 +12,9 @@
       },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "http://localhost:5000/api",
-        "EXPO_PUBLIC_ENABLE_GEMINI": "true"
+        "EXPO_PUBLIC_ENABLE_GEMINI": "true",
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyAMNy3qPumkRLsBW5jFEJMCnFH81uQceGs",
+        "EXPO_PUBLIC_GROQ_API_KEY": "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"
       }
     },
     "preview": {
@@ -22,7 +24,9 @@
       },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api",
-        "EXPO_PUBLIC_ENABLE_GEMINI": "true"
+        "EXPO_PUBLIC_ENABLE_GEMINI": "true",
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyAMNy3qPumkRLsBW5jFEJMCnFH81uQceGs",
+        "EXPO_PUBLIC_GROQ_API_KEY": "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"
       }
     },
     "production": {
@@ -31,9 +35,10 @@
         "buildType": "apk"
       },
       "env": {
-
         "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api",
-        "EXPO_PUBLIC_ENABLE_GEMINI": "true"
+        "EXPO_PUBLIC_ENABLE_GEMINI": "true",
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyAMNy3qPumkRLsBW5jFEJMCnFH81uQceGs",
+        "EXPO_PUBLIC_GROQ_API_KEY": "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"
       }
     }
   },

@@ -17,4 +17,16 @@ config.resolver.resolverMainFields = ["react-native", "main", "module"];
 // ✅ Keep requireCycleIgnorePatterns if you want
 config.resolver.requireCycleIgnorePatterns = [/(node_modules|\.next)\//];
 
+// ✅ Provide empty shims for Node.js core modules (for xlsx library)
+config.resolver.extraNodeModules = {
+  fs: require.resolve('./node-shims/fs.js'),
+  stream: require.resolve('stream-browserify'),
+  crypto: require.resolve('crypto-browserify'),
+  events: require.resolve('events'),
+  buffer: require.resolve('buffer'),
+  process: require.resolve('process/browser'),
+  util: require.resolve('util'),
+  path: require.resolve('path-browserify'),
+};
+
 module.exports = config;

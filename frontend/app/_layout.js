@@ -1,3 +1,4 @@
+import '../global-polyfills'; // Must be first - sets up global Buffer and process
 import { Stack } from 'expo-router';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ProductsProvider } from '../contexts/ProductsContext';

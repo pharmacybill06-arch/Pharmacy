@@ -83,10 +83,10 @@ export const authApi = {
   /**
    * Verify OTP and login/signup
    */
-  verifyOtp: async (phone, otp, name = null) => {
+  verifyOtp: async (phone, otp, name = null, shopName = null) => {
     return apiFetch('/auth/verify-otp', {
       method: 'POST',
-      body: JSON.stringify({ phone, otp, name }),
+      body: JSON.stringify({ phone, otp, name, shopName }),
     });
   },
 

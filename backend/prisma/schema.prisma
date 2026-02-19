@@ -19,6 +19,7 @@ model User {
   email     String?    @unique
   name      String?
   phone     String     @unique
+  shopName  String?                              // User's shop/pharmacy name (used to filter from OCR)
   
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt

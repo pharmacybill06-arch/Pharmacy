@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -25,13 +25,8 @@ import { useAuth } from '@/contexts/AuthContext';
  * Item Row Component for table-like display
  */
 const ItemRow = ({ item, index, onPress }) => {
-  // Use the stored itemTotal (calculated in ItemRowEditor) or calculate as fallback
+  // Always calculate total from the source fields for consistency
   const getItemTotal = () => {
-    // Check if itemTotal exists and is greater than 0
-    if (item.itemTotal !== undefined && item.itemTotal !== null && item.itemTotal > 0) {
-      return item.itemTotal;
-    }
-    // Fallback: Calculate as Qty × Rate - Discount (same as ItemRowEditor)
     const qty = parseFloat(item.quantity) || 0;
     const rate = parseFloat(item.rate) || 0;
     const discount = parseFloat(item.discount) || 0;
@@ -100,6 +95,39 @@ export default function BillFormScreen({
 
   // Calculate discount amount from percentage
   const discountAmount = ((formData.subtotal || 0) * ((formData.discountPercent || 0) / 100));
+  const taxableAmount = (formData.subtotal || 0) - discountAmount;
+
+  // Local string state for Tax & Totals fields to allow decimal input (e.g. "1." while typing)
+  const [localTaxFields, setLocalTaxFields] = useState({
+    discountPercent: '',
+    discountAmount: '',
+    cgstPercent: '',
+    cgst: '',
+    sgstPercent: '',
+    sgst: '',
+    roundOff: '',
+  });
+  // Track which field is currently being edited
+  const [activeTaxField, setActiveTaxField] = useState(null);
+
+  // Helper: get display value - use local string while editing, formData otherwise
+  const getTaxFieldValue = useCallback((fieldName, formValue) => {
+    if (activeTaxField === fieldName) {
+      return localTaxFields[fieldName];
+    }
+    return formValue?.toString() || '0';
+  }, [activeTaxField, localTaxFields]);
+
+  // Helper: start editing a tax field
+  const startEditTaxField = useCallback((fieldName, currentValue) => {
+    setActiveTaxField(fieldName);
+    setLocalTaxFields(prev => ({ ...prev, [fieldName]: currentValue?.toString() || '0' }));
+  }, []);
+
+  // Helper: finish editing (blur)
+  const finishEditTaxField = useCallback(() => {
+    setActiveTaxField(null);
+  }, []);
 
   return (
     <ThemedView style={styles.container}>
@@ -310,56 +338,146 @@ export default function BillFormScreen({
                 </ThemedText>
               </View>
 
-              {/* Discount - Editable (Percentage-based) */}
+              {/* Discount - Dual Input (% and ₹) */}
               <View style={styles.editableRow}>
-                <FormInput
-                  label="Discount (%)"
-                  value={formData.discountPercent?.toString() || '0'}
-                  onChangeText={(text) =>
-                    onUpdateInvoiceMetadata({ discountPercent: parseFloat(text) || 0 })
-                  }
-                  placeholder="0.00"
-                  keyboardType="decimal-pad"
-                />
-                <ThemedText style={styles.calculatedAmountText}>
-                  Discount Amount: ₹{discountAmount.toFixed(2)}
-                </ThemedText>
+                <View style={styles.dualInputRow}>
+                  <View style={styles.dualInputHalf}>
+                    <FormInput
+                      label="Discount (%)"
+                      value={getTaxFieldValue('discountPercent', formData.discountPercent)}
+                      onChangeText={(text) => {
+                        setLocalTaxFields(prev => ({ ...prev, discountPercent: text }));
+                        const pct = parseFloat(text);
+                        if (!isNaN(pct)) {
+                          onUpdateInvoiceMetadata({ discountPercent: pct });
+                        }
+                      }}
+                      onFocus={() => startEditTaxField('discountPercent', formData.discountPercent)}
+                      onBlur={finishEditTaxField}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={styles.dualInputHalf}>
+                    <FormInput
+                      label="Discount (₹)"
+                      value={getTaxFieldValue('discountAmount', discountAmount)}
+                      onChangeText={(text) => {
+                        setLocalTaxFields(prev => ({ ...prev, discountAmount: text }));
+                        const amt = parseFloat(text);
+                        if (!isNaN(amt)) {
+                          const sub = formData.subtotal || 0;
+                          const pct = sub > 0 ? Math.round((amt / sub * 100) * 100) / 100 : 0;
+                          onUpdateInvoiceMetadata({ discountPercent: pct });
+                        }
+                      }}
+                      onFocus={() => startEditTaxField('discountAmount', discountAmount)}
+                      onBlur={finishEditTaxField}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                </View>
               </View>
 
-              {/* CGST - Editable */}
+              {/* CGST - Dual Input (% and ₹) */}
               <View style={styles.editableRow}>
-                <FormInput
-                  label="CGST"
-                  value={formData.cgst?.toString() || '0'}
-                  onChangeText={(text) =>
-                    onUpdateInvoiceMetadata({ cgst: parseFloat(text) || 0 })
-                  }
-                  placeholder="0.00"
-                  keyboardType="decimal-pad"
-                />
+                <View style={styles.dualInputRow}>
+                  <View style={styles.dualInputHalf}>
+                    <FormInput
+                      label="CGST (%)"
+                      value={getTaxFieldValue('cgstPercent', formData.cgstPercent)}
+                      onChangeText={(text) => {
+                        setLocalTaxFields(prev => ({ ...prev, cgstPercent: text }));
+                        const pct = parseFloat(text);
+                        if (!isNaN(pct)) {
+                          const amt = taxableAmount > 0 ? Math.round((taxableAmount * pct / 100) * 100) / 100 : 0;
+                          onUpdateInvoiceMetadata({ cgstPercent: pct, cgst: amt });
+                        }
+                      }}
+                      onFocus={() => startEditTaxField('cgstPercent', formData.cgstPercent)}
+                      onBlur={finishEditTaxField}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={styles.dualInputHalf}>
+                    <FormInput
+                      label="CGST (₹)"
+                      value={getTaxFieldValue('cgst', formData.cgst)}
+                      onChangeText={(text) => {
+                        setLocalTaxFields(prev => ({ ...prev, cgst: text }));
+                        const amt = parseFloat(text);
+                        if (!isNaN(amt)) {
+                          const pct = taxableAmount > 0 ? Math.round((amt / taxableAmount * 100) * 100) / 100 : 0;
+                          onUpdateInvoiceMetadata({ cgst: amt, cgstPercent: pct });
+                        }
+                      }}
+                      onFocus={() => startEditTaxField('cgst', formData.cgst)}
+                      onBlur={finishEditTaxField}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                </View>
               </View>
 
-              {/* SGST - Editable */}
+              {/* SGST - Dual Input (% and ₹) */}
               <View style={styles.editableRow}>
-                <FormInput
-                  label="SGST"
-                  value={formData.sgst?.toString() || '0'}
-                  onChangeText={(text) =>
-                    onUpdateInvoiceMetadata({ sgst: parseFloat(text) || 0 })
-                  }
-                  placeholder="0.00"
-                  keyboardType="decimal-pad"
-                />
+                <View style={styles.dualInputRow}>
+                  <View style={styles.dualInputHalf}>
+                    <FormInput
+                      label="SGST (%)"
+                      value={getTaxFieldValue('sgstPercent', formData.sgstPercent)}
+                      onChangeText={(text) => {
+                        setLocalTaxFields(prev => ({ ...prev, sgstPercent: text }));
+                        const pct = parseFloat(text);
+                        if (!isNaN(pct)) {
+                          const amt = taxableAmount > 0 ? Math.round((taxableAmount * pct / 100) * 100) / 100 : 0;
+                          onUpdateInvoiceMetadata({ sgstPercent: pct, sgst: amt });
+                        }
+                      }}
+                      onFocus={() => startEditTaxField('sgstPercent', formData.sgstPercent)}
+                      onBlur={finishEditTaxField}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={styles.dualInputHalf}>
+                    <FormInput
+                      label="SGST (₹)"
+                      value={getTaxFieldValue('sgst', formData.sgst)}
+                      onChangeText={(text) => {
+                        setLocalTaxFields(prev => ({ ...prev, sgst: text }));
+                        const amt = parseFloat(text);
+                        if (!isNaN(amt)) {
+                          const pct = taxableAmount > 0 ? Math.round((amt / taxableAmount * 100) * 100) / 100 : 0;
+                          onUpdateInvoiceMetadata({ sgst: amt, sgstPercent: pct });
+                        }
+                      }}
+                      onFocus={() => startEditTaxField('sgst', formData.sgst)}
+                      onBlur={finishEditTaxField}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                </View>
               </View>
 
               {/* Round Off - Editable */}
               <View style={styles.editableRow}>
                 <FormInput
                   label="Round Off"
-                  value={formData.roundOff?.toString() || '0'}
-                  onChangeText={(text) =>
-                    onUpdateRoundOff(parseFloat(text) || 0)
-                  }
+                  value={getTaxFieldValue('roundOff', formData.roundOff)}
+                  onChangeText={(text) => {
+                    setLocalTaxFields(prev => ({ ...prev, roundOff: text }));
+                    const val = parseFloat(text);
+                    if (!isNaN(val)) {
+                      onUpdateRoundOff(val);
+                    }
+                  }}
+                  onFocus={() => startEditTaxField('roundOff', formData.roundOff)}
+                  onBlur={finishEditTaxField}
                   placeholder="0.00"
                   keyboardType="decimal-pad"
                 />
@@ -529,6 +647,13 @@ const styles = StyleSheet.create({
     color: '#059669',
     marginTop: 4,
     marginLeft: 2,
+  },
+  dualInputRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dualInputHalf: {
+    flex: 1,
   },
   divider: {
     height: 1,

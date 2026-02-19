@@ -31,9 +31,74 @@ export default function BillFormRedesigned({
 }) {
   const { user } = useAuth();
   const userId = user?.id;
+  const userShopName = user?.shopName || '';
+
+  console.log('[BillFormRedesigned] User shop name:', JSON.stringify(userShopName), '| User object keys:', user ? Object.keys(user) : 'null');
+  console.log('[BillFormRedesigned] User full:', JSON.stringify({ id: user?.id, name: user?.name, shopName: user?.shopName, shop: user?.shop }));
+
+  // Helper: check if a string matches the user's shop name (fuzzy)
+  const isUserShopName = (text) => {
+    if (!text) return false;
+    // Collect all names that belong to the user
+    const shopNames = [userShopName, user?.name].filter(Boolean);
+    if (shopNames.length === 0) return false;
+
+    const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+    const textNorm = normalize(text);
+    if (!textNorm) return false;
+
+    for (const shopName of shopNames) {
+      const shopNorm = normalize(shopName);
+      if (!shopNorm) continue;
+
+      // Exact match
+      if (shopNorm === textNorm) {
+        console.log(`[ShopNameFilter] EXACT MATCH: "${text}" == user's "${shopName}"`);
+        return true;
+      }
+      // One contains the other (only if the shorter one is at least 4 chars to avoid false positives)
+      const shorter = shopNorm.length < textNorm.length ? shopNorm : textNorm;
+      const longer = shopNorm.length < textNorm.length ? textNorm : shopNorm;
+      if (shorter.length >= 4 && longer.includes(shorter)) {
+        console.log(`[ShopNameFilter] CONTAINS MATCH: "${text}" ~ user's "${shopName}"`);
+        return true;
+      }
+      // Word overlap: if >50% of the words in shopName appear in the text
+      const shopWords = shopNorm.split(/\s+/).filter(w => w.length >= 3);
+      const textWords = textNorm.split(/\s+/).filter(w => w.length >= 3);
+      if (shopWords.length > 0) {
+        const matchCount = shopWords.filter(w => textWords.includes(w) || textNorm.includes(w)).length;
+        if (matchCount > 0 && matchCount >= Math.ceil(shopWords.length * 0.5)) {
+          console.log(`[ShopNameFilter] WORD MATCH (${matchCount}/${shopWords.length}): "${text}" ~ user's "${shopName}"`);
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  // Filter out user's own shop name from parsed OCR data
+  const filterShopNameFromData = (data) => {
+    const filtered = { ...data };
+    // Clear pharmacyName if it matches the user's shop
+    if (isUserShopName(filtered.pharmacyName)) {
+      console.log('[BillFormRedesigned] Filtered out user shop name from pharmacyName:', filtered.pharmacyName);
+      filtered.pharmacyName = '';
+    }
+    // Also clear distributor name if it matches the user's shop
+    if (filtered.distributor && isUserShopName(filtered.distributor?.name)) {
+      console.log('[BillFormRedesigned] Filtered out user shop name from distributor:', filtered.distributor.name);
+      filtered.distributor = { ...filtered.distributor, name: '' };
+    }
+    return filtered;
+  };
+
+  // Filter initial pharmacyName if it matches the user's own shop
+  const initPharmacyName = initialData?.pharmacyName || '';
+  const filteredInitPharmacyName = isUserShopName(initPharmacyName) ? '' : initPharmacyName;
 
   const [formData, setFormData] = useState({
-    pharmacyName: initialData?.pharmacyName || '',
+    pharmacyName: filteredInitPharmacyName,
     shopAddress: initialData?.shopAddress || '',
     phoneNumbers: initialData?.phoneNumbers || '',
     gstin: initialData?.gstin || '',
@@ -49,7 +114,9 @@ export default function BillFormRedesigned({
     discountPercent: initialData?.discountPercent || 0, // Changed from discount to discountPercent
     discount: initialData?.discount || 0, // Keep calculated discount amount
     cgst: initialData?.cgst || 0,
+    cgstPercent: initialData?.cgstPercent || 0,
     sgst: initialData?.sgst || 0,
+    sgstPercent: initialData?.sgstPercent || 0,
     totalGst: initialData?.totalGst || 0,
     roundOff: initialData?.roundOff || 0,
     grandTotal: initialData?.grandTotal || 0,
@@ -63,7 +130,9 @@ export default function BillFormRedesigned({
 
   // Distributor state
   const [selectedDistributor, setSelectedDistributor] = useState(initialData?.distributor || null);
-  const [distributorSearchQuery, setDistributorSearchQuery] = useState(initialData?.pharmacyName || '');
+  const [distributorSearchQuery, setDistributorSearchQuery] = useState(
+    isUserShopName(initialData?.pharmacyName) ? '' : (initialData?.pharmacyName || '')
+  );
   const [showAddDistributorModal, setShowAddDistributorModal] = useState(false);
   const [newDistributorName, setNewDistributorName] = useState('');
 
@@ -88,12 +157,20 @@ export default function BillFormRedesigned({
 
   // Parse OCR text with Gemini when provided
   useEffect(() => {
+    // If initialData already has items (e.g. from CSV/Excel import), skip Gemini parsing
+    if (initialData && initialData.items && initialData.items.length > 0) {
+      console.log('[BillFormRedesigned] Using pre-parsed initialData (CSV/Excel or edit mode), skipping Gemini');
+      // Still filter out the user's own shop name from pre-parsed data
+      const filteredData = filterShopNameFromData(initialData);
+      if (filteredData.pharmacyName !== initialData.pharmacyName) {
+        setFormData((prev) => ({ ...prev, pharmacyName: filteredData.pharmacyName }));
+        setDistributorSearchQuery(filteredData.pharmacyName);
+      }
+      return;
+    }
+
     if (!ocrText || ocrText.trim().length === 0) {
       console.log('[BillFormRedesigned] No OCR text provided, skipping Gemini parsing');
-      // If initialData is already provided, don't parse again
-      if (initialData && Object.keys(initialData).length > 0) {
-        console.log('[BillFormRedesigned] Using pre-parsed initialData from OCR Review screen');
-      }
       return;
     }
 
@@ -105,16 +182,21 @@ export default function BillFormRedesigned({
 
         const parsedData = await parseOcrWithGemini(ocrText);
         const formattedData = formatParsedDataForForm(parsedData);
+        // Filter out the user's own shop name from extracted data
+        const filteredData = filterShopNameFromData(formattedData);
         const confidence = calculateParseConfidence(parsedData);
-        const reviewItems = getItemsNeedingReview(formattedData.items);
+        const reviewItems = getItemsNeedingReview(filteredData.items);
 
         setGeminiConfidence(confidence);
         setItemsNeedingManualReview(reviewItems.length);
 
+        // Update distributor search query with filtered name
+        setDistributorSearchQuery(filteredData.pharmacyName || '');
+
         setFormData((prev) => ({
           ...prev,
-          ...formattedData,
-          items: formattedData.items,
+          ...filteredData,
+          items: filteredData.items,
         }));
 
         console.log('[BillFormRedesigned] Gemini parsing successful. Items:', formattedData.items.length);
@@ -155,16 +237,11 @@ export default function BillFormRedesigned({
     let subtotal = 0;
 
     formData.items.forEach((item) => {
-      // Use stored itemTotal or calculate: Qty × Rate - Discount
-      let itemTotal = 0;
-      if (item.itemTotal !== undefined && item.itemTotal !== null && item.itemTotal > 0) {
-        itemTotal = item.itemTotal;
-      } else {
-        const quantity = Number(item.quantity) || 0;
-        const rate = Number(item.rate) || 0;
-        const itemDiscount = Number(item.discount) || 0;
-        itemTotal = quantity * rate - itemDiscount;
-      }
+      // Always calculate: Qty × Rate - Discount for consistency
+      const quantity = Number(item.quantity) || 0;
+      const rate = Number(item.rate) || 0;
+      const itemDiscount = Number(item.discount) || 0;
+      const itemTotal = quantity * rate - itemDiscount;
       subtotal += itemTotal;
     });
 
