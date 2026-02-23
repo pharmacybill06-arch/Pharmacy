@@ -2,9 +2,8 @@
  * GSTIN Controller
  * Handles GST Identification Number verification using Sandbox GST API
  * and legacy Cashfree API as fallback
+ * Uses native fetch (Node 18+) — no axios dependency needed
  */
-
-const axios = require('axios');
 
 // Sandbox GST API configuration
 const SANDBOX_API_KEY = process.env.SANDBOX_GST_API_KEY || 'key_live_d4c6d54005c142b3b6bd81f23f26206b';
@@ -47,21 +46,61 @@ exports.lookupGstin = async (req, res) => {
     const normalizedGstin = gstin.toUpperCase().trim();
     console.log(`[GSTIN] Looking up GSTIN via Sandbox API: ${normalizedGstin}`);
 
-    // Call Sandbox GST API
-    const response = await axios.get(
-      `${SANDBOX_BASE_URL}/gsp/tax-payer/gstin/${normalizedGstin}`,
-      {
-        headers: {
-          'Authorization': SANDBOX_API_KEY,
-          'x-api-key': SANDBOX_API_KEY,
-          'x-api-version': '1.0',
-          'Accept': 'application/json',
-        },
-        timeout: 15000 // 15 second timeout
-      }
-    );
+    // Call Sandbox GST API using native fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const result = response.data;
+    let response;
+    try {
+      response = await fetch(
+        `${SANDBOX_BASE_URL}/gsp/tax-payer/gstin/${normalizedGstin}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': SANDBOX_API_KEY,
+            'x-api-key': SANDBOX_API_KEY,
+            'x-api-version': '1.0',
+            'Accept': 'application/json',
+          },
+          signal: controller.signal,
+        }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Handle non-2xx HTTP responses
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      if (response.status === 401 || response.status === 403) {
+        return res.status(503).json({
+          success: false,
+          error: 'GST lookup service authentication failed',
+          details: 'Invalid API key'
+        });
+      }
+      if (response.status === 404) {
+        return res.status(200).json({
+          success: true,
+          valid: false,
+          message: 'GSTIN not found in GST records',
+          gstin: normalizedGstin
+        });
+      }
+      if (response.status === 429) {
+        return res.status(429).json({
+          success: false,
+          error: 'Too many requests. Please try again in a moment.'
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: errorBody?.message || 'GSTIN lookup failed',
+        details: errorBody
+      });
+    }
+
+    const result = await response.json();
 
     // Check if the API returned valid data
     if (!result || !result.data) {
@@ -150,44 +189,8 @@ exports.lookupGstin = async (req, res) => {
   } catch (error) {
     console.error('[GSTIN] Sandbox API lookup error:', error.message);
 
-    // Handle API errors
-    if (error.response) {
-      const status = error.response.status;
-      const errorData = error.response.data;
-
-      if (status === 401 || status === 403) {
-        return res.status(503).json({
-          success: false,
-          error: 'GST lookup service authentication failed',
-          details: 'Invalid API key'
-        });
-      }
-
-      if (status === 404) {
-        return res.status(200).json({
-          success: true,
-          valid: false,
-          message: 'GSTIN not found in GST records',
-          gstin: req.body.gstin?.toUpperCase()
-        });
-      }
-
-      if (status === 429) {
-        return res.status(429).json({
-          success: false,
-          error: 'Too many requests. Please try again in a moment.'
-        });
-      }
-
-      return res.status(500).json({
-        success: false,
-        error: errorData?.message || 'GSTIN lookup failed',
-        details: errorData
-      });
-    }
-
-    // Network or timeout error
-    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    // AbortController timeout
+    if (error.name === 'AbortError') {
       return res.status(504).json({
         success: false,
         error: 'GST lookup service timeout. Please try again.'
@@ -250,22 +253,56 @@ exports.verifyGstin = async (req, res) => {
 
     console.log(`[GSTIN] Verifying GSTIN: ${gstin}`);
 
-    // Call Cashfree API
-    const response = await axios.post(
-      `${CASHFREE_BASE_URL}/gstin`,
-      requestBody,
-      {
-        headers: {
-          'x-client-id': CASHFREE_CLIENT_ID,
-          'x-client-secret': CASHFREE_CLIENT_SECRET,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000 // 10 second timeout
+    // Call Cashfree API using native fetch
+    const cfController = new AbortController();
+    const cfTimeoutId = setTimeout(() => cfController.abort(), 10000);
+
+    let cfResponse;
+    try {
+      cfResponse = await fetch(
+        `${CASHFREE_BASE_URL}/gstin`,
+        {
+          method: 'POST',
+          headers: {
+            'x-client-id': CASHFREE_CLIENT_ID,
+            'x-client-secret': CASHFREE_CLIENT_SECRET,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: cfController.signal,
+        }
+      );
+    } finally {
+      clearTimeout(cfTimeoutId);
+    }
+
+    // Handle non-2xx responses
+    if (!cfResponse.ok) {
+      const errorBody = await cfResponse.json().catch(() => ({}));
+      if (cfResponse.status === 401) {
+        return res.status(503).json({
+          success: false,
+          error: 'GSTIN verification service authentication failed',
+          details: 'Invalid API credentials'
+        });
       }
-    );
+      if (cfResponse.status === 404) {
+        return res.status(200).json({
+          success: true,
+          valid: false,
+          message: 'GSTIN not found',
+          gstin: req.body.gstin
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: errorBody?.message || 'GSTIN verification failed',
+        details: errorBody
+      });
+    }
 
     // Extract data from Cashfree response
-    const data = response.data;
+    const data = await cfResponse.json();
 
     // Check if GSTIN is valid
     if (!data.valid) {
@@ -319,38 +356,8 @@ exports.verifyGstin = async (req, res) => {
   } catch (error) {
     console.error('[GSTIN] Verification error:', error.message);
 
-    // Handle Cashfree API errors
-    if (error.response) {
-      // API returned an error response
-      const status = error.response.status;
-      const errorData = error.response.data;
-
-      if (status === 401) {
-        return res.status(503).json({
-          success: false,
-          error: 'GSTIN verification service authentication failed',
-          details: 'Invalid API credentials'
-        });
-      }
-
-      if (status === 404) {
-        return res.status(200).json({
-          success: true,
-          valid: false,
-          message: 'GSTIN not found',
-          gstin: req.body.gstin
-        });
-      }
-
-      return res.status(500).json({
-        success: false,
-        error: errorData.message || 'GSTIN verification failed',
-        details: errorData
-      });
-    }
-
-    // Network or timeout error
-    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    // AbortController timeout
+    if (error.name === 'AbortError') {
       return res.status(504).json({
         success: false,
         error: 'GSTIN verification service timeout. Please try again.'
