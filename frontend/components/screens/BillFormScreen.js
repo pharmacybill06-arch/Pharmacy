@@ -19,6 +19,7 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import ItemRowEditor from '@/components/bill-form/ItemRowEditor';
 import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
+import GSTLookup from '@/components/ui/GSTLookup';
 import { useAuth } from '@/contexts/AuthContext';
 
 /**
@@ -88,6 +89,11 @@ export default function BillFormScreen({
   onDistributorSearchChange,
   onDistributorSelect,
   onAddNewDistributor,
+  // GST Lookup props
+  onGstLookupDistributorFound,
+  onGstLookupError,
+  distributorMode = 'search', // 'search' | 'gst'
+  onDistributorModeChange,
 }) {
   // Get user ID for product suggestions
   const { user } = useAuth();
@@ -166,49 +172,131 @@ export default function BillFormScreen({
             defaultExpanded={true}
           >
             <View style={styles.distributorSection}>
-              <ThemedText style={styles.fieldLabel}>Distributor Name *</ThemedText>
-              <DistributorAutocomplete
-                userId={userId}
-                value={distributorSearchQuery || formData.pharmacyName}
-                onChangeText={onDistributorSearchChange}
-                onDistributorSelect={onDistributorSelect}
-                onAddNew={onAddNewDistributor}
-                placeholder="Search or add distributor"
-                selectedDistributor={selectedDistributor}
-              />
+              {/* Mode Toggle Tabs */}
+              <View style={styles.modeToggle}>
+                <Pressable
+                  style={[
+                    styles.modeTab,
+                    distributorMode === 'search' && styles.modeTabActive,
+                  ]}
+                  onPress={() => onDistributorModeChange?.('search')}
+                >
+                  <Ionicons
+                    name="search-outline"
+                    size={15}
+                    color={distributorMode === 'search' ? '#1D4ED8' : '#6B7280'}
+                  />
+                  <ThemedText
+                    style={[
+                      styles.modeTabText,
+                      distributorMode === 'search' && styles.modeTabTextActive,
+                    ]}
+                  >
+                    Search by Name
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.modeTab,
+                    distributorMode === 'gst' && styles.modeTabActive,
+                  ]}
+                  onPress={() => onDistributorModeChange?.('gst')}
+                >
+                  <Ionicons
+                    name="document-text-outline"
+                    size={15}
+                    color={distributorMode === 'gst' ? '#1D4ED8' : '#6B7280'}
+                  />
+                  <ThemedText
+                    style={[
+                      styles.modeTabText,
+                      distributorMode === 'gst' && styles.modeTabTextActive,
+                    ]}
+                  >
+                    Lookup by GST
+                  </ThemedText>
+                </Pressable>
+              </View>
+
+              {/* Mode: Search by Name (existing) */}
+              {distributorMode === 'search' && (
+                <>
+                  <ThemedText style={styles.fieldLabel}>Distributor Name *</ThemedText>
+                  <DistributorAutocomplete
+                    userId={userId}
+                    value={distributorSearchQuery || formData.pharmacyName}
+                    onChangeText={onDistributorSearchChange}
+                    onDistributorSelect={onDistributorSelect}
+                    onAddNew={onAddNewDistributor}
+                    placeholder="Search or add distributor"
+                    selectedDistributor={selectedDistributor}
+                  />
+                </>
+              )}
+
+              {/* Mode: GST Lookup */}
+              {distributorMode === 'gst' && (
+                <>
+                  <ThemedText style={styles.fieldLabel}>Enter GST Number</ThemedText>
+                  <GSTLookup
+                    onDistributorFound={onGstLookupDistributorFound}
+                    onError={onGstLookupError}
+                    initialGstin={formData.gstin || ''}
+                  />
+                </>
+              )}
               
               {/* Show additional details when distributor is selected */}
               {selectedDistributor && (
                 <View style={styles.distributorInfo}>
-                  {selectedDistributor.gstin && (
+                  <View style={styles.distributorInfoHeader}>
+                    <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                    <ThemedText style={styles.distributorSelectedText}>
+                      Distributor Selected
+                    </ThemedText>
+                    <Pressable
+                      onPress={() => onDistributorSelect?.(null)}
+                      style={styles.clearDistributorButton}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.distributorInfoBody}>
                     <View style={styles.infoRow}>
-                      <Ionicons name="document-text-outline" size={16} color="#6B7280" />
-                      <ThemedText style={styles.infoText}>GSTIN: {selectedDistributor.gstin}</ThemedText>
+                      <Ionicons name="business-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.infoText}>{selectedDistributor.name}</ThemedText>
                     </View>
-                  )}
-                  {selectedDistributor.phone && (
-                    <View style={styles.infoRow}>
-                      <Ionicons name="call-outline" size={16} color="#6B7280" />
-                      <ThemedText style={styles.infoText}>{selectedDistributor.phone}</ThemedText>
-                    </View>
-                  )}
-                  {selectedDistributor.address && (
-                    <View style={styles.infoRow}>
-                      <Ionicons name="location-outline" size={16} color="#6B7280" />
-                      <ThemedText style={styles.infoText}>{selectedDistributor.address}</ThemedText>
-                    </View>
-                  )}
-                  {selectedDistributor.dlNumber && (
-                    <View style={styles.infoRow}>
-                      <Ionicons name="card-outline" size={16} color="#6B7280" />
-                      <ThemedText style={styles.infoText}>DL: {selectedDistributor.dlNumber}</ThemedText>
-                    </View>
-                  )}
+                    {selectedDistributor.gstin && (
+                      <View style={styles.infoRow}>
+                        <Ionicons name="document-text-outline" size={16} color="#6B7280" />
+                        <ThemedText style={styles.infoText}>GSTIN: {selectedDistributor.gstin}</ThemedText>
+                      </View>
+                    )}
+                    {selectedDistributor.phone && (
+                      <View style={styles.infoRow}>
+                        <Ionicons name="call-outline" size={16} color="#6B7280" />
+                        <ThemedText style={styles.infoText}>{selectedDistributor.phone}</ThemedText>
+                      </View>
+                    )}
+                    {selectedDistributor.address && (
+                      <View style={styles.infoRow}>
+                        <Ionicons name="location-outline" size={16} color="#6B7280" />
+                        <ThemedText style={styles.infoText}>{selectedDistributor.address}</ThemedText>
+                      </View>
+                    )}
+                    {selectedDistributor.dlNumber && (
+                      <View style={styles.infoRow}>
+                        <Ionicons name="card-outline" size={16} color="#6B7280" />
+                        <ThemedText style={styles.infoText}>DL: {selectedDistributor.dlNumber}</ThemedText>
+                      </View>
+                    )}
+                  </View>
                 </View>
               )}
               
-              {/* Show manual entry fields if no distributor selected */}
-              {!selectedDistributor && distributorSearchQuery && distributorSearchQuery.length > 0 && (
+              {/* Show manual entry hint when searching with no selection */}
+              {!selectedDistributor && distributorMode === 'search' && distributorSearchQuery && distributorSearchQuery.length > 0 && (
                 <View style={styles.manualEntryHint}>
                   <Ionicons name="information-circle-outline" size={16} color="#1D4ED8" />
                   <ThemedText style={styles.hintText}>
@@ -702,6 +790,40 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 100,
   },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 14,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    gap: 5,
+  },
+  modeTabActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  modeTabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  modeTabTextActive: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+  },
   fieldLabel: {
     fontSize: 13,
     fontWeight: '600',
@@ -710,8 +832,30 @@ const styles = StyleSheet.create({
   },
   distributorInfo: {
     marginTop: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  distributorInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  distributorSelectedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+    flex: 1,
+  },
+  clearDistributorButton: {
+    padding: 2,
+  },
+  distributorInfoBody: {
     padding: 12,
     gap: 8,
   },

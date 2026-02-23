@@ -403,6 +403,43 @@ export const productApi = {
 };
 
 // ============================================================================
+// GSTIN LOOKUP API
+// ============================================================================
+
+export const gstinApi = {
+  /**
+   * Lookup GSTIN via Sandbox GST API - returns full business/distributor info
+   * @param {string} gstin - 15 character GSTIN number
+   * @returns {Promise} Response with business details and pre-formatted distributor data
+   */
+  lookupGstin: async (gstin) => {
+    return apiFetch('/gstin/lookup', {
+      method: 'POST',
+      body: JSON.stringify({ gstin }),
+    });
+  },
+
+  /**
+   * Verify GSTIN via Cashfree API (legacy)
+   * @param {string} gstin - GSTIN number
+   * @param {string} businessName - Optional business name for matching
+   */
+  verifyGstin: async (gstin, businessName = null) => {
+    return apiFetch('/gstin/verify', {
+      method: 'POST',
+      body: JSON.stringify({ gstin, businessName }),
+    });
+  },
+
+  /**
+   * Check GST service status
+   */
+  getStatus: async () => {
+    return apiFetch('/gstin/status');
+  },
+};
+
+// ============================================================================
 // DISTRIBUTOR API
 // ============================================================================
 
@@ -506,6 +543,7 @@ export default {
   bill: billApi,
   health: healthApi,
   product: productApi,
+  gstin: gstinApi,
   distributor: distributorApi,
   baseUrl: API_BASE_URL,
 };

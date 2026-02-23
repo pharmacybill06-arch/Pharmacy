@@ -6,7 +6,7 @@ import LoadingOverlay from '@/components/ui/LoadingOverlay';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import ItemRowEditor from './ItemRowEditor';
 import DistributorFormScreen from '@/components/screens/DistributorFormScreen';
-import { distributorApi } from '@/services/api';
+import { distributorApi, gstinApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   calculateParseConfidence,
@@ -135,6 +135,9 @@ export default function BillFormRedesigned({
   );
   const [showAddDistributorModal, setShowAddDistributorModal] = useState(false);
   const [newDistributorName, setNewDistributorName] = useState('');
+  
+  // Distributor mode: 'search' (name autocomplete) or 'gst' (GST number lookup)
+  const [distributorMode, setDistributorMode] = useState('search');
 
   // Toast state
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
@@ -367,6 +370,74 @@ export default function BillFormRedesigned({
     updateItems([...formData.items, newItem]);
   };
 
+  // GST Lookup handlers
+  const handleGstLookupDistributorFound = async (distributorData) => {
+    if (!distributorData) return;
+
+    const { name, gstin, address, phone, dlNumber, email } = distributorData;
+    
+    // Try to find existing distributor with this GSTIN first
+    if (userId && gstin) {
+      try {
+        const searchResult = await distributorApi.searchDistributors(userId, gstin);
+        const existingDistributors = searchResult?.distributors || [];
+        
+        if (existingDistributors.length > 0) {
+          // Found existing distributor with this GSTIN - select it
+          const existing = existingDistributors[0];
+          setSelectedDistributor(existing);
+          setDistributorSearchQuery(existing.name);
+          setFormData((prev) => ({
+            ...prev,
+            distributorId: existing.id,
+            pharmacyName: existing.name,
+            gstin: existing.gstin || gstin,
+            phoneNumbers: existing.phone || phone || '',
+            shopAddress: existing.address || address || '',
+            dlNumber: existing.dlNumber || dlNumber || '',
+          }));
+          showToast(`Existing distributor "${existing.name}" matched by GSTIN`, 'success', 'Distributor Found');
+          return;
+        }
+      } catch (err) {
+        console.log('[GST Lookup] Search for existing distributor failed, will create new:', err.message);
+      }
+    }
+
+    // No existing distributor found - create virtual selection from API data
+    const gstDistributor = {
+      id: null, // Will be created when bill is saved
+      name: name || '',
+      gstin: gstin || '',
+      address: address || '',
+      phone: phone || '',
+      dlNumber: dlNumber || '',
+      email: email || '',
+      _fromGstLookup: true, // Flag to indicate this came from GST lookup
+    };
+
+    setSelectedDistributor(gstDistributor);
+    setDistributorSearchQuery(gstDistributor.name);
+    setFormData((prev) => ({
+      ...prev,
+      pharmacyName: gstDistributor.name,
+      gstin: gstDistributor.gstin,
+      shopAddress: gstDistributor.address,
+      phoneNumbers: gstDistributor.phone,
+      dlNumber: gstDistributor.dlNumber,
+    }));
+
+    showToast(`Distributor info loaded from GST: ${gstDistributor.name}`, 'success', 'GST Lookup');
+  };
+
+  const handleGstLookupError = (errorMsg) => {
+    showToast(errorMsg || 'GST lookup failed', 'error', 'Lookup Failed');
+  };
+
+  const handleDistributorModeChange = (mode) => {
+    setDistributorMode(mode);
+  };
+
   const handleEditItem = (index) => {
     // Set the item to be edited (inline editing mode)
     setEditingItemIndex(index);
@@ -477,6 +548,11 @@ export default function BillFormRedesigned({
         onDistributorSearchChange={handleDistributorSearchChange}
         onDistributorSelect={handleDistributorSelect}
         onAddNewDistributor={handleAddNewDistributor}
+        // GST Lookup props
+        onGstLookupDistributorFound={handleGstLookupDistributorFound}
+        onGstLookupError={handleGstLookupError}
+        distributorMode={distributorMode}
+        onDistributorModeChange={handleDistributorModeChange}
       />
 
       {/* Loading Overlay for Gemini Parsing */}
