@@ -248,8 +248,8 @@ exports.getUserBills = async (req, res) => {
       bills
     });
   } catch (error) {
-    console.error('Error fetching user bills:', error.message, error.stack);
-    res.status(500).json({ error: 'Failed to fetch user bills', details: error.message });
+    console.error('Error fetching user bills:', error.message);
+    res.status(500).json({ error: 'Failed to fetch user bills' });
   }
 };
 
