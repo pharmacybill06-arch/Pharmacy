@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
+import { authApi } from '../services/api';
 
 const AUTH_STORAGE_KEY = 'pharmacy_bill_auth';
 const AUTH_FILE_PATH = `${FileSystem.documentDirectory}auth_data.json`;
@@ -63,8 +64,18 @@ export function AuthProvider({ children }) {
       const storedData = await Storage.getItem(AUTH_STORAGE_KEY);
       if (storedData) {
         const userData = JSON.parse(storedData);
-        setUser(userData);
-        setIsAuthenticated(true);
+        
+        // Validate user still exists on backend (DB may have been reset)
+        try {
+          await authApi.getProfile(userData.id);
+          setUser(userData);
+          setIsAuthenticated(true);
+        } catch (validationError) {
+          console.warn('[Auth] Stored user no longer exists on server, clearing session');
+          await Storage.removeItem(AUTH_STORAGE_KEY);
+          setUser(null);
+          setIsAuthenticated(false);
+        }
       }
     } catch (error) {
       console.error('Error loading stored user:', error);
