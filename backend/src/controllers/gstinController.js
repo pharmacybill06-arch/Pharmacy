@@ -57,8 +57,9 @@ exports.lookupGstin = async (req, res) => {
         {
           method: 'GET',
           headers: {
+            'Authorization': `${SANDBOX_API_KEY}`,
             'x-api-key': SANDBOX_API_KEY,
-            'x-api-version': '1.0',
+            'x-api-version': '2.0',
             'Accept': 'application/json',
           },
           signal: controller.signal,
@@ -71,11 +72,12 @@ exports.lookupGstin = async (req, res) => {
     // Handle non-2xx HTTP responses
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
+      console.error('[GSTIN] Sandbox API error:', response.status, JSON.stringify(errorBody));
       if (response.status === 401 || response.status === 403) {
         return res.status(503).json({
           success: false,
           error: 'GST lookup service authentication failed',
-          details: 'Invalid API key'
+          details: errorBody?.message || errorBody?.error || JSON.stringify(errorBody)
         });
       }
       if (response.status === 404) {
