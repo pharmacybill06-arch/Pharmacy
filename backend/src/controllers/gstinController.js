@@ -57,7 +57,6 @@ exports.lookupGstin = async (req, res) => {
         {
           method: 'GET',
           headers: {
-            'Authorization': SANDBOX_API_KEY,
             'x-api-key': SANDBOX_API_KEY,
             'x-api-version': '1.0',
             'Accept': 'application/json',
