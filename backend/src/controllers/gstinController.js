@@ -1,13 +1,12 @@
 /**
  * GSTIN Controller
- * Handles GST Identification Number verification using Sandbox GST API
+ * Handles GST Identification Number verification using ClearTax public API
  * and legacy Cashfree API as fallback
  * Uses native fetch (Node 18+) — no axios dependency needed
  */
 
-// Sandbox GST API configuration
-const SANDBOX_API_KEY = process.env.SANDBOX_GST_API_KEY || 'key_live_d4c6d54005c142b3b6bd81f23f26206b';
-const SANDBOX_BASE_URL = 'https://api.sandbox.co.in';
+// ClearTax GST lookup (free, no auth needed)
+const CLEARTAX_BASE_URL = 'https://cleartax.in/f/compliance-report';
 
 // Cashfree API configuration (legacy fallback)
 const CASHFREE_BASE_URL = process.env.CASHFREE_ENV === 'production' 
@@ -18,7 +17,7 @@ const CASHFREE_CLIENT_ID = process.env.CASHFREE_CLIENT_ID;
 const CASHFREE_CLIENT_SECRET = process.env.CASHFREE_CLIENT_SECRET;
 
 /**
- * Lookup GSTIN using Sandbox GST API - returns full distributor info
+ * Lookup GSTIN using ClearTax public API - returns full distributor info
  * POST /api/gstin/lookup
  * Body: { gstin }
  */
@@ -44,21 +43,19 @@ exports.lookupGstin = async (req, res) => {
     }
 
     const normalizedGstin = gstin.toUpperCase().trim();
-    console.log(`[GSTIN] Looking up GSTIN via Sandbox API: ${normalizedGstin}`);
+    console.log(`[GSTIN] Looking up GSTIN via ClearTax API: ${normalizedGstin}`);
 
-    // Call Sandbox GST API using native fetch
+    // Call ClearTax public API using native fetch
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     let response;
     try {
       response = await fetch(
-        `${SANDBOX_BASE_URL}/gsp/tax-payer/gstin/${normalizedGstin}`,
+        `${CLEARTAX_BASE_URL}/${normalizedGstin}`,
         {
           method: 'GET',
           headers: {
-            'x-api-key': SANDBOX_API_KEY,
-            'x-api-version': '2.0',
             'Accept': 'application/json',
           },
           signal: controller.signal,
@@ -70,15 +67,8 @@ exports.lookupGstin = async (req, res) => {
 
     // Handle non-2xx HTTP responses
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      console.error('[GSTIN] Sandbox API error:', response.status, JSON.stringify(errorBody));
-      if (response.status === 401 || response.status === 403) {
-        return res.status(503).json({
-          success: false,
-          error: 'GST lookup service authentication failed',
-          details: errorBody?.message || errorBody?.error || JSON.stringify(errorBody)
-        });
-      }
+      const errorBody = await response.text().catch(() => '');
+      console.error('[GSTIN] ClearTax API error:', response.status, errorBody);
       if (response.status === 404) {
         return res.status(200).json({
           success: true,
@@ -95,15 +85,18 @@ exports.lookupGstin = async (req, res) => {
       }
       return res.status(500).json({
         success: false,
-        error: errorBody?.message || 'GSTIN lookup failed',
+        error: 'GSTIN lookup failed',
         details: errorBody
       });
     }
 
     const result = await response.json();
 
+    // ClearTax returns data in result.taxpayerInfo (or result directly for some GSTINs)
+    const data = result.taxpayerInfo || result;
+
     // Check if the API returned valid data
-    if (!result || !result.data) {
+    if (!data || !data.gstin) {
       return res.status(200).json({
         success: true,
         valid: false,
@@ -112,22 +105,20 @@ exports.lookupGstin = async (req, res) => {
       });
     }
 
-    const data = result.data;
+    // ClearTax uses pradr.addr (not pradr.adr) for address fields
+    const addr = data.pradr?.addr || data.pradr?.adr || {};
 
     // Build full address from parts
     const addressParts = [];
-    if (data.pradr?.adr) {
-      const adr = data.pradr.adr;
-      if (adr.bno) addressParts.push(adr.bno);
-      if (adr.flno) addressParts.push(adr.flno);
-      if (adr.bnm) addressParts.push(adr.bnm);
-      if (adr.st) addressParts.push(adr.st);
-      if (adr.loc) addressParts.push(adr.loc);
-      if (adr.city) addressParts.push(adr.city);
-      if (adr.dst) addressParts.push(adr.dst);
-      if (adr.stcd) addressParts.push(adr.stcd);
-      if (adr.pncd) addressParts.push(adr.pncd);
-    }
+    if (addr.bno) addressParts.push(addr.bno);
+    if (addr.flno) addressParts.push(addr.flno);
+    if (addr.bnm) addressParts.push(addr.bnm);
+    if (addr.st) addressParts.push(addr.st);
+    if (addr.loc) addressParts.push(addr.loc);
+    if (addr.city) addressParts.push(addr.city);
+    if (addr.dst) addressParts.push(addr.dst);
+    if (addr.stcd) addressParts.push(addr.stcd);
+    if (addr.pncd) addressParts.push(addr.pncd);
 
     const fullAddress = addressParts.join(', ');
     const tradeName = data.tradeNam || '';
@@ -152,13 +143,13 @@ exports.lookupGstin = async (req, res) => {
         // Address information
         address: {
           full: fullAddress,
-          building: data.pradr?.adr?.bnm || '',
-          street: data.pradr?.adr?.st || '',
-          location: data.pradr?.adr?.loc || '',
-          city: data.pradr?.adr?.city || data.pradr?.adr?.dst || '',
-          district: data.pradr?.adr?.dst || '',
-          state: data.pradr?.adr?.stcd || '',
-          pincode: data.pradr?.adr?.pncd || '',
+          building: addr.bnm || '',
+          street: addr.st || '',
+          location: addr.loc || '',
+          city: addr.city || addr.dst || '',
+          district: addr.dst || '',
+          state: addr.stcd || '',
+          pincode: addr.pncd || '',
         },
 
         // Jurisdiction
@@ -187,7 +178,7 @@ exports.lookupGstin = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[GSTIN] Sandbox API lookup error:', error.message);
+    console.error('[GSTIN] ClearTax API lookup error:', error.message);
 
     // AbortController timeout
     if (error.name === 'AbortError') {
@@ -379,19 +370,14 @@ exports.verifyGstin = async (req, res) => {
  */
 exports.getStatus = async (req, res) => {
   try {
-    const sandboxConfigured = !!SANDBOX_API_KEY;
     const cashfreeConfigured = !!(CASHFREE_CLIENT_ID && CASHFREE_CLIENT_SECRET);
     
     res.json({
       success: true,
-      sandboxConfigured,
+      clearTaxConfigured: true, // ClearTax is free, no config needed
       cashfreeConfigured,
       environment: process.env.CASHFREE_ENV || 'sandbox',
-      message: sandboxConfigured 
-        ? 'GST lookup service is ready (Sandbox API)' 
-        : cashfreeConfigured
-          ? 'GSTIN verification service is ready (Cashfree)'
-          : 'GST services not configured'
+      message: 'GST lookup service is ready (ClearTax API)'
     });
   } catch (error) {
     res.status(500).json({
