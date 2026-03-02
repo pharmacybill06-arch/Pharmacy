@@ -57,9 +57,6 @@
       "eas": {
         "projectId": "26bfafbd-7f63-41ae-84b7-86c8e3449eaf"
       },
-      "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyAMNy3qPumkRLsBW5jFEJMCnFH81uQceGs",
-      "EXPO_PUBLIC_GROQ_API_KEY": "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",
-      "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api",
       "EXPO_PUBLIC_ENABLE_GEMINI": true
     }
   }

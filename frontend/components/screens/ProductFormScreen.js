@@ -46,7 +46,7 @@ const FormField = ({
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
-      placeholderTextColor="#9CA3AF"
+      placeholderTextColor="#94A3B8"
       keyboardType={keyboardType}
       autoFocus={autoFocus}
       autoCapitalize="words"
@@ -342,7 +342,7 @@ export default function ProductFormScreen({
                   value={formData.notes}
                   onChangeText={(v) => updateField('notes', v)}
                   placeholder="Add any additional notes..."
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor="#94A3B8"
                   multiline
                   numberOfLines={4}
                   textAlignVertical="top"
@@ -354,7 +354,7 @@ export default function ProductFormScreen({
             
             {/* Info Card */}
             <View style={styles.infoCard}>
-              <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+              <Ionicons name="information-circle-outline" size={20} color="#64748B" />
               <ThemedText style={styles.infoText}>
                 Track inventory and monitor expiry dates for better stock management.
               </ThemedText>
@@ -397,13 +397,14 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   formCard: {
-    padding: 16,
+    padding: 18,
     marginBottom: 16,
+    borderRadius: 18,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#6B7280',
+    color: '#64748B',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 4,
@@ -411,7 +412,7 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#94A3B8',
     marginBottom: 16,
   },
   fieldContainer: {
@@ -425,7 +426,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#374151',
+    color: '#334155',
   },
   required: {
     fontSize: 13,
@@ -434,15 +435,15 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   input: {
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontSize: 15,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   inputError: {
     borderColor: '#DC2626',
@@ -467,30 +468,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   notesInput: {
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontSize: 15,
     fontWeight: '500',
-    color: '#111827',
+    color: '#0F172A',
     minHeight: 100,
   },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#EEF2FF',
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     gap: 10,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   infoText: {
     flex: 1,
     fontSize: 13,
-    color: '#6B7280',
+    color: '#64748B',
     lineHeight: 18,
   },
   buttonContainer: {
@@ -498,6 +501,6 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 32 : 16,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: '#E2E8F0',
   },
 });

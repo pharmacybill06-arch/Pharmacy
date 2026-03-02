@@ -26,7 +26,7 @@ function TabLayout() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1D4ED8" />
+        <ActivityIndicator size="large" color="#4F46E5" />
       </View>
     );
   }
@@ -34,7 +34,7 @@ function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#0a7ea4',
+        tabBarActiveTintColor: '#4F46E5',
         headerShown: false,
         lazy: true,
         tabBarStyle: { display: 'none' }, // Hide the tab bar

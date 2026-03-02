@@ -99,6 +99,10 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.gradient}>
+        {/* Decorative circles */}
+        <View style={styles.decoCircle1} />
+        <View style={styles.decoCircle2} />
+        <View style={styles.decoCircle3} />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
@@ -111,10 +115,12 @@ export default function LoginScreen() {
             {/* Logo/Header Section */}
             <View style={styles.headerSection}>
               <View style={styles.iconContainer}>
-                <Ionicons name="medical" size={50} color="#fff" />
+                <View style={styles.iconInner}>
+                  <Ionicons name="medical" size={36} color="#fff" />
+                </View>
               </View>
-              <Text style={styles.appName}>Pharmacy Bills</Text>
-              <Text style={styles.tagline}>Manage your medical bills easily</Text>
+              <Text style={styles.appName}>Pharma Bills</Text>
+              <Text style={styles.tagline}>Smart pharmacy bill management</Text>
             </View>
 
             {/* Login Form Section */}
@@ -213,8 +219,35 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
-    backgroundColor: '#667eea',
+    backgroundColor: '#4F46E5',
     paddingTop: Platform.OS === 'android' ? 25 : 0,
+  },
+  decoCircle1: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  decoCircle2: {
+    position: 'absolute',
+    top: height * 0.3,
+    left: -60,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  decoCircle3: {
+    position: 'absolute',
+    bottom: 80,
+    right: -30,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   keyboardView: {
     flex: 1,
@@ -226,81 +259,96 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     alignItems: 'center',
-    marginTop: height * 0.08,
-    marginBottom: 48,
+    marginTop: height * 0.07,
+    marginBottom: 40,
   },
   iconContainer: {
     width: 100,
     height: 100,
-    borderRadius: 50,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  iconInner: {
+    width: 70,
+    height: 70,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
   },
   appName: {
-    fontSize: 32,
-    fontWeight: '700',
+    fontSize: 30,
+    fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
+    letterSpacing: -0.5,
   },
   tagline: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.75)',
     textAlign: 'center',
+    fontWeight: '500',
   },
   formSection: {
     flex: 1,
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: 28,
+    padding: 28,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.12,
+    shadowRadius: 32,
+    elevation: 12,
   },
   welcomeText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a2e',
-    marginBottom: 8,
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 6,
+    letterSpacing: -0.5,
   },
   instructionText: {
     fontSize: 15,
-    color: '#666',
-    marginBottom: 24,
+    color: '#64748B',
+    marginBottom: 28,
+    lineHeight: 22,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: '#e9ecef',
+    borderColor: '#E2E8F0',
     overflow: 'hidden',
   },
   countryCode: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRightWidth: 1,
-    borderRightColor: '#e9ecef',
-    backgroundColor: '#f1f3f4',
+    paddingVertical: 17,
+    borderRightWidth: 1.5,
+    borderRightColor: '#E2E8F0',
+    backgroundColor: '#F1F5F9',
   },
   countryCodeText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#334155',
   },
   input: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 17,
     fontSize: 18,
-    color: '#333',
-    letterSpacing: 1,
+    color: '#0F172A',
+    letterSpacing: 1.5,
+    fontWeight: '600',
   },
   clearButton: {
     paddingHorizontal: 12,
@@ -310,50 +358,64 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
     paddingHorizontal: 4,
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 8,
+    borderRadius: 10,
+    paddingHorizontal: 12,
   },
   errorText: {
-    color: '#e74c3c',
+    color: '#DC2626',
     fontSize: 13,
     marginLeft: 6,
+    fontWeight: '500',
   },
   sendOtpButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#667eea',
-    borderRadius: 12,
-    paddingVertical: 16,
+    backgroundColor: '#4F46E5',
+    borderRadius: 16,
+    paddingVertical: 17,
     marginTop: 24,
     gap: 8,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 6,
   },
   sendOtpButtonDisabled: {
-    backgroundColor: '#b8c1ec',
+    backgroundColor: '#A5B4FC',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   sendOtpButtonText: {
     color: '#fff',
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   termsText: {
     fontSize: 12,
-    color: '#999',
+    color: '#94A3B8',
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: 24,
     lineHeight: 18,
   },
   linkText: {
-    color: '#667eea',
-    fontWeight: '500',
+    color: '#4F46E5',
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 32,
-    gap: 6,
+    gap: 8,
   },
   footerText: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 13,
+    fontWeight: '500',
   },
 });

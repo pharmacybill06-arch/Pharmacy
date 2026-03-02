@@ -36,22 +36,22 @@ export default function PrimaryButton({
 
 const styles = StyleSheet.create({
   button: {
-    height: 52,
-    backgroundColor: '#1D4ED8',
-    borderRadius: 14,
+    height: 54,
+    backgroundColor: '#4F46E5',
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
+        shadowColor: '#4F46E5',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 14,
       },
       android: {
-        elevation: 3,
+        elevation: 6,
       },
     }),
   },
@@ -59,18 +59,20 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   pressed: {
-    opacity: 0.8,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
   disabled: {
-    backgroundColor: '#9CA3AF',
-    opacity: 0.6,
+    backgroundColor: '#94A3B8',
+    opacity: 0.5,
   },
   icon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   text: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
 });

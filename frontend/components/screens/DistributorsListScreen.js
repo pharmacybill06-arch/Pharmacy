@@ -67,13 +67,13 @@ const DistributorListItem = React.memo(({ item, onPress }) => {
         <View style={styles.cardFooter}>
           {item.phone && (
             <View style={styles.infoChip}>
-              <Ionicons name="call-outline" size={12} color="#6B7280" />
+              <Ionicons name="call-outline" size={12} color="#64748B" />
               <ThemedText style={styles.infoText}>{item.phone}</ThemedText>
             </View>
           )}
           {item.address && (
             <View style={styles.infoChip}>
-              <Ionicons name="location-outline" size={12} color="#6B7280" />
+              <Ionicons name="location-outline" size={12} color="#64748B" />
               <ThemedText style={styles.infoText} numberOfLines={1}>
                 {item.address.substring(0, 30)}
               </ThemedText>
@@ -186,11 +186,11 @@ export default function DistributorsListScreen({
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchBar}>
-            <Ionicons name="search" size={20} color="#9CA3AF" />
+            <Ionicons name="search" size={20} color="#94A3B8" />
             <TextInput
               style={styles.searchInput}
               placeholder="Search distributors..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
               autoCapitalize="none"
@@ -198,7 +198,7 @@ export default function DistributorsListScreen({
             />
             {searchQuery.length > 0 && (
               <Pressable onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+                <Ionicons name="close-circle" size={20} color="#94A3B8" />
               </Pressable>
             )}
           </View>
@@ -207,7 +207,7 @@ export default function DistributorsListScreen({
         {/* Distributors List */}
         {loading && distributors.length === 0 ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1D4ED8" />
+            <ActivityIndicator size="large" color="#4F46E5" />
             <ThemedText style={styles.loadingText}>Loading distributors...</ThemedText>
           </View>
         ) : distributors.length === 0 ? (
@@ -223,8 +223,8 @@ export default function DistributorsListScreen({
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                colors={['#1D4ED8']}
-                tintColor="#1D4ED8"
+                colors={['#4F46E5']}
+                tintColor="#4F46E5"
               />
             }
             ListEmptyComponent={
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#E2E8F0',
   },
   statItem: {
     flex: 1,
@@ -265,37 +265,42 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontSize: 11,
+    color: '#64748B',
     marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   statDivider: {
     width: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     marginHorizontal: 12,
   },
   searchContainer: {
     padding: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#E2E8F0',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 44,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
-    fontSize: 16,
-    color: '#1F2937',
+    marginLeft: 10,
+    fontSize: 15,
+    color: '#0F172A',
+    fontWeight: '500',
   },
   loadingContainer: {
     flex: 1,
@@ -305,7 +310,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
   },
   listContent: {
     padding: 16,
@@ -318,6 +323,7 @@ const styles = StyleSheet.create({
   },
   distributorCardInner: {
     padding: 16,
+    borderRadius: 18,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -332,15 +338,17 @@ const styles = StyleSheet.create({
   avatarCircle: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: '#DBEAFE',
+    borderRadius: 14,
+    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   avatarText: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1D4ED8',
+    fontWeight: '700',
+    color: '#4F46E5',
   },
   nameDetails: {
     marginLeft: 12,
@@ -348,12 +356,12 @@ const styles = StyleSheet.create({
   },
   distributorName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontWeight: '700',
+    color: '#0F172A',
   },
   gstinText: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 2,
   },
   amountContainer: {
@@ -366,7 +374,7 @@ const styles = StyleSheet.create({
   },
   billCount: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 2,
   },
   cardFooter: {
@@ -378,15 +386,17 @@ const styles = StyleSheet.create({
   infoChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    gap: 4,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   infoText: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
   },
   emptyContainer: {
     flex: 1,
@@ -396,15 +406,16 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: '700',
+    color: '#0F172A',
     marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#64748B',
     textAlign: 'center',
     marginTop: 8,
+    lineHeight: 20,
   },
   emptyButton: {
     marginTop: 24,
@@ -415,7 +426,7 @@ const styles = StyleSheet.create({
   },
   noResultsText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 12,
   },
 });

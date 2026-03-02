@@ -45,10 +45,11 @@ async function parseOcrWithGemini(ocrText) {
   }
 
   const prompt = `
-You extract data from an Indian pharmacy bill OCR.
+You are an expert Indian pharmacy invoice parser. Parse the OCR text below into structured JSON.
 
-Return ONLY valid JSON (no markdown, no extra text).
-If a value is missing, return null or 0.
+Return ONLY valid JSON (no markdown, no extra text). If a value is missing, return null or 0.
+
+IMPORTANT: "pharmacyName" must be the SELLER/DISTRIBUTOR/SUPPLIER name (the company who issued the invoice), NOT the buyer/customer.
 
 Schema:
 {
@@ -94,36 +95,64 @@ Schema:
   "grandTotal": number|null
 }
 
-CRITICAL EXTRACTION RULES:
+=== CRITICAL COLUMN-TO-FIELD ALIGNMENT RULES ===
 
-1. ITEM QUANTITY & RATE:
-   - Look for "Qty" or "Quantity" column for item quantities
-   - Look for "Rate" or "Price" or "Amount" columns
-   - If quantity is not visible, check if total amount divided by rate gives a sensible number
-   - NEVER leave quantity as null/0 if item has a rate and total
+STEP 1 - IDENTIFY THE TABLE HEADER ROW:
+- Find the header row containing column keywords like: S.No, Item/Product/Particular, Pack/Packing, HSN, Batch, Expiry, Mfg, Qty, Free, Schm, MRP, Rate, Disc/Dis%, GST%, CGST, SGST, Amount/Amt/Net Amt/Value/Total
+- The POSITION of each header determines which DATA VALUE goes into which field for EVERY item row
+- Map each header to the correct field:
+  * "S.No" / "SN" / "Sr" / "#" → sn
+  * "Item" / "Product" / "Particular" / "Description" / "Medicine" → name
+  * "Pack" / "Packing" / "Pkg" → unit (e.g. "10T" means strip of 10 tablets)
+  * "HSN" / "HSN Code" → hsnCode
+  * "Batch" / "B.No" / "Batch No" / "Lot" → batchNumber
+  * "Expiry" / "Exp" / "Exp Dt" → expiryDate
+  * "Mfg" / "Manufacturer" / "Company" → manufacturer
+  * "Qty" / "Quantity" → quantity
+  * "Free" / "Schm" / "Scheme" → freeQuantity
+  * "MRP" / "M.R.P" → mrp (Maximum Retail Price per unit)
+  * "Rate" / "Rt" / "Price" / "P.Rate" / "Pur Rate" / "Net Rate" → rate (per-unit selling/purchase price)
+  * "Dis" / "Dis%" / "Disc" / "Disc%" / "Discount" → discountPercent (if %) or discount (if amount)
+  * "GST%" / "Tax%" → gstPercent
+  * "CGST" / "CGST%" → cgstPercent
+  * "SGST" / "SGST%" → sgstPercent
+  * "Amt" / "Amount" / "Net Amt" / "Value" / "Total" / "Net" → itemTotal
 
-2. TOTALS - EXTRACT EXACTLY FROM BILL:
-   - Copy subtotal, CGST, SGST, total GST, and grand total EXACTLY as shown
-   - Look for keywords: "SUB TOTAL", "CGST", "SGST", "TOTAL GST", "GRAND TOTAL"
-   - These are usually at the bottom of the bill
-   - If CGST and SGST are shown separately, add them for totalGst
-   - NEVER calculate - ALWAYS extract from bill text
+STEP 2 - FOR EACH ITEM ROW, READ VALUES BY COLUMN POSITION:
+- Read each value in the SAME column position as its header
+- DO NOT guess or shuffle values between columns
+- If OCR merged columns, use context to separate (e.g. "100.00 12%" → rate=100.00, gstPercent=12)
 
-3. ITEM-LEVEL FIELDS (pharmaceutical invoices):
-   - sn: Serial number from bill (1, 2, 3, etc.)
-   - manufacturer: Brand/manufacturer name (e.g., "CIPLA", "GSK", "LEEFORD")
-   - batchNumber: Batch/Lot number (e.g., "A1B2C3", "ATZ501A")
-   - expiryDate: Expiry date in DD-MM-YYYY or MM-YY format
-   - hsnCode: HSN code for GST (e.g., "3004", "3002")
-   - freeQuantity: Free quantity if mentioned (e.g., "Buy 2 Get 1 Free")
+STEP 3 - DISTINGUISH PRICE FIELDS PRECISELY (THIS IS THE MOST IMPORTANT STEP):
+- MRP and Rate are TWO COMPLETELY DIFFERENT AND INDEPENDENT fields. NEVER mix them up.
+- MRP = Maximum Retail Price (government-regulated price printed on medicine packaging). Read EXACTLY from the "MRP" column.
+- Rate = Purchase/selling price per unit (the actual price charged by distributor). Read EXACTLY from the "Rate" / "P.Rate" / "Net Rate" column.
+- MRP and Rate CAN have any relationship: MRP > Rate, MRP < Rate, or MRP = Rate. Do NOT assume MRP >= Rate.
+- itemTotal = Line total amount from the "Amount" / "Amt" / "Net Amt" / "Value" column.
+- CRITICAL: Read each value from its OWN column. If header says "MRP" → mrp. If "Rate" → rate. If "Amt" → itemTotal.
+- If the bill has BOTH MRP and Rate columns, populate BOTH fields separately with exact values from each column.
+- If only ONE price column labeled "MRP" → put in mrp field AND copy to rate field.
+- If only ONE price column labeled "Rate"/"Price" → put in rate field only.
+- If only ONE price column labeled "Amount"/"Amt"/"Value" → put in itemTotal only.
+- NEVER put the line total into mrp or rate fields.
+- NEVER put mrp or rate into itemTotal.
+- NEVER swap MRP and Rate values based on which is larger.
 
-4. PAYMENT TYPE:
-   - Must be lowercase: "cash" or "credit"
-   - Look for keywords like "CREDIT", "CASH", "PAID"
+STEP 4 - QUANTITY RULES:
+- quantity = Qty column value (usually small integer 1-500)
+- If qty=0/null but rate and itemTotal exist → quantity = round(itemTotal / rate)
+- freeQuantity from "Free"/"Scheme" column
 
-5. PHONE NUMBERS:
-   - Extract as array of strings
-   - Format: ["9876543210", "0123456789"]
+STEP 5 - TOTALS (extract EXACTLY as printed - do NOT recalculate):
+- subtotal: "Sub Total" / "Subtotal" / "Taxable Amount"
+- cgst: CGST amount (not %); sgst: SGST amount (not %)
+- totalGst: "Total Tax" / "GST Amount" or cgst + sgst
+- discountAmount: "Discount" amount in totals section
+- roundOff: "Round Off" / "Adj"
+- grandTotal: "Grand Total" / "Net Amount" / "Bill Amount"
+
+STEP 6 - PAYMENT TYPE: lowercase "cash" or "credit"
+STEP 7 - PHONE NUMBERS: array ["9876543210"]
 
 OCR TEXT:
 ${ocrText}
@@ -193,16 +222,48 @@ function normalizeBillData(parsed) {
 
   // Normalize items
   const normalizedItems = items.map((it, idx) => {
-    const qty = Number(it.quantity) || 0;
-    const rate = Number(it.rate) || 0;
+    let qty = Number(it.quantity) || 0;
+    let rate = Number(it.rate) || 0;
+    let mrp = it.mrp != null ? Number(it.mrp) : undefined;
+    let itemTotal = it.itemTotal != null && it.itemTotal !== '' ? Number(it.itemTotal) : null;
+    const discount = it.discount != null ? Number(it.discount) : undefined;
 
-    // Use itemTotal if provided; else compute qty*rate
-    let itemTotal = it.itemTotal;
-    if (itemTotal == null || itemTotal === '') {
-      itemTotal = qty * rate;
-    } else {
-      itemTotal = Number(itemTotal) || 0;
+    // === CROSS-VALIDATION: Only swap rate/itemTotal if VERY clearly wrong ===
+    // Only swap when qty > 1 AND the "rate" is very close to qty*itemTotal (i.e. clearly reversed)
+    if (rate > 0 && itemTotal != null && itemTotal > 0 && qty > 1) {
+      const expectedTotal = qty * rate;
+      const reverseExpected = qty * itemTotal;
+      if (Math.abs(reverseExpected - rate) < rate * 0.05 && Math.abs(expectedTotal - itemTotal) > expectedTotal * 0.3) {
+        console.log(`[Normalize] Swapping rate/itemTotal for item "${it.name}": rate ${rate} <-> total ${itemTotal}`);
+        const tempRate = rate;
+        rate = itemTotal;
+        itemTotal = tempRate;
+      }
     }
+
+    // If quantity is 0/null but rate and total exist, calculate quantity
+    if ((!qty || qty === 0) && rate > 0 && itemTotal != null && itemTotal > 0) {
+      const calcQty = Math.round(itemTotal / rate);
+      if (calcQty >= 1 && calcQty <= 9999) {
+        qty = calcQty;
+      }
+    }
+
+    // If rate is 0 but qty and total exist, calculate rate
+    if ((!rate || rate === 0) && qty > 0 && itemTotal != null && itemTotal > 0) {
+      rate = round2(itemTotal / qty);
+    }
+
+    // Compute itemTotal if not provided
+    if (itemTotal == null || itemTotal === 0) {
+      itemTotal = qty * rate - (discount || 0);
+    }
+
+    // NOTE: Do NOT swap MRP and Rate based on value comparison.
+    // MRP and Rate are read from separate columns in the bill.
+    // In Indian pharmacy invoices, Rate can sometimes exceed MRP
+    // (e.g. when Rate includes tax, or for different pack sizes).
+    // Trust what the AI read from the bill column positions.
 
     return {
       sn: it.sn != null ? Number(it.sn) : idx + 1,
@@ -218,11 +279,11 @@ function normalizeBillData(parsed) {
       hsnCode: it.hsnCode || undefined,
       
       // Prices
-      mrp: it.mrp != null ? Number(it.mrp) : undefined,
+      mrp,
       rate,
       
       // Discount/taxes
-      discount: it.discount != null ? Number(it.discount) : undefined,
+      discount,
       discountPercent: it.discountPercent != null ? Number(it.discountPercent) : undefined,
       gstPercent: it.gstPercent != null ? Number(it.gstPercent) : 0,
       sgstPercent: it.sgstPercent != null ? Number(it.sgstPercent) : undefined,

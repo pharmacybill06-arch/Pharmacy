@@ -65,7 +65,7 @@ const ProductListItem = React.memo(({ item, onPress, onLongPress }) => {
         
         <View style={styles.productFooter}>
           <View style={styles.usageInfo}>
-            <Ionicons name="repeat-outline" size={14} color="#6B7280" />
+            <Ionicons name="repeat-outline" size={14} color="#64748B" />
             <ThemedText style={styles.usageText}>
               Used {item.usageCount || 0} times
             </ThemedText>
@@ -204,7 +204,7 @@ export default function ProductsListScreen({
     if (!pagination.hasMore) return null;
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color="#1D4ED8" />
+        <ActivityIndicator size="small" color="#4F46E5" />
       </View>
     );
   }, [pagination.hasMore]);
@@ -243,11 +243,11 @@ export default function ProductsListScreen({
         <View style={styles.content}>
           {/* Search Bar */}
           <View style={styles.searchBar}>
-            <Ionicons name="search-outline" size={20} color="#6B7280" />
+            <Ionicons name="search-outline" size={20} color="#64748B" />
             <TextInput
               style={styles.searchInput}
               placeholder="Search products..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
               autoCapitalize="none"
@@ -255,7 +255,7 @@ export default function ProductsListScreen({
             />
             {searchQuery.length > 0 && (
               <Pressable onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+                <Ionicons name="close-circle" size={20} color="#94A3B8" />
               </Pressable>
             )}
           </View>
@@ -293,8 +293,8 @@ export default function ProductsListScreen({
               <RefreshControl
                 refreshing={isRefreshing}
                 onRefresh={refresh}
-                colors={['#1D4ED8']}
-                tintColor="#1D4ED8"
+                colors={['#4F46E5']}
+                tintColor="#4F46E5"
               />
             }
           />
@@ -333,19 +333,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 16,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchInput: {
     flex: 1,
     marginLeft: 10,
     fontSize: 15,
-    color: '#111827',
+    color: '#0F172A',
     fontWeight: '500',
   },
   statsBar: {
@@ -354,7 +359,7 @@ const styles = StyleSheet.create({
   },
   statsText: {
     fontSize: 13,
-    color: '#6B7280',
+    color: '#64748B',
     fontWeight: '500',
   },
   listContent: {
@@ -369,6 +374,7 @@ const styles = StyleSheet.create({
   productCardInner: {
     padding: 14,
     position: 'relative',
+    borderRadius: 18,
   },
   productHeader: {
     flexDirection: 'row',
@@ -383,12 +389,12 @@ const styles = StyleSheet.create({
   productName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
     marginBottom: 2,
   },
   manufacturer: {
     fontSize: 13,
-    color: '#6B7280',
+    color: '#64748B',
     fontWeight: '500',
   },
   priceInfo: {
@@ -401,7 +407,7 @@ const styles = StyleSheet.create({
   },
   mrp: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#94A3B8',
     marginTop: 2,
   },
   productFooter: {
@@ -416,11 +422,11 @@ const styles = StyleSheet.create({
   },
   usageText: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
   },
   lastUsed: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
   matchedBadge: {
     position: 'absolute',
@@ -429,10 +435,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#D1FAE5',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    gap: 3,
   },
   matchedText: {
     fontSize: 10,
@@ -448,28 +454,28 @@ const styles = StyleSheet.create({
   },
   skeletonCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 18,
     padding: 16,
     marginBottom: 10,
   },
   skeletonLine: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     height: 16,
-    borderRadius: 4,
+    borderRadius: 8,
     width: '70%',
     marginBottom: 8,
   },
   skeletonLineSm: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     height: 12,
-    borderRadius: 4,
+    borderRadius: 6,
     width: '40%',
     marginBottom: 8,
   },
   skeletonLineXs: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     height: 10,
-    borderRadius: 4,
+    borderRadius: 5,
     width: '30%',
   },
   emptyContainer: {
@@ -482,22 +488,24 @@ const styles = StyleSheet.create({
   emptyIconContainer: {
     width: 120,
     height: 120,
-    borderRadius: 60,
-    backgroundColor: '#F3F4F6',
+    borderRadius: 32,
+    backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#374151',
+    color: '#0F172A',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 24,
@@ -505,11 +513,16 @@ const styles = StyleSheet.create({
   emptyAddButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1D4ED8',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
+    backgroundColor: '#4F46E5',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 16,
     gap: 8,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   emptyAddButtonText: {
     fontSize: 15,

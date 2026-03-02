@@ -55,13 +55,13 @@ export default function DateField({
           value={localValue}
           onChangeText={handleTextChange}
           placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#94A3B8"
           keyboardType="numeric"
           maxLength={10}
           autoCapitalize="none"
           autoCorrect={false}
         />
-        <Ionicons name="calendar-outline" size={20} color="#6B7280" style={styles.icon} />
+        <Ionicons name="calendar-outline" size={20} color="#64748B" style={styles.icon} />
       </View>
 
       {error && (
@@ -83,9 +83,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1F2937',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   required: {
     color: '#DC2626',
@@ -94,11 +96,11 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 14,
     minHeight: 48,
   },
   inputContainerError: {
@@ -107,9 +109,10 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    color: '#1F2937',
+    fontSize: 15,
+    color: '#0F172A',
     paddingVertical: 12,
+    fontWeight: '500',
   },
   icon: {
     marginLeft: 8,

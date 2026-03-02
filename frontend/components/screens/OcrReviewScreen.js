@@ -35,7 +35,7 @@ export default function OcrReviewScreen({
         >
           {/* Status Pill */}
           <View style={styles.statusPill}>
-            <Ionicons name="sparkles-outline" size={16} color="#1D4ED8" />
+            <Ionicons name="sparkles-outline" size={16} color="#4F46E5" />
             <ThemedText style={styles.statusText}>
               Gemini Parsed • {confidence}% confidence
             </ThemedText>
@@ -53,7 +53,7 @@ export default function OcrReviewScreen({
                 ]}
                 onPress={onCopyText}
               >
-                <Ionicons name="copy-outline" size={18} color="#111827" />
+                <Ionicons name="copy-outline" size={18} color="#0F172A" />
               </Pressable>
             </View>
 
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
     marginLeft: 6,
   },
   textCard: {
@@ -138,13 +138,13 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
   },
   copyButton: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   textContent: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     borderRadius: 12,
     padding: 12,
     minHeight: 200,
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   extractedText: {
     fontSize: 13,
     fontWeight: '400',
-    color: '#111827',
+    color: '#0F172A',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 20,
   },
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#E2E8F0',
   },
   buttonSpacer: {
     height: 10,

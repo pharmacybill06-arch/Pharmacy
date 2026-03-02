@@ -149,7 +149,7 @@ export default function ProductAutocomplete({
           value={value}
           onChangeText={handleTextChange}
           placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#94A3B8"
           onFocus={handleFocus}
           onBlur={handleBlur}
           editable={!disabled}
@@ -159,7 +159,7 @@ export default function ProductAutocomplete({
         {isSearching && (
           <ActivityIndicator
             size="small"
-            color="#6B7280"
+            color="#64748B"
             style={styles.loader}
           />
         )}
@@ -169,7 +169,7 @@ export default function ProductAutocomplete({
       {showSuggestions && results.length > 0 && (
         <View style={styles.suggestionsContainer}>
           <View style={styles.suggestionsHeader}>
-            <Ionicons name="search" size={14} color="#6B7280" />
+            <Ionicons name="search" size={14} color="#64748B" />
             <ThemedText style={styles.suggestionsTitle}>
               Suggestions ({results.length})
             </ThemedText>
@@ -256,7 +256,7 @@ export function ProductAutocompleteModal({
         {item.defaultRate && (
           <ThemedText style={styles.modalItemRate}>₹{item.defaultRate}</ThemedText>
         )}
-        <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+        <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
       </View>
     </Pressable>
   ), [handleSelect]);
@@ -272,7 +272,7 @@ export function ProductAutocompleteModal({
         {/* Header */}
         <View style={styles.modalHeader}>
           <Pressable style={styles.modalCloseBtn} onPress={onClose}>
-            <Ionicons name="close" size={24} color="#111827" />
+            <Ionicons name="close" size={24} color="#0F172A" />
           </Pressable>
           <ThemedText style={styles.modalTitle}>Select Product</ThemedText>
           <View style={styles.modalCloseBtn} />
@@ -280,23 +280,23 @@ export function ProductAutocompleteModal({
 
         {/* Search Input */}
         <View style={styles.modalSearchContainer}>
-          <Ionicons name="search" size={20} color="#6B7280" />
+          <Ionicons name="search" size={20} color="#64748B" />
           <TextInput
             style={styles.modalSearchInput}
             value={value}
             onChangeText={handleTextChange}
             placeholder="Search products..."
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor="#94A3B8"
             autoFocus
             autoCapitalize="words"
             autoCorrect={false}
           />
           {isSearching && (
-            <ActivityIndicator size="small" color="#6B7280" />
+            <ActivityIndicator size="small" color="#64748B" />
           )}
           {value.length > 0 && !isSearching && (
             <Pressable onPress={() => handleTextChange('')}>
-              <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+              <Ionicons name="close-circle" size={20} color="#94A3B8" />
             </Pressable>
           )}
         </View>
@@ -312,7 +312,7 @@ export function ProductAutocompleteModal({
           ListHeaderComponent={
             value.length > 0 && (
               <Pressable style={styles.createNewItem} onPress={handleCreateNew}>
-                <Ionicons name="add-circle" size={24} color="#1D4ED8" />
+                <Ionicons name="add-circle" size={24} color="#4F46E5" />
                 <View style={styles.createNewContent}>
                   <ThemedText style={styles.createNewText}>
                     Use "{value}"
@@ -351,19 +351,19 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   inputDisabled: {
     backgroundColor: '#F9FAFB',
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
   loader: {
     position: 'absolute',
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
     maxHeight: 280,
     zIndex: 1000,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
   },
   suggestionsHeader: {
     flexDirection: 'row',
@@ -393,13 +393,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F1F5F9',
     gap: 6,
   },
   suggestionsTitle: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
     textTransform: 'uppercase',
   },
   suggestionsList: {
@@ -422,11 +422,11 @@ const styles = StyleSheet.create({
   suggestionName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   suggestionManufacturer: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 1,
   },
   suggestionPrice: {
@@ -440,7 +440,7 @@ const styles = StyleSheet.create({
     color: '#059669',
   },
   usageBadge: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -448,7 +448,7 @@ const styles = StyleSheet.create({
   usageText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   
   // Modal styles
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F1F5F9',
   },
   modalCloseBtn: {
     width: 40,
@@ -475,7 +475,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
   },
   modalSearchContainer: {
     flexDirection: 'row',
@@ -484,13 +484,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F1F5F9',
     gap: 10,
   },
   modalSearchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#111827',
+    color: '#0F172A',
     fontWeight: '500',
   },
   modalList: {
@@ -515,11 +515,11 @@ const styles = StyleSheet.create({
   modalItemName: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   modalItemSub: {
     fontSize: 13,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 2,
   },
   modalItemRight: {
@@ -547,11 +547,11 @@ const styles = StyleSheet.create({
   createNewText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   createNewSub: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 2,
   },
   emptyResults: {
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 12,
     textAlign: 'center',
   },

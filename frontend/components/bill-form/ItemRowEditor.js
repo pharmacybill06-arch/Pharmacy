@@ -191,7 +191,7 @@ export default function ItemRowEditor({
       
       {!isProductMatched && fields.name && (
         <View style={styles.newProductBadge}>
-          <Ionicons name="sparkles" size={16} color="#1D4ED8" />
+          <Ionicons name="sparkles" size={16} color="#4F46E5" />
           <Text style={styles.newProductText}>New product - will be added to catalog</Text>
         </View>
       )}
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
   newProductText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   autocompleteContainer: {
     flex: 1,

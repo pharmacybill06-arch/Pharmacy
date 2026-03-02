@@ -26,7 +26,7 @@ const InfoRow = ({ icon, label, value }) => {
   return (
     <View style={styles.infoRow}>
       <View style={styles.infoIcon}>
-        <Ionicons name={icon} size={18} color="#6B7280" />
+        <Ionicons name={icon} size={18} color="#64748B" />
       </View>
       <View style={styles.infoContent}>
         <ThemedText style={styles.infoLabel}>{label}</ThemedText>
@@ -103,7 +103,7 @@ export default function DistributorDetailScreen({
         <SafeAreaView style={styles.safeArea} edges={['top']}>
           <AppBar title="Distributor" onBack={onBack} />
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1D4ED8" />
+            <ActivityIndicator size="large" color="#4F46E5" />
           </View>
         </SafeAreaView>
       </ThemedView>
@@ -259,7 +259,7 @@ export default function DistributorDetailScreen({
 
   const ListEmpty = () => (
     <View style={styles.emptyBills}>
-      <Ionicons name="receipt-outline" size={48} color="#C7C7CC" />
+      <Ionicons name="receipt-outline" size={48} color="#CBD5E1" />
       <ThemedText style={styles.emptyText}>No bills found</ThemedText>
     </View>
   );
@@ -273,7 +273,7 @@ export default function DistributorDetailScreen({
         onPress={onLoadMoreBills}
       >
         {loading ? (
-          <ActivityIndicator size="small" color="#1D4ED8" />
+          <ActivityIndicator size="small" color="#4F46E5" />
         ) : (
           <ThemedText style={styles.loadMoreText}>Load More Bills</ThemedText>
         )}
@@ -332,15 +332,17 @@ const styles = StyleSheet.create({
   avatarLarge: {
     width: 64,
     height: 64,
-    borderRadius: 32,
-    backgroundColor: '#DBEAFE',
+    borderRadius: 20,
+    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#C7D2FE',
   },
   avatarTextLarge: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   profileInfo: {
     marginLeft: 16,
@@ -349,26 +351,30 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1F2937',
+    color: '#0F172A',
   },
   gstinBadge: {
-    backgroundColor: '#EBF5FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
     marginTop: 6,
     alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   gstinBadgeText: {
     fontSize: 12,
-    color: '#1D4ED8',
-    fontWeight: '500',
+    color: '#4F46E5',
+    fontWeight: '600',
   },
   statsContainer: {
     flexDirection: 'row',
     backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   statBox: {
     flex: 1,
@@ -376,31 +382,36 @@ const styles = StyleSheet.create({
   },
   statBoxDivider: {
     width: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     marginHorizontal: 16,
   },
   statBoxValue: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   statBoxValueGreen: {
     color: '#059669',
   },
   statBoxLabel: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontSize: 11,
+    color: '#64748B',
     marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   detailsCard: {
     padding: 16,
     marginBottom: 16,
+    borderRadius: 18,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
     marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   infoRow: {
     flexDirection: 'row',
@@ -408,37 +419,43 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   infoIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   infoContent: {
     flex: 1,
     marginLeft: 12,
   },
   infoLabel: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontSize: 11,
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   infoValue: {
     fontSize: 14,
-    color: '#1F2937',
-    fontWeight: '500',
+    color: '#0F172A',
+    fontWeight: '600',
     marginTop: 2,
   },
   notesSection: {
     marginTop: 8,
-    padding: 12,
+    padding: 14,
     backgroundColor: '#FEF3C7',
-    borderRadius: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
   },
   notesLabel: {
     fontSize: 12,
     color: '#92400E',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   notesText: {
     fontSize: 14,
@@ -461,21 +478,23 @@ const styles = StyleSheet.create({
   },
   billsCount: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
   },
   billRow: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
     elevation: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(226,232,240,0.6)',
   },
   billRowPressed: {
     opacity: 0.7,
@@ -486,11 +505,11 @@ const styles = StyleSheet.create({
   billInvoice: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#0F172A',
   },
   billDate: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 2,
   },
   billRowRight: {
@@ -508,7 +527,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 12,
   },
   loadMoreButton: {
@@ -517,7 +536,7 @@ const styles = StyleSheet.create({
   },
   loadMoreText: {
     fontSize: 14,
-    color: '#1D4ED8',
-    fontWeight: '500',
+    color: '#4F46E5',
+    fontWeight: '600',
   },
 });

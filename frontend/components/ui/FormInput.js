@@ -30,7 +30,7 @@ export default function FormInput({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#9CA3AF"
+        placeholderTextColor="#94A3B8"
         keyboardType={keyboardType}
         multiline={multiline}
         numberOfLines={numberOfLines}
@@ -44,24 +44,26 @@ export default function FormInput({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 12,
+    marginBottom: 14,
   },
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
     marginBottom: 6,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: '500',
+    color: '#0F172A',
   },
   multilineInput: {
     minHeight: 80,
@@ -69,6 +71,6 @@ const styles = StyleSheet.create({
   },
   disabledInput: {
     backgroundColor: '#F9FAFB',
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
 });

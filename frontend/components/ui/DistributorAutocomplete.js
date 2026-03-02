@@ -74,7 +74,7 @@ SuggestionItem.displayName = 'SuggestionItem';
 const AddNewItem = React.memo(({ query, onPress }) => (
   <Pressable style={styles.addNewItem} onPress={onPress}>
     <View style={styles.addNewIcon}>
-      <Ionicons name="add" size={20} color="#1D4ED8" />
+      <Ionicons name="add" size={20} color="#4F46E5" />
     </View>
     <ThemedText style={styles.addNewText}>
       Add "{query}" as new distributor
@@ -209,13 +209,13 @@ export default function DistributorAutocomplete({
           onFocus={handleFocus}
           onBlur={handleBlur}
           placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#94A3B8"
           editable={!disabled}
         />
         {isSearching && (
           <ActivityIndicator 
             size="small" 
-            color="#1D4ED8" 
+            color="#4F46E5" 
             style={styles.spinner}
           />
         )}
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -282,11 +282,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   inputDisabled: {
-    backgroundColor: '#F3F4F6',
-    color: '#9CA3AF',
+    backgroundColor: '#F1F5F9',
+    color: '#94A3B8',
   },
   spinner: {
     marginRight: 12,
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
     borderTopWidth: 0,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F1F5F9',
   },
   suggestionItemSelected: {
     backgroundColor: '#EEF2FF',
@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   suggestionContent: {
     flex: 1,
@@ -347,12 +347,12 @@ const styles = StyleSheet.create({
   suggestionName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   suggestionGstin: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#64748B',
     marginTop: 2,
   },
   billCountBadge: {
@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
   billCountText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   addNewItem: {
     flexDirection: 'row',
@@ -373,13 +373,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: '#F9FAFB',
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#E2E8F0',
   },
   addNewIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#DBEAFE',
+    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -387,13 +387,13 @@ const styles = StyleSheet.create({
   addNewText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1D4ED8',
+    color: '#4F46E5',
     flex: 1,
   },
   emptyText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#94A3B8',
     textAlign: 'center',
     paddingVertical: 16,
   },
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   selectedLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   selectedName: {
     fontSize: 12,
@@ -418,6 +418,6 @@ const styles = StyleSheet.create({
   selectedGstin: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#64748B',
   },
 });

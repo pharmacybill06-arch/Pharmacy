@@ -7,6 +7,7 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -156,17 +157,17 @@ export default function BillsListScreen({
         <View style={styles.content}>
           {/* Search Bar */}
           <View style={styles.searchBar}>
-            <Ionicons name="search-outline" size={20} color="#6B7280" />
+            <Ionicons name="search-outline" size={20} color="#64748B" />
             <TextInput
               style={styles.searchInput}
               placeholder="Search bills..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
             {searchQuery.length > 0 && (
               <Pressable onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color="#6B7280" />
+                <Ionicons name="close-circle" size={20} color="#64748B" />
               </Pressable>
             )}
           </View>
@@ -193,7 +194,7 @@ export default function BillsListScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   safeArea: {
     flex: 1,
@@ -206,33 +207,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    height: 46,
-    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    height: 50,
+    paddingHorizontal: 14,
     marginTop: 16,
     marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.03,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginLeft: 8,
+    fontWeight: '500',
+    color: '#0F172A',
+    marginLeft: 10,
   },
   listContent: {
     paddingBottom: 16,
   },
   billCard: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   billCardPressed: {
-    opacity: 0.7,
+    opacity: 0.8,
+    transform: [{ scale: 0.99 }],
   },
   billCardInner: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#F1F5F9',
   },
   billCardHeader: {
     flexDirection: 'row',
@@ -248,16 +261,18 @@ const styles = StyleSheet.create({
   },
   pharmacyName: {
     fontSize: 15,
-    fontWeight: '800',
-    color: '#111827',
+    fontWeight: '700',
+    color: '#0F172A',
     flexShrink: 1,
   },
   legacyBadge: {
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     marginLeft: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
   },
   legacyBadgeText: {
     fontSize: 10,
@@ -265,9 +280,9 @@ const styles = StyleSheet.create({
     color: '#92400E',
   },
   amount: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#111827',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
   },
   billCardFooter: {
     flexDirection: 'row',
@@ -279,18 +294,18 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: 64,
   },
   emptyTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
     marginTop: 16,
   },
   emptySubtitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: '500',
+    color: '#94A3B8',
     marginTop: 8,
   },
   skeletonContainer: {
@@ -298,22 +313,24 @@ const styles = StyleSheet.create({
   },
   skeletonCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 10,
     height: 80,
     justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   skeletonLine: {
     height: 20,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 4,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 6,
     width: '70%',
   },
   skeletonLineSm: {
     height: 16,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 4,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 6,
     width: '40%',
   },
 });

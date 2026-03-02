@@ -90,9 +90,12 @@ ITEM PARSING RULES:
 - "Qty" column = quantity (required)
 - "Free" / "FREE Qty" = freeQuantity
 - Find unit after quantity (tabs, strips, pcs, ml, gm, etc.)
-- "MRP" column = MRP (fixed retail price)
-- "Rate" = selling price per unit (what pharmacy charges)
-- Amount = final line total (should equal: (qty × rate - discount) + GST, but OCR errors may exist)
+- "MRP" column = MRP (Maximum Retail Price - government-regulated price on pack). Read EXACTLY from MRP column.
+- "Rate" column = selling/purchase price per unit. Read EXACTLY from Rate column. This is a DIFFERENT field from MRP.
+- MRP and Rate are INDEPENDENT values. MRP can be greater, equal, or less than Rate. NEVER swap them.
+- "Amount"/"Amt" column = final line total (itemTotal). Read EXACTLY from the Amount column.
+- NEVER put Amount into rate or mrp. NEVER put rate or mrp into Amount.
+- If bill has BOTH MRP and Rate columns, populate both fields with their respective column values.
 - Discount = absolute amount OR discountPercent = percentage
 - "GST" / "TAX" columns indicate percentage
 - If separate CGST/SGST columns exist, use those; otherwise use single GST%

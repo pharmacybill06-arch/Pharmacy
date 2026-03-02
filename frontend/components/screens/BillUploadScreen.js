@@ -33,7 +33,7 @@ export default function BillUploadScreen({
           {/* Header Section */}
           <View style={styles.headerSection}>
             <View style={styles.headerIconContainer}>
-              <Ionicons name="document-text" size={48} color="#1D4ED8" />
+              <Ionicons name="document-text" size={48} color="#4F46E5" />
             </View>
             <ThemedText style={styles.headerTitle}>
               Upload Pharmacy Bill
@@ -56,7 +56,7 @@ export default function BillUploadScreen({
           >
             <View style={styles.uploadCardContent}>
               <View style={styles.uploadIconContainer}>
-                <Ionicons name="cloud-upload-outline" size={48} color="#1D4ED8" />
+                <Ionicons name="cloud-upload-outline" size={48} color="#4F46E5" />
               </View>
               <ThemedText style={styles.uploadTitle}>
                 Bill Photo
@@ -104,12 +104,12 @@ export default function BillUploadScreen({
               ]}
               onPress={onPickImage}
             >
-              <Ionicons name="image" size={24} color="#1D4ED8" />
+              <Ionicons name="image" size={24} color="#4F46E5" />
               <View style={styles.buttonTextContainer}>
                 <ThemedText style={styles.galleryButtonTitle}>Choose from Gallery</ThemedText>
                 <ThemedText style={styles.galleryButtonSubtitle}>Select existing photo</ThemedText>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#1D4ED8" />
+              <Ionicons name="chevron-forward" size={20} color="#4F46E5" />
             </Pressable>
 
             <View style={styles.dividerContainer}>
@@ -163,64 +163,68 @@ export default function BillUploadScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
     paddingTop: Platform.OS === 'android' ? 25 : 0,
   },
   safeArea: {
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
+    padding: 20,
     paddingBottom: 32,
   },
 
   // Header Section
   headerSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
     paddingTop: 8,
   },
   headerIconContainer: {
     width: 72,
     height: 72,
-    borderRadius: 18,
-    backgroundColor: '#DBEAFE',
+    borderRadius: 22,
+    backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
     marginBottom: 8,
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#64748B',
     textAlign: 'center',
+    lineHeight: 20,
   },
 
   // Upload Card
   uploadCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: '#BFDBFE',
+    borderColor: '#C7D2FE',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 36,
+    paddingVertical: 40,
     marginBottom: 28,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
       },
       android: {
         elevation: 2,
@@ -228,9 +232,8 @@ const styles = StyleSheet.create({
     }),
   },
   uploadCardPressed: {
-    backgroundColor: '#F3F4F6',
-    borderColor: '#93C5FD',
-    opacity: 0.9,
+    backgroundColor: '#EEF2FF',
+    borderColor: '#818CF8',
     transform: [{ scale: 0.98 }],
   },
   uploadCardContent: {
@@ -242,14 +245,15 @@ const styles = StyleSheet.create({
   },
   uploadTitle: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#111827',
+    fontWeight: '700',
+    color: '#0F172A',
     marginBottom: 6,
+    letterSpacing: -0.2,
   },
   uploadSubtitle: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: '500',
+    color: '#64748B',
     marginBottom: 12,
   },
   fileTypeHint: {
@@ -257,15 +261,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     backgroundColor: '#ECFDF5',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
   },
   hintText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#059669',
+    color: '#047857',
   },
 
   // Buttons Container
@@ -275,22 +281,22 @@ const styles = StyleSheet.create({
   },
   cameraButton: {
     width: '100%',
-    height: 64,
-    backgroundColor: '#1D4ED8',
-    borderRadius: 14,
+    height: 66,
+    backgroundColor: '#4F46E5',
+    borderRadius: 18,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     gap: 16,
     ...Platform.select({
       ios: {
-        shadowColor: '#1D4ED8',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 10,
+        shadowColor: '#4F46E5',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.3,
+        shadowRadius: 14,
       },
       android: {
-        elevation: 4,
+        elevation: 6,
       },
     }),
   },
@@ -305,11 +311,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
   buttonSubtitle: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#DBEAFE',
+    color: 'rgba(255,255,255,0.7)',
     marginTop: 2,
   },
 
@@ -323,50 +330,50 @@ const styles = StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
   },
   dividerText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
 
   // Gallery Button
   galleryButton: {
     width: '100%',
-    height: 64,
+    height: 66,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#BFDBFE',
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: '#C7D2FE',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     gap: 16,
   },
   galleryButtonPressed: {
-    opacity: 0.7,
-    backgroundColor: '#F0F4FF',
+    backgroundColor: '#EEF2FF',
+    transform: [{ scale: 0.98 }],
   },
   galleryButtonTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
   galleryButtonSubtitle: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#93C5FD',
+    color: '#A5B4FC',
     marginTop: 2,
   },
 
   // File Button (CSV/Excel)
   fileButton: {
     width: '100%',
-    height: 64,
+    height: 66,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 2,
+    borderRadius: 18,
+    borderWidth: 1.5,
     borderColor: '#A7F3D0',
     flexDirection: 'row',
     alignItems: 'center',
@@ -374,8 +381,8 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   fileButtonPressed: {
-    opacity: 0.7,
     backgroundColor: '#ECFDF5',
+    transform: [{ scale: 0.98 }],
   },
   fileButtonTitle: {
     fontSize: 16,
@@ -392,16 +399,20 @@ const styles = StyleSheet.create({
   // Tips Container
   tipsContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     borderLeftWidth: 4,
     borderLeftColor: '#F59E0B',
+    borderWidth: 1,
+    borderTopColor: '#FEF3C7',
+    borderRightColor: '#FEF3C7',
+    borderBottomColor: '#FEF3C7',
   },
   tipsTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 12,
+    color: '#0F172A',
+    marginBottom: 14,
   },
   tipItem: {
     flexDirection: 'row',
@@ -420,7 +431,7 @@ const styles = StyleSheet.create({
   tipText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#64748B',
     flex: 1,
     lineHeight: 18,
   },

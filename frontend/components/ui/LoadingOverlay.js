@@ -97,7 +97,7 @@ export default function LoadingOverlay({
             ]}
           >
             <View style={styles.iconBackground}>
-              <Ionicons name={icon} size={32} color="#1D4ED8" />
+              <Ionicons name={icon} size={32} color="#4F46E5" />
             </View>
           </Animated.View>
           
@@ -184,16 +184,16 @@ function LoadingDots() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   content: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 32,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
     shadowRadius: 20,
@@ -217,14 +217,14 @@ const styles = StyleSheet.create({
   message: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
     textAlign: 'center',
     marginBottom: 6,
   },
   submessage: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: 18,
   },
@@ -239,6 +239,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#1D4ED8',
+    backgroundColor: '#4F46E5',
   },
 });

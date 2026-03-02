@@ -55,7 +55,7 @@ const ItemRow = ({ item, index, onPress }) => {
       </View>
       <View style={styles.itemRowRight}>
         <ThemedText style={styles.itemTotal}>₹{totalValue.toFixed(2)}</ThemedText>
-        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+        <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
       </View>
     </Pressable>
   );
@@ -147,7 +147,7 @@ export default function BillFormScreen({
           {/* Status Pills */}
           {geminiLoading && (
             <View style={styles.statusPill}>
-              <Ionicons name="sync-outline" size={16} color="#1D4ED8" />
+              <Ionicons name="sync-outline" size={16} color="#4F46E5" />
               <ThemedText style={styles.statusText}>
                 Gemini AI is parsing your invoice...
               </ThemedText>
@@ -156,7 +156,7 @@ export default function BillFormScreen({
 
           {geminiConfidence !== null && !geminiLoading && (
             <View style={styles.statusPill}>
-              <Ionicons name="sparkles-outline" size={16} color="#1D4ED8" />
+              <Ionicons name="sparkles-outline" size={16} color="#4F46E5" />
               <ThemedText style={styles.statusText}>
                 Gemini Parse • {(geminiConfidence * 100).toFixed(1)}% confidence
                 {itemsNeedingManualReview > 0 &&
@@ -184,7 +184,7 @@ export default function BillFormScreen({
                   <Ionicons
                     name="search-outline"
                     size={15}
-                    color={distributorMode === 'search' ? '#1D4ED8' : '#6B7280'}
+                    color={distributorMode === 'search' ? '#4F46E5' : '#64748B'}
                   />
                   <ThemedText
                     style={[
@@ -205,7 +205,7 @@ export default function BillFormScreen({
                   <Ionicons
                     name="document-text-outline"
                     size={15}
-                    color={distributorMode === 'gst' ? '#1D4ED8' : '#6B7280'}
+                    color={distributorMode === 'gst' ? '#4F46E5' : '#64748B'}
                   />
                   <ThemedText
                     style={[
@@ -258,36 +258,36 @@ export default function BillFormScreen({
                       onPress={() => onDistributorSelect?.(null)}
                       style={styles.clearDistributorButton}
                     >
-                      <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+                      <Ionicons name="close-circle" size={16} color="#94A3B8" />
                     </Pressable>
                   </View>
 
                   <View style={styles.distributorInfoBody}>
                     <View style={styles.infoRow}>
-                      <Ionicons name="business-outline" size={16} color="#6B7280" />
+                      <Ionicons name="business-outline" size={16} color="#64748B" />
                       <ThemedText style={styles.infoText}>{selectedDistributor.name}</ThemedText>
                     </View>
                     {selectedDistributor.gstin && (
                       <View style={styles.infoRow}>
-                        <Ionicons name="document-text-outline" size={16} color="#6B7280" />
+                        <Ionicons name="document-text-outline" size={16} color="#64748B" />
                         <ThemedText style={styles.infoText}>GSTIN: {selectedDistributor.gstin}</ThemedText>
                       </View>
                     )}
                     {selectedDistributor.phone && (
                       <View style={styles.infoRow}>
-                        <Ionicons name="call-outline" size={16} color="#6B7280" />
+                        <Ionicons name="call-outline" size={16} color="#64748B" />
                         <ThemedText style={styles.infoText}>{selectedDistributor.phone}</ThemedText>
                       </View>
                     )}
                     {selectedDistributor.address && (
                       <View style={styles.infoRow}>
-                        <Ionicons name="location-outline" size={16} color="#6B7280" />
+                        <Ionicons name="location-outline" size={16} color="#64748B" />
                         <ThemedText style={styles.infoText}>{selectedDistributor.address}</ThemedText>
                       </View>
                     )}
                     {selectedDistributor.dlNumber && (
                       <View style={styles.infoRow}>
-                        <Ionicons name="card-outline" size={16} color="#6B7280" />
+                        <Ionicons name="card-outline" size={16} color="#64748B" />
                         <ThemedText style={styles.infoText}>DL: {selectedDistributor.dlNumber}</ThemedText>
                       </View>
                     )}
@@ -298,7 +298,7 @@ export default function BillFormScreen({
               {/* Show manual entry hint when searching with no selection */}
               {!selectedDistributor && distributorMode === 'search' && distributorSearchQuery && distributorSearchQuery.length > 0 && (
                 <View style={styles.manualEntryHint}>
-                  <Ionicons name="information-circle-outline" size={16} color="#1D4ED8" />
+                  <Ionicons name="information-circle-outline" size={16} color="#4F46E5" />
                   <ThemedText style={styles.hintText}>
                     Type at least 2 characters to search, or add as new distributor
                   </ThemedText>
@@ -405,8 +405,8 @@ export default function BillFormScreen({
             <SecondaryButton
               title="Add Item"
               icon="add-outline"
-              borderColor="#1D4ED8"
-              textColor="#1D4ED8"
+              borderColor="#4F46E5"
+              textColor="#4F46E5"
               onPress={onAddItem}
             />
           </CollapsibleSection>
@@ -612,7 +612,7 @@ export default function BillFormScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   safeArea: {
     flex: 1,
@@ -636,7 +636,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1D4ED8',
+    color: '#4F46E5',
     marginLeft: 6,
     flex: 1,
   },
@@ -656,14 +656,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
     padding: 12,
     marginBottom: 10,
   },
   itemRowPressed: {
     opacity: 0.7,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   itemRowLeft: {
     flex: 1,
@@ -671,14 +671,14 @@ const styles = StyleSheet.create({
   },
   itemName: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: '700',
+    color: '#0F172A',
     marginBottom: 4,
   },
   itemMeta: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   itemRowRight: {
     flexDirection: 'row',
@@ -688,22 +688,22 @@ const styles = StyleSheet.create({
   itemTotal: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
   },
   emptyText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#94A3B8',
     textAlign: 'center',
     paddingVertical: 20,
   },
   totalsCard: {
     padding: 14,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   totalsContainer: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
     padding: 14,
   },
   totalRow: {
@@ -717,17 +717,17 @@ const styles = StyleSheet.create({
   },
   autoValue: {
     fontStyle: 'italic',
-    color: '#4B5563',
+    color: '#475569',
   },
   totalLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   totalValue: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
   },
   calculatedAmountText: {
     fontSize: 12,
@@ -745,27 +745,27 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     marginVertical: 8,
   },
   grandTotalLabel: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
   },
   grandTotalValue: {
     fontSize: 16,
     fontWeight: '900',
-    color: '#111827',
+    color: '#0F172A',
   },
   bottomSpacer: {
     height: 20,
   },
   editorContainer: {
-    backgroundColor: '#F0F4FF',
+    backgroundColor: '#EEF2FF',
     borderWidth: 2,
-    borderColor: '#1D4ED8',
-    borderRadius: 12,
+    borderColor: '#4F46E5',
+    borderRadius: 16,
     padding: 12,
     marginBottom: 10,
   },
@@ -780,7 +780,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#E2E8F0',
   },
   buttonSpacer: {
     height: 10,
@@ -792,8 +792,8 @@ const styles = StyleSheet.create({
   },
   modeToggle: {
     flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
     padding: 3,
     marginBottom: 14,
   },
@@ -809,7 +809,7 @@ const styles = StyleSheet.create({
   },
   modeTabActive: {
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 2,
@@ -818,16 +818,16 @@ const styles = StyleSheet.create({
   modeTabText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   modeTabTextActive: {
-    color: '#1D4ED8',
+    color: '#4F46E5',
     fontWeight: '700',
   },
   fieldLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#374151',
+    color: '#334155',
     marginBottom: 8,
   },
   distributorInfo: {
@@ -835,7 +835,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     borderWidth: 1,
     borderColor: '#BBF7D0',
-    borderRadius: 10,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   distributorInfoHeader: {
@@ -867,7 +867,7 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#4B5563',
+    color: '#475569',
     flex: 1,
   },
   manualEntryHint: {
@@ -880,7 +880,7 @@ const styles = StyleSheet.create({
   hintText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#1D4ED8',
+    color: '#4F46E5',
     flex: 1,
   },
 });

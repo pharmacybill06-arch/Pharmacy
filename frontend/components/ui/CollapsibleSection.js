@@ -25,14 +25,14 @@ export default function CollapsibleSection({
       >
         <View style={styles.headerLeft}>
           <View style={styles.iconContainer}>
-            <Ionicons name={icon} size={18} color="#1D4ED8" />
+            <Ionicons name={icon} size={18} color="#4F46E5" />
           </View>
           <ThemedText style={styles.title}>{title}</ThemedText>
         </View>
         <Ionicons
           name={isExpanded ? 'chevron-up' : 'chevron-down'}
           size={20}
-          color="#6B7280"
+          color="#64748B"
         />
       </Pressable>
 
@@ -57,20 +57,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   iconContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   title: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#111827',
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.2,
   },
   content: {
-    marginTop: 14,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
   },
 });

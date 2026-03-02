@@ -310,7 +310,7 @@ export default function ExploreScreen() {
             }}
             onPress={capturePhoto}
           >
-            <Ionicons name="camera" size={36} color="#1D4ED8" />
+            <Ionicons name="camera" size={36} color="#4F46E5" />
           </Pressable>
           <Pressable
             style={{

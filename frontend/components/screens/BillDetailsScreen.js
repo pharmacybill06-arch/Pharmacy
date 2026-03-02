@@ -108,21 +108,21 @@ export default function BillDetailsScreen({
             
             <View style={styles.summaryInfo}>
               <View style={styles.summaryRow}>
-                <Ionicons name="storefront-outline" size={16} color="#6B7280" />
+                <Ionicons name="storefront-outline" size={16} color="#64748B" />
                 <ThemedText style={styles.summaryLabel}>
                   {bill.pharmacyName || 'Unknown Pharmacy'}
                 </ThemedText>
               </View>
               
               <View style={styles.summaryRow}>
-                <Ionicons name="receipt-outline" size={16} color="#6B7280" />
+                <Ionicons name="receipt-outline" size={16} color="#64748B" />
                 <ThemedText style={styles.summaryMeta}>
                   Invoice #{bill.invoiceNumber || 'N/A'}
                 </ThemedText>
               </View>
               
               <View style={styles.summaryRow}>
-                <Ionicons name="calendar-outline" size={16} color="#6B7280" />
+                <Ionicons name="calendar-outline" size={16} color="#64748B" />
                 <ThemedText style={styles.summaryMeta}>
                   {bill.invoiceDate || 'No date'}
                 </ThemedText>
@@ -134,7 +134,7 @@ export default function BillDetailsScreen({
           {bill.items && bill.items.length > 0 && (
             <Card style={styles.itemsCard}>
               <View style={styles.cardHeaderRow}>
-                <Ionicons name="list-outline" size={20} color="#1D4ED8" />
+                <Ionicons name="list-outline" size={20} color="#4F46E5" />
                 <ThemedText style={styles.cardTitle}>Items</ThemedText>
               </View>
               
@@ -149,7 +149,7 @@ export default function BillDetailsScreen({
           {/* Totals Card */}
           <Card style={styles.totalsCard}>
             <View style={styles.cardHeaderRow}>
-              <Ionicons name="calculator-outline" size={20} color="#1D4ED8" />
+              <Ionicons name="calculator-outline" size={20} color="#4F46E5" />
               <ThemedText style={styles.cardTitle}>Totals</ThemedText>
             </View>
             
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   amountLarge: {
     fontSize: 28,
     fontWeight: '900',
-    color: '#111827',
+    color: '#0F172A',
     marginBottom: 12,
   },
   paymentTypeContainer: {
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   summaryDivider: {
     width: '100%',
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     marginBottom: 16,
   },
   summaryInfo: {
@@ -242,12 +242,12 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
   },
   summaryMeta: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   itemsCard: {
     marginBottom: 16,
@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
   },
   itemsList: {
     gap: 10,
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#F1F5F9',
   },
   itemLeft: {
     flex: 1,
@@ -281,18 +281,18 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
     marginBottom: 4,
   },
   itemMeta: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   itemTotal: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
   },
   totalsCard: {
     marginBottom: 16,
@@ -308,27 +308,27 @@ const styles = StyleSheet.create({
   totalLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   totalValue: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
   },
   grandTotalDivider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     marginVertical: 4,
   },
   grandTotalLabel: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0F172A',
   },
   grandTotalValue: {
     fontSize: 16,
     fontWeight: '900',
-    color: '#111827',
+    color: '#0F172A',
   },
   bottomSpacer: {
     height: 20,
@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#E2E8F0',
   },
   buttonSpacer: {
     height: 10,
@@ -354,6 +354,6 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
 });

@@ -83,13 +83,13 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
       {/* GSTIN Input Row */}
       <View style={styles.inputRow}>
         <View style={styles.inputWrapper}>
-          <Ionicons name="document-text-outline" size={18} color="#6B7280" style={styles.inputIcon} />
+          <Ionicons name="document-text-outline" size={18} color="#64748B" style={styles.inputIcon} />
           <TextInput
             style={styles.input}
             value={gstin}
             onChangeText={handleGstinChange}
             placeholder="Enter 15-digit GSTIN"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor="#94A3B8"
             autoCapitalize="characters"
             autoCorrect={false}
             maxLength={15}
@@ -98,7 +98,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
           />
           {gstin.length > 0 && !loading && (
             <Pressable onPress={() => { setGstin(''); setResult(null); setError(null); }} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+              <Ionicons name="close-circle" size={18} color="#94A3B8" />
             </Pressable>
           )}
         </View>
@@ -145,7 +145,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
           <View style={styles.resultBody}>
             {/* Business Name */}
             <View style={styles.resultRow}>
-              <Ionicons name="business-outline" size={15} color="#6B7280" />
+              <Ionicons name="business-outline" size={15} color="#64748B" />
               <View style={styles.resultInfo}>
                 <ThemedText style={styles.resultLabel}>Business Name</ThemedText>
                 <ThemedText style={styles.resultValue}>
@@ -157,7 +157,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
             {/* Legal Name (if different from trade name) */}
             {result.legalName && result.tradeName && result.legalName !== result.tradeName && (
               <View style={styles.resultRow}>
-                <Ionicons name="person-outline" size={15} color="#6B7280" />
+                <Ionicons name="person-outline" size={15} color="#64748B" />
                 <View style={styles.resultInfo}>
                   <ThemedText style={styles.resultLabel}>Legal Name</ThemedText>
                   <ThemedText style={styles.resultValue}>{result.legalName}</ThemedText>
@@ -167,7 +167,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
 
             {/* GSTIN */}
             <View style={styles.resultRow}>
-              <Ionicons name="document-text-outline" size={15} color="#6B7280" />
+              <Ionicons name="document-text-outline" size={15} color="#64748B" />
               <View style={styles.resultInfo}>
                 <ThemedText style={styles.resultLabel}>GSTIN</ThemedText>
                 <ThemedText style={styles.resultValue}>{result.gstin}</ThemedText>
@@ -191,7 +191,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
             {/* Taxpayer Type */}
             {result.taxpayerType && (
               <View style={styles.resultRow}>
-                <Ionicons name="briefcase-outline" size={15} color="#6B7280" />
+                <Ionicons name="briefcase-outline" size={15} color="#64748B" />
                 <View style={styles.resultInfo}>
                   <ThemedText style={styles.resultLabel}>Type</ThemedText>
                   <ThemedText style={styles.resultValue}>{result.taxpayerType}</ThemedText>
@@ -202,7 +202,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
             {/* Address */}
             {result.address?.full && (
               <View style={styles.resultRow}>
-                <Ionicons name="location-outline" size={15} color="#6B7280" />
+                <Ionicons name="location-outline" size={15} color="#64748B" />
                 <View style={styles.resultInfo}>
                   <ThemedText style={styles.resultLabel}>Address</ThemedText>
                   <ThemedText style={styles.resultValue}>{result.address.full}</ThemedText>
@@ -213,7 +213,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
             {/* Registration Date */}
             {result.registrationDate && (
               <View style={styles.resultRow}>
-                <Ionicons name="calendar-outline" size={15} color="#6B7280" />
+                <Ionicons name="calendar-outline" size={15} color="#64748B" />
                 <View style={styles.resultInfo}>
                   <ThemedText style={styles.resultLabel}>Registered</ThemedText>
                   <ThemedText style={styles.resultValue}>{result.registrationDate}</ThemedText>
@@ -223,7 +223,7 @@ export default function GSTLookup({ onDistributorFound, onError, initialGstin = 
           </View>
 
           <View style={styles.resultFooter}>
-            <Ionicons name="information-circle-outline" size={14} color="#1D4ED8" />
+            <Ionicons name="information-circle-outline" size={14} color="#4F46E5" />
             <ThemedText style={styles.footerText}>
               This distributor info will be used for the bill
             </ThemedText>
@@ -247,9 +247,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
     borderRadius: 12,
     paddingHorizontal: 12,
   },
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
     paddingVertical: 12,
     letterSpacing: 0.5,
     fontFamily: 'monospace',
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1D4ED8',
+    backgroundColor: '#4F46E5',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
   charCount: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#94A3B8',
     textAlign: 'right',
     marginTop: 4,
   },
@@ -350,13 +350,13 @@ const styles = StyleSheet.create({
   resultLabel: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#64748B',
     marginBottom: 1,
   },
   resultValue: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   resultFooter: {
     flexDirection: 'row',
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#1D4ED8',
+    color: '#4F46E5',
     flex: 1,
   },
 });

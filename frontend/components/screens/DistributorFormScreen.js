@@ -51,7 +51,7 @@ const FormField = ({
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
-      placeholderTextColor="#9CA3AF"
+      placeholderTextColor="#94A3B8"
       keyboardType={keyboardType}
       autoFocus={autoFocus}
       autoCapitalize={autoCapitalize}
@@ -279,7 +279,7 @@ export default function DistributorFormScreen({
             
             {/* Info Card */}
             <View style={styles.infoCard}>
-              <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+              <Ionicons name="information-circle-outline" size={20} color="#64748B" />
               <ThemedText style={styles.infoText}>
                 Distributors are automatically linked to bills based on name and GSTIN matching.
               </ThemedText>
@@ -322,14 +322,17 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   formCard: {
-    padding: 16,
+    padding: 18,
     marginBottom: 16,
+    borderRadius: 18,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
     marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   fieldContainer: {
     marginBottom: 16,
@@ -339,24 +342,25 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
   },
   required: {
     color: '#DC2626',
     marginLeft: 4,
   },
   input: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#1F2937',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 15,
+    color: '#0F172A',
     minHeight: 48,
+    fontWeight: '500',
   },
   inputMultiline: {
     minHeight: 80,
@@ -379,21 +383,23 @@ const styles = StyleSheet.create({
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#EBF8FF',
-    borderRadius: 8,
-    padding: 12,
-    gap: 8,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 14,
+    padding: 14,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   infoText: {
     flex: 1,
     fontSize: 13,
-    color: '#6B7280',
+    color: '#64748B',
     lineHeight: 18,
   },
   buttonContainer: {
     padding: 16,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#E2E8F0',
   },
 });

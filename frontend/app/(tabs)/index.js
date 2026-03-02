@@ -45,6 +45,20 @@ const RecentBillRow = React.memo(({ item, onPress }) => {
     return 'Unknown Distributor';
   };
 
+  // Get initials for avatar
+  const getInitials = () => {
+    const name = getDistributorName();
+    return name.charAt(0).toUpperCase();
+  };
+
+  // Get a color based on the name
+  const getAvatarColor = () => {
+    const colors = ['#4F46E5', '#7C3AED', '#2563EB', '#0891B2', '#059669', '#D97706'];
+    const name = getDistributorName();
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
+  };
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -53,17 +67,25 @@ const RecentBillRow = React.memo(({ item, onPress }) => {
       ]}
       onPress={() => onPress?.(item)}
     >
+      <View style={[styles.billRowAvatar, { backgroundColor: getAvatarColor() + '15' }]}>
+        <ThemedText style={[styles.billRowAvatarText, { color: getAvatarColor() }]}>
+          {getInitials()}
+        </ThemedText>
+      </View>
       <View style={styles.billRowLeft}>
-        <ThemedText style={styles.billRowPharmacy}>
+        <ThemedText style={styles.billRowPharmacy} numberOfLines={1}>
           {getDistributorName()}
         </ThemedText>
         <ThemedText style={styles.billRowDate}>
           {item.invoiceNumber || ''} {item.invoiceDate ? '• ' + formatDate(item.invoiceDate) : ''}
         </ThemedText>
       </View>
-      <ThemedText style={styles.billRowAmount}>
-        {formatAmount(item.grandTotal)}
-      </ThemedText>
+      <View style={styles.billRowRight}>
+        <ThemedText style={styles.billRowAmount}>
+          {formatAmount(item.grandTotal)}
+        </ThemedText>
+        <MaterialIcons name="chevron-right" size={16} color="#94A3B8" />
+      </View>
     </Pressable>
   );
 });
@@ -188,14 +210,16 @@ export default function BillsHomeScreen() {
         {/* Top App Bar with Logo */}
         <View style={styles.appBar}>
           <View style={styles.appBarGradient} />
+          <View style={styles.appBarPattern1} />
+          <View style={styles.appBarPattern2} />
           <View style={styles.appBarContent}>
             <View style={styles.logoContainer}>
               <View style={styles.logoBadge}>
-                <MaterialIcons name="local-pharmacy" size={26} color="#FFFFFF" />
+                <MaterialIcons name="local-pharmacy" size={24} color="#FFFFFF" />
               </View>
               <View style={styles.logoText}>
-                <ThemedText style={styles.appBarTitle}>Pharmacy Bills</ThemedText>
-                <ThemedText style={styles.appBarSubtitle}>Your Health Records</ThemedText>
+                <ThemedText style={styles.appBarTitle}>Pharma Bills</ThemedText>
+                <ThemedText style={styles.appBarSubtitle}>Smart Bill Manager</ThemedText>
               </View>
             </View>
             <TouchableOpacity
@@ -219,36 +243,41 @@ export default function BillsHomeScreen() {
         >
           {/* Hero Card */}
           <View style={styles.heroCard}>
-            {/* Gradient background with pattern */}
-            <View style={styles.heroBackground}>
-              <View style={styles.heroGradient} />
-              <View style={styles.heroPattern} />
-            </View>
+            {/* Decorative elements */}
+            <View style={styles.heroDecoCircle1} />
+            <View style={styles.heroDecoCircle2} />
+            <View style={styles.heroDecoCircle3} />
 
             {/* Hero Content */}
             <View style={styles.heroContent}>
-              <View style={styles.heroIconContainer}>
-                <MaterialIcons name="receipt-long" size={40} color="#1D4ED8" />
+              <View style={styles.heroBadge}>
+                <MaterialIcons name="auto-awesome" size={14} color="#4F46E5" />
+                <ThemedText style={styles.heroBadgeText}>AI-Powered</ThemedText>
               </View>
               <ThemedText style={styles.heroTitle}>
-                Simplify Bill Management
+                Simplify Bill{'\n'}Management
               </ThemedText>
               <ThemedText style={styles.heroDescription}>
-                Scan, extract & organize your pharmacy bills in seconds
+                Scan, extract & organize your pharmacy bills in seconds with AI
               </ThemedText>
-            </View>
 
-            {/* Scan Bill Button */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.scanButton,
-                pressed && styles.scanButtonPressed,
-              ]}
-              onPress={handleScanBill}
-            >
-              <MaterialIcons name="camera-alt" size={24} color="#FFFFFF" />
-              <ThemedText style={styles.scanButtonText}>Scan Bill Now</ThemedText>
-            </Pressable>
+              {/* Scan Bill Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.scanButton,
+                  pressed && styles.scanButtonPressed,
+                ]}
+                onPress={handleScanBill}
+              >
+                <View style={styles.scanButtonInner}>
+                  <MaterialIcons name="document-scanner" size={22} color="#FFFFFF" />
+                  <ThemedText style={styles.scanButtonText}>Scan Bill Now</ThemedText>
+                </View>
+                <View style={styles.scanButtonArrow}>
+                  <MaterialIcons name="arrow-forward" size={18} color="#4F46E5" />
+                </View>
+              </Pressable>
+            </View>
           </View>
 
           {/* Recent Bills Section */}
@@ -306,8 +335,8 @@ export default function BillsHomeScreen() {
                 ]}
                 onPress={() => router.push('/products')}
               >
-                <View style={[styles.quickActionIcon, { backgroundColor: '#EBF5FF' }]}>
-                  <MaterialIcons name="inventory-2" size={24} color="#1D4ED8" />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#EEF2FF' }]}>
+                  <MaterialIcons name="inventory-2" size={22} color="#4F46E5" />
                 </View>
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Products</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage catalog</ThemedText>
@@ -321,8 +350,8 @@ export default function BillsHomeScreen() {
                 ]}
                 onPress={handleScanBill}
               >
-                <View style={[styles.quickActionIcon, { backgroundColor: '#D1FAE5' }]}>
-                  <MaterialIcons name="qr-code-scanner" size={24} color="#059669" />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#ECFDF5' }]}>
+                  <MaterialIcons name="qr-code-scanner" size={22} color="#059669" />
                 </View>
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Scan Bill</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Add new bill</ThemedText>
@@ -337,7 +366,7 @@ export default function BillsHomeScreen() {
                 onPress={() => router.push('/distributors')}
               >
                 <View style={[styles.quickActionIcon, { backgroundColor: '#FEF3C7' }]}>
-                  <MaterialIcons name="business" size={24} color="#D97706" />
+                  <MaterialIcons name="business" size={22} color="#D97706" />
                 </View>
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Distributors</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage suppliers</ThemedText>
@@ -368,11 +397,11 @@ export default function BillsHomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#1D4ED8', // Match the app bar color
+    backgroundColor: '#4F46E5',
   },
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   
   // App Bar Styles
@@ -387,43 +416,50 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#1D4ED8',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
+    backgroundColor: '#4F46E5',
+  },
+  appBarPattern1: {
+    position: 'absolute',
+    top: -40,
+    right: -20,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  appBarPattern2: {
+    position: 'absolute',
+    bottom: -20,
+    left: -30,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   appBarContent: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
     paddingTop: Platform.OS === 'android' ? 40 : 12,
   },
   logoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     flex: 1,
   },
   logoBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 13,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
   },
   logoText: {
     flex: 1,
@@ -432,46 +468,35 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
+    letterSpacing: -0.3,
   },
   appBarSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.85)',
-    marginTop: 2,
-  },
-  notificationButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notificationButtonPressed: {
-    opacity: 0.7,
-    backgroundColor: '#E5E7EB',
+    color: 'rgba(255, 255, 255, 0.75)',
+    marginTop: 1,
+    letterSpacing: 0.2,
   },
   profileButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     overflow: 'hidden',
   },
   profileAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   profileAvatarText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#1D4ED8',
+    fontWeight: '800',
+    color: '#4F46E5',
   },
 
   // Scroll View Styles
@@ -479,113 +504,126 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingTop: 24,
   },
 
   // Hero Card Styles
   heroCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    backgroundColor: '#4F46E5',
+    borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 28,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    position: 'relative',
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
+        shadowColor: '#4F46E5',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
       },
       android: {
-        elevation: 3,
+        elevation: 8,
       },
     }),
   },
-  heroBackground: {
-    height: 160,
-    backgroundColor: '#F0F4FF',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  heroGradient: {
+  heroDecoCircle1: {
     position: 'absolute',
-    top: -50,
-    right: -50,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(29, 78, 216, 0.1)',
+    top: -30,
+    right: -20,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  heroPattern: {
+  heroDecoCircle2: {
     position: 'absolute',
-    bottom: -30,
-    left: -30,
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+    bottom: 20,
+    left: -40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  heroDecoCircle3: {
+    position: 'absolute',
+    top: 40,
+    right: 50,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   heroContent: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    alignItems: 'center',
+    padding: 24,
   },
-  heroIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  heroTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  heroDescription: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  scanButton: {
-    height: 52,
-    backgroundColor: '#1D4ED8',
-    borderRadius: 14,
+  heroBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 24,
-    marginVertical: 16,
-    paddingHorizontal: 20,
-    gap: 10,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1D4ED8',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+    marginBottom: 16,
+  },
+  heroBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4F46E5',
+    letterSpacing: 0.3,
+  },
+  heroTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    lineHeight: 32,
+    letterSpacing: -0.5,
+  },
+  heroDescription: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  scanButton: {
+    height: 54,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 20,
+    paddingRight: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
   },
   scanButtonPressed: {
-    opacity: 0.9,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  scanButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   scanButtonText: {
     fontSize: 15,
     fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  scanButtonArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Recent Bills Section Styles
@@ -596,18 +634,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 16,
     paddingHorizontal: 2,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
+    letterSpacing: -0.3,
   },
   viewAllButton: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#1D4ED8',
+    color: '#4F46E5',
   },
 
   // Bills List Styles
@@ -615,22 +654,21 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   billRow: {
-    minHeight: 64,
+    minHeight: 72,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#F1F5F9',
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.04,
-        shadowRadius: 2,
+        shadowRadius: 6,
       },
       android: {
         elevation: 1,
@@ -638,59 +676,77 @@ const styles = StyleSheet.create({
     }),
   },
   billRowPressed: {
-    opacity: 0.7,
-    backgroundColor: '#F9FAFB',
+    opacity: 0.8,
+    backgroundColor: '#F8FAFC',
+    transform: [{ scale: 0.99 }],
+  },
+  billRowAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  billRowAvatarText: {
+    fontSize: 18,
+    fontWeight: '800',
   },
   billRowLeft: {
     flex: 1,
-    gap: 4,
+    gap: 3,
   },
   billRowPharmacy: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
   },
   billRowDate: {
     fontSize: 12,
     fontWeight: '400',
-    color: '#6B7280',
+    color: '#94A3B8',
+  },
+  billRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   billRowAmount: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#1D4ED8',
-    marginLeft: 12,
+    color: '#0F172A',
   },
 
   // Loading, Error, and Empty States
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
-    gap: 12,
+    paddingVertical: 48,
+    gap: 14,
   },
   loadingText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
+    fontWeight: '500',
   },
   errorContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
+    paddingVertical: 48,
     gap: 12,
   },
   errorText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
     textAlign: 'center',
     paddingHorizontal: 20,
   },
   retryButton: {
     marginTop: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    backgroundColor: '#1D4ED8',
-    borderRadius: 8,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    backgroundColor: '#4F46E5',
+    borderRadius: 12,
   },
   retryButtonText: {
     fontSize: 14,
@@ -702,42 +758,46 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 48,
     gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    borderStyle: 'dashed',
   },
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: '#334155',
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#94A3B8',
     textAlign: 'center',
   },
 
   // Quick Actions Section
   quickActionsSection: {
-    paddingHorizontal: 16,
-    marginTop: 24,
+    marginTop: 8,
     marginBottom: 16,
   },
   quickActionsGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
-    marginTop: 12,
+    marginTop: 14,
   },
   quickActionCard: {
     flex: 1,
-    minWidth: '30%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 16,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
+        shadowColor: '#0F172A',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.04,
         shadowRadius: 8,
       },
       android: {
@@ -746,8 +806,9 @@ const styles = StyleSheet.create({
     }),
   },
   quickActionCardPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.8,
+    transform: [{ scale: 0.96 }],
+    backgroundColor: '#F8FAFC',
   },
   quickActionIcon: {
     width: 48,
@@ -755,54 +816,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   quickActionTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#111827',
+    color: '#0F172A',
     textAlign: 'center',
-    numberOfLines: 1,
   },
   quickActionSubtitle: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#94A3B8',
     marginTop: 2,
     textAlign: 'center',
-    numberOfLines: 1,
-  },
-
-  // Floating Action Button Styles
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: '#1D4ED8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  fabPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.95 }],
-  },
-  fabText: {
-    fontSize: 32,
-    fontWeight: '300',
-    color: '#FFFFFF',
+    fontWeight: '500',
   },
 
   // Bottom Spacer
@@ -810,13 +837,3 @@ const styles = StyleSheet.create({
     height: 100,
   },
 });
-
-/**
- * FIXES APPLIED:
- * 
- * 1. Removed paddingTop from container that was causing white margin
- * 2. Moved SafeAreaView to wrap the entire screen
- * 3. Set SafeAreaView backgroundColor to match app bar (#1D4ED8)
- * 4. Used edges={['top']} prop to only apply safe area to top
- * 5. This creates seamless transition from status bar to app bar
- */

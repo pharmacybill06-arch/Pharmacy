@@ -121,7 +121,7 @@ export default function ProfileScreen() {
           {/* Name Field */}
           <View style={styles.fieldContainer}>
             <View style={styles.fieldIcon}>
-              <Ionicons name="person-outline" size={20} color="#667eea" />
+              <Ionicons name="person-outline" size={20} color="#4F46E5" />
             </View>
             <View style={styles.fieldContent}>
               <Text style={styles.fieldLabel}>Name</Text>
@@ -142,7 +142,7 @@ export default function ProfileScreen() {
           {/* Phone Field */}
           <View style={styles.fieldContainer}>
             <View style={styles.fieldIcon}>
-              <Ionicons name="call-outline" size={20} color="#667eea" />
+              <Ionicons name="call-outline" size={20} color="#4F46E5" />
             </View>
             <View style={styles.fieldContent}>
               <Text style={styles.fieldLabel}>Mobile Number</Text>
@@ -154,7 +154,7 @@ export default function ProfileScreen() {
           {/* Email Field */}
           <View style={[styles.fieldContainer, styles.lastField]}>
             <View style={styles.fieldIcon}>
-              <Ionicons name="mail-outline" size={20} color="#667eea" />
+              <Ionicons name="mail-outline" size={20} color="#4F46E5" />
             </View>
             <View style={styles.fieldContent}>
               <Text style={styles.fieldLabel}>Email (Optional)</Text>
@@ -258,14 +258,16 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f6fa',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     paddingTop: 16,
-    paddingBottom: 40,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    backgroundColor: '#667eea',
+    paddingBottom: 44,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    backgroundColor: '#4F46E5',
+    overflow: 'hidden',
+    position: 'relative',
   },
   headerContent: {
     flexDirection: 'row',
@@ -275,142 +277,159 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   editButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   avatarContainer: {
     alignItems: 'center',
     marginTop: 20,
   },
   avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    width: 88,
+    height: 88,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   avatarText: {
-    fontSize: 36,
-    fontWeight: '700',
+    fontSize: 34,
+    fontWeight: '800',
     color: '#fff',
   },
   userName: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#fff',
-    marginTop: 12,
+    marginTop: 14,
+    letterSpacing: -0.3,
   },
   userPhone: {
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
     marginTop: 4,
+    fontWeight: '500',
   },
   content: {
     flex: 1,
-    marginTop: -20,
+    marginTop: -22,
     paddingHorizontal: 20,
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.6)',
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 18,
+    letterSpacing: -0.2,
   },
   fieldContainer: {
     flexDirection: 'row',
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#F1F5F9',
   },
   lastField: {
     borderBottomWidth: 0,
   },
   fieldIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f4ff',
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
   fieldContent: {
     flex: 1,
     justifyContent: 'center',
   },
   fieldLabel: {
-    fontSize: 12,
-    color: '#999',
+    fontSize: 11,
+    color: '#94A3B8',
     marginBottom: 4,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   fieldValue: {
     fontSize: 16,
-    color: '#333',
+    color: '#0F172A',
     fontWeight: '500',
   },
   fieldInput: {
     fontSize: 16,
-    color: '#333',
+    color: '#0F172A',
     fontWeight: '500',
-    paddingVertical: 4,
+    paddingVertical: 6,
     paddingHorizontal: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#667eea',
+    borderBottomWidth: 2,
+    borderBottomColor: '#4F46E5',
   },
   fieldHint: {
     fontSize: 11,
-    color: '#999',
-    marginTop: 2,
+    color: '#94A3B8',
+    marginTop: 3,
     fontStyle: 'italic',
   },
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#667eea',
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginTop: 16,
+    backgroundColor: '#4F46E5',
+    borderRadius: 14,
+    paddingVertical: 15,
+    marginTop: 18,
     gap: 8,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 6,
   },
   saveButtonDisabled: {
-    backgroundColor: '#b8c1ec',
+    backgroundColor: '#A5B4FC',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   saveButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   statsRow: {
     flexDirection: 'row',
@@ -419,38 +438,45 @@ const styles = StyleSheet.create({
   statItem: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: 4,
   },
   statDivider: {
     width: 1,
-    height: 40,
-    backgroundColor: '#f0f0f0',
+    height: 44,
+    backgroundColor: '#F1F5F9',
   },
   statNumber: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#667eea',
-    marginBottom: 4,
+    fontWeight: '800',
+    color: '#4F46E5',
+    marginBottom: 6,
   },
   statLabel: {
     fontSize: 12,
-    color: '#999',
+    color: '#94A3B8',
+    fontWeight: '500',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     paddingVertical: 16,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#fee2e2',
-    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    gap: 10,
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 1,
   },
   logoutButtonText: {
-    color: '#e74c3c',
+    color: '#DC2626',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   bottomPadding: {
     height: 20,
