@@ -17,6 +17,7 @@ export default function DistributorFormPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [gstinLoading, setGstinLoading] = useState(false);
+  const [gstinInfo, setGstinInfo] = useState(null);
 
   useEffect(() => {
     if (isEditing) {
@@ -45,18 +46,19 @@ export default function DistributorFormPage() {
       toast.error('Enter a valid 15-character GSTIN');
       return;
     }
+    setGstinInfo(null);
     setGstinLoading(true);
     try {
       const result = await gstinApi.lookupGstin(form.gstin);
-      if (result.distributorData) {
-        const d = result.distributorData;
+      // API returns data in result.data (not result.distributorData)
+      const d = result.data;
+      if (result.valid && d) {
         setForm(prev => ({
           ...prev,
-          name: d.name || prev.name,
-          address: d.address || prev.address,
-          phone: d.phone || prev.phone,
-          email: d.email || prev.email,
+          name: d.tradeName || d.legalName || d.businessName || prev.name,
+          address: d.address?.full || d.address || prev.address,
         }));
+        setGstinInfo(d);
         toast.success('GSTIN details fetched!');
       } else {
         toast.error('No details found for this GSTIN');
@@ -116,7 +118,7 @@ export default function DistributorFormPage() {
                 className="form-input"
                 style={{ maxWidth: 300 }}
                 value={form.gstin}
-                onChange={e => updateField('gstin', e.target.value.toUpperCase())}
+                onChange={e => { updateField('gstin', e.target.value.toUpperCase()); setGstinInfo(null); }}
                 placeholder="e.g. 27AAPFU0939F1ZV"
                 maxLength={15}
               />
@@ -125,6 +127,54 @@ export default function DistributorFormPage() {
                 Lookup
               </button>
             </div>
+
+            {/* GSTIN Details Card */}
+            {gstinInfo && (
+              <div style={{
+                marginTop: 16,
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: 10,
+                padding: 16,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 18 }}>✅</span>
+                  <span style={{ fontWeight: 700, color: '#15803d', fontSize: 15 }}>GSTIN Verified</span>
+                  <span style={{
+                    marginLeft: 'auto', fontSize: 11, fontWeight: 700,
+                    background: gstinInfo.status === 'Active' ? '#dcfce7' : '#fee2e2',
+                    color: gstinInfo.status === 'Active' ? '#166534' : '#991b1b',
+                    borderRadius: 999, padding: '2px 10px',
+                  }}>{gstinInfo.status || 'Unknown'}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px', fontSize: 13 }}>
+                  {gstinInfo.tradeName && (
+                    <div><span style={{ color: '#6b7280' }}>Trade Name</span><br /><strong>{gstinInfo.tradeName}</strong></div>
+                  )}
+                  {gstinInfo.legalName && (
+                    <div><span style={{ color: '#6b7280' }}>Legal Name</span><br /><strong>{gstinInfo.legalName}</strong></div>
+                  )}
+                  {gstinInfo.constitution && (
+                    <div><span style={{ color: '#6b7280' }}>Constitution</span><br /><strong>{gstinInfo.constitution}</strong></div>
+                  )}
+                  {gstinInfo.taxpayerType && (
+                    <div><span style={{ color: '#6b7280' }}>Taxpayer Type</span><br /><strong>{gstinInfo.taxpayerType}</strong></div>
+                  )}
+                  {gstinInfo.registrationDate && (
+                    <div><span style={{ color: '#6b7280' }}>Registered On</span><br /><strong>{gstinInfo.registrationDate}</strong></div>
+                  )}
+                  {gstinInfo.stateJurisdiction && (
+                    <div><span style={{ color: '#6b7280' }}>Jurisdiction</span><br /><strong>{gstinInfo.stateJurisdiction}</strong></div>
+                  )}
+                  {gstinInfo.coreBusinessActivity && (
+                    <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>Business Activity</span><br /><strong>{gstinInfo.coreBusinessActivity}</strong></div>
+                  )}
+                  {gstinInfo.address?.full && (
+                    <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>Address</span><br /><strong>{gstinInfo.address.full}</strong></div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
