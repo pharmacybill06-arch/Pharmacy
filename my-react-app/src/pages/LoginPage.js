@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [shopName, setShopName] = useState('');
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
+  const [devOtp, setDevOtp] = useState(null);
   const otpRefs = useRef([]);
 
   const handleSendOtp = async (e) => {
@@ -23,7 +24,8 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await authApi.sendOtp(phone);
+      const res = await authApi.sendOtp(phone);
+      setDevOtp(res.devOtp || null);
       toast.success('OTP sent successfully!');
       setStep('otp');
     } catch (err) {
@@ -95,7 +97,8 @@ export default function LoginPage() {
 
   const handleResendOtp = async () => {
     try {
-      await authApi.resendOtp(phone);
+      const res = await authApi.resendOtp(phone);
+      setDevOtp(res.devOtp || null);
       toast.success('OTP resent!');
     } catch (err) {
       toast.error(err.message || 'Failed to resend OTP');
@@ -138,6 +141,24 @@ export default function LoginPage() {
 
         {step === 'otp' && (
           <form onSubmit={handleVerifyOtp}>
+            {/* Dev OTP Banner */}
+            {devOtp && (
+              <div style={{
+                background: '#fefce8',
+                border: '1px solid #fde047',
+                borderRadius: 10,
+                padding: '10px 16px',
+                marginBottom: 16,
+                textAlign: 'center',
+              }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#854d0e', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  📋 OTP (Dev Mode)
+                </p>
+                <p style={{ fontSize: 28, fontWeight: 900, letterSpacing: '0.3em', color: '#1e40af', fontFamily: 'monospace' }}>
+                  {devOtp}
+                </p>
+              </div>
+            )}
             <p style={{ textAlign: 'center', fontSize: 14, color: '#6b7280', marginBottom: 8 }}>
               Enter OTP sent to +91 {phone}
             </p>
