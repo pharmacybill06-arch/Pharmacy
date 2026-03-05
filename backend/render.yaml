@@ -3,7 +3,7 @@ services:
     name: pharmabooks-backend
     env: node
     region: oregon
-    buildCommand: npm install && npm run build
+    buildCommand: rm -rf node_modules && npm install && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV

@@ -6,12 +6,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "build": "prisma generate && prisma migrate deploy",
-    "render:build": "prisma generate && prisma migrate deploy",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:studio": "prisma studio",
+    "build": "npx prisma generate && npx prisma migrate deploy",
+    "render:build": "npm install --include=dev && npx prisma generate && npx prisma migrate deploy",
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate": "npx prisma migrate dev",
+    "prisma:migrate:deploy": "npx prisma migrate deploy",
+    "prisma:studio": "npx prisma studio",
     "prisma:seed": "node prisma/seed.js"
   },
   "keywords": [
