@@ -1,13 +1,17 @@
 services:
   - type: web
-    name: pharmacy-bill-backend
+    name: pharmabooks-backend
     env: node
+    region: oregon
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: pharmacy_db_kfq5
-          property: connectionString
+      # Set these in Render dashboard → Environment:
+      # DATABASE_URL  → your Neon PostgreSQL connection string
+      # GEMINI_API_KEY
+      # GROQ_API_KEY
+      # JWT_SECRET    → any random 64-char string
+      - key: PORT
+        value: 5000

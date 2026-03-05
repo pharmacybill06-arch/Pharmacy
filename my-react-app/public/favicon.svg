@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="50" fill="#2563eb"/>
+  <!-- Pill shape rotated 45deg -->
+  <g transform="rotate(45,50,50)">
+    <!-- Left half (white) -->
+    <rect x="20" y="38" width="30" height="24" rx="12" fill="white"/>
+    <!-- Right half (light blue) -->
+    <rect x="50" y="38" width="30" height="24" rx="12" fill="#93c5fd"/>
+    <!-- Dividing line -->
+    <line x1="50" y1="36" x2="50" y2="64" stroke="#2563eb" stroke-width="2"/>
+  </g>
+  <!-- Plus cross overlay -->
+  <rect x="46" y="30" width="8" height="40" rx="4" fill="white" opacity="0.25"/>
+  <rect x="30" y="46" width="40" height="8" rx="4" fill="white" opacity="0.25"/>
+</svg>

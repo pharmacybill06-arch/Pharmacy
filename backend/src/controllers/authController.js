@@ -1,5 +1,36 @@
 const prisma = require('../models/prisma');
 
+// Retry wrapper for Prisma operations that may fail due to connection drops
+async function withRetry(fn, retries = 3, delay = 1000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const isConnectionError = 
+        error.message?.includes('Server has closed the connection') ||
+        error.message?.includes('Can\'t reach database server') ||
+        error.message?.includes('Connection timed out') ||
+        error.message?.includes('ECONNRESET') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.code === 'P1001' || // Can't reach database server
+        error.code === 'P1002' || // Database server timed out
+        error.code === 'P1017' || // Server has closed the connection
+        error.code === 'P2024';   // Timed out fetching connection from pool
+
+      if (isConnectionError && attempt < retries) {
+        console.warn(`[Prisma] Connection error on attempt ${attempt}/${retries}, retrying in ${delay}ms...`);
+        // Attempt to reconnect
+        try { await prisma.$disconnect(); } catch (_) {}
+        try { await prisma.$connect(); } catch (_) {}
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 // Generate a 6-digit OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -32,18 +63,19 @@ exports.sendOtp = async (req, res) => {
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-    // Delete any existing OTPs for this phone
-    await prisma.otp.deleteMany({
-      where: { phone }
-    });
+    // Delete any existing OTPs for this phone + create new one (with retry for connection drops)
+    await withRetry(async () => {
+      await prisma.otp.deleteMany({
+        where: { phone }
+      });
 
-    // Store OTP in database
-    await prisma.otp.create({
-      data: {
-        phone,
-        otp,
-        expiresAt
-      }
+      await prisma.otp.create({
+        data: {
+          phone,
+          otp,
+          expiresAt
+        }
+      });
     });
 
     // In production, send OTP via SMS gateway here
@@ -51,9 +83,9 @@ exports.sendOtp = async (req, res) => {
     console.log(`[OTP] Phone: ${phone}, OTP: ${otp} (expires in ${OTP_EXPIRY_MINUTES} minutes)`);
 
     // Check if user exists
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await withRetry(() => prisma.user.findUnique({
       where: { phone }
-    });
+    }));
 
     res.json({
       success: true,
@@ -83,7 +115,7 @@ exports.verifyOtp = async (req, res) => {
     }
 
     // Find the OTP record
-    const otpRecord = await prisma.otp.findFirst({
+    const otpRecord = await withRetry(() => prisma.otp.findFirst({
       where: {
         phone,
         verified: false
@@ -91,7 +123,7 @@ exports.verifyOtp = async (req, res) => {
       orderBy: {
         createdAt: 'desc'
       }
-    });
+    }));
 
     if (!otpRecord) {
       return res.status(400).json({ error: 'OTP not found. Please request a new OTP.' });
@@ -99,23 +131,23 @@ exports.verifyOtp = async (req, res) => {
 
     // Check if OTP has expired
     if (new Date() > otpRecord.expiresAt) {
-      await prisma.otp.delete({ where: { id: otpRecord.id } });
+      await withRetry(() => prisma.otp.delete({ where: { id: otpRecord.id } }));
       return res.status(400).json({ error: 'OTP has expired. Please request a new OTP.' });
     }
 
     // Check attempts
     if (otpRecord.attempts >= MAX_OTP_ATTEMPTS) {
-      await prisma.otp.delete({ where: { id: otpRecord.id } });
+      await withRetry(() => prisma.otp.delete({ where: { id: otpRecord.id } }));
       return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
     }
 
     // Verify OTP
     if (otpRecord.otp !== otp) {
       // Increment attempts
-      await prisma.otp.update({
+      await withRetry(() => prisma.otp.update({
         where: { id: otpRecord.id },
         data: { attempts: otpRecord.attempts + 1 }
-      });
+      }));
       
       const remainingAttempts = MAX_OTP_ATTEMPTS - otpRecord.attempts - 1;
       return res.status(400).json({ 
@@ -124,46 +156,46 @@ exports.verifyOtp = async (req, res) => {
     }
 
     // OTP is valid - mark as verified
-    await prisma.otp.update({
+    await withRetry(() => prisma.otp.update({
       where: { id: otpRecord.id },
       data: { verified: true }
-    });
+    }));
 
     // Check if user exists or create new user
-    let user = await prisma.user.findUnique({
+    let user = await withRetry(() => prisma.user.findUnique({
       where: { phone }
-    });
+    }));
 
     const isNewUser = !user;
 
     if (!user) {
       // Create new user
-      user = await prisma.user.create({
+      user = await withRetry(() => prisma.user.create({
         data: {
           phone,
           name: name || null,
           shopName: shopName || null
         }
-      });
+      }));
     } else if (name && !user.name) {
       // Update name and shopName if provided and user doesn't have one
-      user = await prisma.user.update({
+      user = await withRetry(() => prisma.user.update({
         where: { id: user.id },
         data: { 
           name,
           ...(shopName && !user.shopName ? { shopName } : {})
         }
-      });
+      }));
     } else if (shopName && !user.shopName) {
       // Update shopName if provided and user doesn't have one
-      user = await prisma.user.update({
+      user = await withRetry(() => prisma.user.update({
         where: { id: user.id },
         data: { shopName }
-      });
+      }));
     }
 
     // Clean up used OTP
-    await prisma.otp.delete({ where: { id: otpRecord.id } });
+    await withRetry(() => prisma.otp.delete({ where: { id: otpRecord.id } }));
 
     res.json({
       success: true,
@@ -197,14 +229,14 @@ exports.resendOtp = async (req, res) => {
     }
 
     // Check rate limiting - don't allow too frequent resends
-    const recentOtp = await prisma.otp.findFirst({
+    const recentOtp = await withRetry(() => prisma.otp.findFirst({
       where: {
         phone,
         createdAt: {
           gte: new Date(Date.now() - 30 * 1000) // 30 seconds
         }
       }
-    });
+    }));
 
     if (recentOtp) {
       return res.status(429).json({ 
@@ -230,9 +262,9 @@ exports.updateProfile = async (req, res) => {
     const { userId } = req.params;
     const { name, email } = req.body;
 
-    const user = await prisma.user.findUnique({
+    const user = await withRetry(() => prisma.user.findUnique({
       where: { id: userId }
-    });
+    }));
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -240,9 +272,9 @@ exports.updateProfile = async (req, res) => {
 
     // Check if email is already used by another user
     if (email && email !== user.email) {
-      const existingEmail = await prisma.user.findUnique({
+      const existingEmail = await withRetry(() => prisma.user.findUnique({
         where: { email }
-      });
+      }));
       if (existingEmail) {
         return res.status(400).json({ error: 'Email is already in use' });
       }
@@ -250,14 +282,14 @@ exports.updateProfile = async (req, res) => {
 
     const { shopName: newShopName } = req.body;
 
-    const updatedUser = await prisma.user.update({
+    const updatedUser = await withRetry(() => prisma.user.update({
       where: { id: userId },
       data: {
         name: name !== undefined ? name : user.name,
         email: email !== undefined ? email : user.email,
         shopName: newShopName !== undefined ? newShopName : user.shopName
       }
-    });
+    }));
 
     res.json({
       success: true,
@@ -285,14 +317,14 @@ exports.getProfile = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const user = await prisma.user.findUnique({
+    const user = await withRetry(() => prisma.user.findUnique({
       where: { id: userId },
       include: {
         _count: {
           select: { bills: true }
         }
       }
-    });
+    }));
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });

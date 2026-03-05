@@ -1,31 +1,42 @@
+const Groq = require('groq-sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// Initialize Groq AI
+let groqClient = null;
 // Initialize Gemini AI
-let genAI = null;
 let geminiModel = null;
 
 function initializeGemini() {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   
   if (!apiKey) {
-    console.warn('[GeminiService] ⚠️ GEMINI_API_KEY not found in environment');
+    console.warn('[AIService] ⚠️ GROQ_API_KEY not found in environment');
     return false;
   }
 
   try {
-    genAI = new GoogleGenerativeAI(apiKey);
-    geminiModel = genAI.getGenerativeModel({ 
-      model: 'gemini-2.0-flash-exp',
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json',
-      }
-    });
-    console.log('[GeminiService] ✓ Gemini AI initialized successfully');
+    groqClient = new Groq({ apiKey });
+    console.log('[AIService] ✓ Groq AI initialized successfully');
     return true;
   } catch (error) {
-    console.error('[GeminiService] ✗ Failed to initialize:', error.message);
+    console.error('[AIService] ✗ Failed to initialize:', error.message);
+    return false;
+  }
+}
+
+function initializeGeminiVision() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('[AIService] ⚠️ GEMINI_API_KEY not found — Gemini Vision disabled');
+    return false;
+  }
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    console.log('[AIService] ✓ Gemini Vision (gemini-2.0-flash) initialized');
+    return true;
+  } catch (error) {
+    console.error('[AIService] ✗ Failed to initialize Gemini Vision:', error.message);
     return false;
   }
 }
@@ -37,10 +48,10 @@ function initializeGemini() {
  */
 async function parseOcrWithGemini(ocrText) {
   // Initialize if not already done
-  if (!geminiModel) {
+  if (!groqClient) {
     const initialized = initializeGemini();
     if (!initialized) {
-      throw new Error('Gemini AI is not configured. Please set GEMINI_API_KEY in .env');
+      throw new Error('Groq AI is not configured. Please set GROQ_API_KEY in .env');
     }
   }
 
@@ -159,12 +170,26 @@ ${ocrText}
 `;
 
   try {
-    console.log('[GeminiService] Sending request to Gemini AI...');
-    const result = await geminiModel.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    console.log('[AIService] Sending request to Groq AI (llama-3.3-70b-versatile)...');
+    const chatCompletion = await groqClient.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert Indian pharmacy invoice parser. You always return ONLY valid JSON, no markdown fences, no extra text.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.2,
+      max_tokens: 4096,
+      response_format: { type: 'json_object' },
+    });
 
-    console.log('[GeminiService] ✓ Received response from Gemini');
+    const text = chatCompletion.choices[0]?.message?.content || '';
+    console.log('[AIService] ✓ Received response from Groq');
     
     // Extract JSON from response (remove markdown if present)
     let jsonText = text.trim();
@@ -186,13 +211,13 @@ ${ocrText}
     // Normalize the data
     const normalized = normalizeBillData(parsed);
     
-    console.log('[GeminiService] ✓ Successfully parsed bill data');
-    console.log(`[GeminiService] Extracted: ${normalized.items?.length || 0} items`);
+    console.log('[AIService] ✓ Successfully parsed bill data');
+    console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
     
     return normalized;
   } catch (error) {
-    console.error('[GeminiService] ✗ Parsing failed:', error.message);
-    throw new Error(`Gemini parsing failed: ${error.message}`);
+    console.error('[AIService] ✗ Parsing failed:', error.message);
+    throw new Error(`AI parsing failed: ${error.message}`);
   }
 }
 
@@ -357,7 +382,219 @@ function inferUnit(name = '') {
   return 'units';
 }
 
+/**
+ * Parse bill image directly using Gemini Vision (PRIMARY — best for documents)
+ * Falls back to Groq Vision if Gemini fails.
+ */
+async function parseImageWithVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
+  // Try Gemini Vision first (much better for document/table parsing)
+  try {
+    const result = await parseImageWithGeminiVision(base64Image, mimeType, ocrTextHint);
+    return result;
+  } catch (geminiErr) {
+    console.warn('[AIService] Gemini Vision failed, trying Groq Vision:', geminiErr.message);
+  }
+
+  // Fallback to Groq Vision
+  try {
+    const result = await parseImageWithGroqVision(base64Image, mimeType, ocrTextHint);
+    return result;
+  } catch (groqErr) {
+    console.warn('[AIService] Groq Vision failed:', groqErr.message);
+  }
+
+  // Final fallback: if we have OCR text, use text model
+  if (ocrTextHint && ocrTextHint.trim().length > 10) {
+    console.log('[AIService] All vision models failed — falling back to text model with OCR text...');
+    return parseOcrWithGemini(ocrTextHint);
+  }
+
+  throw new Error('All vision parsing methods failed. Try a clearer image.');
+}
+
+/**
+ * The standard vision prompt for both Gemini and Groq
+ */
+function getVisionPrompt(ocrTextHint) {
+  return `You are an expert Indian pharmacy/medical invoice parser with 100% precision.
+
+TASK: Look at this pharmacy bill/invoice image VERY CAREFULLY and extract ALL data into structured JSON.
+
+CRITICAL RULES:
+1. Read EVERY column header in the table first: identify S.No, Item/Product, Pack, HSN, Batch, Expiry, Qty, Free, MRP, Rate/P.Rate, Disc%, GST%, Amount/Amt columns.
+2. For EACH item row, read values STRICTLY from their column positions. DO NOT mix up columns.
+3. MRP and Rate are DIFFERENT fields - read each from its own column.
+4. "pharmacyName" = the SELLER/DISTRIBUTOR/SUPPLIER name at the top, NOT the buyer.
+5. Read ALL items - do not skip any rows.
+6. Read totals section: Subtotal, CGST, SGST, Discount, Round Off, Grand Total EXACTLY as printed.
+7. Dates should be in DD-MM-YYYY format.
+8. Read batch numbers and expiry dates carefully - these are critical for pharmacy records.
+
+${ocrTextHint ? `\nHINT - OCR text extracted from this image (may contain errors, use image as primary source):\n${ocrTextHint}\n` : ''}
+
+Return ONLY valid JSON matching this schema:
+{
+  "pharmacyName": string|null,
+  "shopAddress": string|null,
+  "phoneNumbers": string[]|null,
+  "gstin": string|null,
+  "dlNumber": string|null,
+  "invoiceNumber": string|null,
+  "invoiceDate": "DD-MM-YYYY"|null,
+  "dueDate": "DD-MM-YYYY"|null,
+  "paymentType": "cash"|"credit"|null,
+  "items": [{
+    "sn": number|null,
+    "name": string,
+    "quantity": number,
+    "freeQuantity": number|null,
+    "unit": string|null,
+    "manufacturer": string|null,
+    "batchNumber": string|null,
+    "expiryDate": "DD-MM-YYYY"|null,
+    "hsnCode": string|null,
+    "mrp": number|null,
+    "rate": number|null,
+    "discount": number|null,
+    "discountPercent": number|null,
+    "gstPercent": number|null,
+    "sgstPercent": number|null,
+    "cgstPercent": number|null,
+    "itemTotal": number|null
+  }],
+  "subtotal": number|null,
+  "discountPercent": number|null,
+  "discountAmount": number|null,
+  "cgst": number|null,
+  "sgst": number|null,
+  "totalGst": number|null,
+  "roundOff": number|null,
+  "grandTotal": number|null
+}`;
+}
+
+/**
+ * Parse with Gemini Vision (gemini-2.0-flash) — best for document/table parsing
+ */
+async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
+  if (!geminiModel) {
+    const initialized = initializeGeminiVision();
+    if (!initialized) {
+      throw new Error('Gemini Vision not configured. Set GEMINI_API_KEY in .env');
+    }
+  }
+
+  const prompt = getVisionPrompt(ocrTextHint);
+
+  console.log('[AIService] Sending image to Gemini Vision (gemini-2.0-flash)...');
+
+  const result = await geminiModel.generateContent([
+    prompt,
+    {
+      inlineData: {
+        mimeType,
+        data: base64Image,
+      },
+    },
+  ]);
+
+  const response = result.response;
+  const text = response.text();
+  console.log('[AIService] ✓ Received Gemini Vision response');
+
+  // Extract JSON from response
+  let jsonText = text.trim();
+  if (jsonText.startsWith('```json')) {
+    jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
+  } else if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
+  }
+
+  const start = jsonText.indexOf('{');
+  const end = jsonText.lastIndexOf('}');
+  if (start !== -1 && end !== -1) {
+    jsonText = jsonText.slice(start, end + 1);
+  }
+
+  const parsed = JSON.parse(jsonText);
+  const normalized = normalizeBillData(parsed);
+
+  console.log(`[AIService] ✓ Gemini Vision parsed: ${normalized.items?.length || 0} items`);
+  return normalized;
+}
+
+/**
+ * Parse with Groq Vision (llama-4-scout) — fallback
+ */
+async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
+  if (!groqClient) {
+    const initialized = initializeGemini();
+    if (!initialized) {
+      throw new Error('Groq AI is not configured. Please set GROQ_API_KEY in .env');
+    }
+  }
+
+  const visionPrompt = getVisionPrompt(ocrTextHint);
+
+  try {
+    console.log('[AIService] Sending image to Groq Vision (llama-4-scout-17b-16e)...');
+
+    const chatCompletion = await groqClient.chat.completions.create({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: visionPrompt,
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${mimeType};base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      temperature: 0.1,
+      max_tokens: 4096,
+    });
+
+    const text = chatCompletion.choices[0]?.message?.content || '';
+    console.log('[AIService] ✓ Received vision response from Groq');
+
+    // Extract JSON from response
+    let jsonText = text.trim();
+    if (jsonText.startsWith('```json')) {
+      jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
+    } else if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
+    }
+
+    const start = jsonText.indexOf('{');
+    const end = jsonText.lastIndexOf('}');
+    if (start !== -1 && end !== -1) {
+      jsonText = jsonText.slice(start, end + 1);
+    }
+
+    const parsed = JSON.parse(jsonText);
+    const normalized = normalizeBillData(parsed);
+
+    console.log('[AIService] ✓ Vision parsed bill data successfully');
+    console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
+
+    return normalized;
+  } catch (error) {
+    console.error('[AIService] ✗ Groq Vision parsing failed:', error.message);
+    throw new Error(`Groq Vision parsing failed: ${error.message}`);
+  }
+}
+
 module.exports = {
   parseOcrWithGemini,
+  parseImageWithVision,
   initializeGemini,
+  initializeGeminiVision,
 };
