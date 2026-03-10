@@ -5,6 +5,16 @@ const billController = require('../controllers/billController');
 // Save parsed bill data from frontend (frontend does OCR + parsing)
 router.post('/:userId/save', billController.uploadBill);
 
+// ========== DRAFT ENDPOINTS ==========
+// Save bill as draft (no product sync, status = 'draft')
+router.post('/:userId/draft', billController.saveDraft);
+
+// Get all drafts for a user
+router.get('/user/:userId/drafts', billController.getUserDrafts);
+
+// Convert draft to completed bill (triggers product sync)
+router.post('/:billId/convert', billController.convertDraft);
+
 // Get all bills for a user
 router.get('/user/:userId', billController.getUserBills);
 

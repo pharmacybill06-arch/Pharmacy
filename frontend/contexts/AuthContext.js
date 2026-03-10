@@ -71,7 +71,7 @@ export function AuthProvider({ children }) {
           setUser(userData);
           setIsAuthenticated(true);
         } catch (validationError) {
-          console.warn('[Auth] Stored user no longer exists on server, clearing session');
+          console.log('[Auth] Stored user no longer exists on server, clearing session. Re-login required.');
           await Storage.removeItem(AUTH_STORAGE_KEY);
           setUser(null);
           setIsAuthenticated(false);

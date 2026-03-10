@@ -75,6 +75,7 @@ export default function BillFormScreen({
   onAddItem,
   onEditItem,
   onSubmit,
+  onSaveDraft,
   onCancel,
   geminiLoading = false,
   geminiConfidence = null,
@@ -596,6 +597,17 @@ export default function BillFormScreen({
             icon="checkmark-circle-outline"
             onPress={onSubmit}
           />
+          
+          {onSaveDraft && (
+            <>
+              <View style={styles.buttonSpacer} />
+              <SecondaryButton
+                title="Save as Draft"
+                icon="document-text-outline"
+                onPress={onSaveDraft}
+              />
+            </>
+          )}
           
           {onCancel && (
             <>

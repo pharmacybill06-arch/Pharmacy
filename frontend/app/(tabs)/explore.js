@@ -270,6 +270,42 @@ export default function ExploreScreen() {
     router.back();
   };
 
+  const handleSaveDraft = async (formData) => {
+    console.log('Saving as draft:', formData);
+    
+    if (!user || !user.id) {
+      showToast('Please login to save drafts', 'error', 'Authentication Required');
+      return;
+    }
+    
+    try {
+      setSaving(true);
+      
+      const response = await billApi.saveDraft(
+        user.id,
+        formData,
+        rawOcrText,
+        photoUri
+      );
+      
+      console.log('Draft saved to backend:', response);
+      showToast('Bill saved as draft! You can edit it later from the web app.', 'success', 'Draft Saved');
+      
+      setTimeout(() => {
+        setCurrentScreen('upload');
+        setRawOcrText('');
+        setPhotoUri('');
+        setParsedFileData(null);
+        setFileOcrText('');
+      }, 1500);
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      showToast(error.message || 'Failed to save draft', 'error', 'Save Failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ===== RENDER SCREENS =====
   // Camera view should be checked FIRST before other screens
   if (cameraActive) {
@@ -371,6 +407,7 @@ export default function ExploreScreen() {
         <BillFormRedesigned
           ocrText={rawOcrText || fileOcrText}
           onSubmit={handleSubmitBill}
+          onSaveDraft={handleSaveDraft}
           onCancel={handleCancel}
           initialData={parsedFileData}
         />

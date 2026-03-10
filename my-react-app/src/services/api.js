@@ -136,6 +136,25 @@ export const billApi = {
   deleteBillItem: async (itemId) => {
     return apiFetch(`/bills/items/${itemId}`, { method: 'DELETE' });
   },
+
+  // ========== DRAFT ENDPOINTS ==========
+  saveDraft: async (userId, parsedData, ocrText, imageUri) => {
+    return apiFetch(`/bills/${userId}/draft`, {
+      method: 'POST',
+      body: JSON.stringify({ parsedData, ocrText, imageUri }),
+    });
+  },
+
+  getUserDrafts: async (userId) => {
+    return apiFetch(`/bills/user/${userId}/drafts`);
+  },
+
+  convertDraft: async (billId, parsedData) => {
+    return apiFetch(`/bills/${billId}/convert`, {
+      method: 'POST',
+      body: JSON.stringify({ parsedData }),
+    });
+  },
 };
 
 // ============================================================================

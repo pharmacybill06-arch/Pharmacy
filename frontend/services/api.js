@@ -213,6 +213,33 @@ export const billApi = {
   },
 
   /**
+   * Save bill as draft (no product sync)
+   */
+  saveDraft: async (userId, parsedData, ocrText, imageUri) => {
+    return apiFetch(`/bills/${userId}/draft`, {
+      method: 'POST',
+      body: JSON.stringify({ parsedData, ocrText, imageUri }),
+    });
+  },
+
+  /**
+   * Get all drafts for a user
+   */
+  getUserDrafts: async (userId) => {
+    return apiFetch(`/bills/user/${userId}/drafts`);
+  },
+
+  /**
+   * Convert a draft to a completed bill
+   */
+  convertDraft: async (billId, parsedData) => {
+    return apiFetch(`/bills/${billId}/convert`, {
+      method: 'POST',
+      body: JSON.stringify({ parsedData }),
+    });
+  },
+
+  /**
    * Get all bills for a user
    */
   getUserBills: async (userId) => {

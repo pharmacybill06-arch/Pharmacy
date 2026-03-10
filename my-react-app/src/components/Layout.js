@@ -3,13 +3,14 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, ScanLine, FileText, Package, Truck,
-  Receipt, Warehouse, User, LogOut, Menu, X, Pill
+  Receipt, Warehouse, User, LogOut, Menu, X, Pill, Clock
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/scan', icon: ScanLine, label: 'Scan Bill' },
   { to: '/bills', icon: FileText, label: 'Purchase Bills' },
+  { to: '/drafts', icon: Clock, label: 'Drafts' },
   { to: '/products', icon: Package, label: 'Products' },
   { to: '/distributors', icon: Truck, label: 'Distributors' },
   { to: '/invoices', icon: Receipt, label: 'Sales Invoices' },

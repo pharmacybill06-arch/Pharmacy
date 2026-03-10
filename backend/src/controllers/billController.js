@@ -202,9 +202,9 @@ exports.getUserBills = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get all bills for the user with normalized fields
+    // Get all bills for the user with normalized fields (exclude drafts)
     const bills = await prisma.bill.findMany({
-      where: { userId },
+      where: { userId, status: { not: 'draft' } },
       include: {
         distributor: {
           select: {
@@ -501,6 +501,273 @@ exports.getBillItems = async (req, res) => {
   } catch (error) {
     console.error('Error fetching bill items:', error.message);
     res.status(500).json({ error: 'Failed to fetch bill items' });
+  }
+};
+
+// ========== DRAFT ENDPOINTS ==========
+
+// Save bill as draft (no product sync, no distributor creation)
+exports.saveDraft = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { parsedData, ocrText, imageUri } = req.body;
+
+    // Auto-create user if doesn't exist
+    let user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      console.log(`[SAVE_DRAFT] Creating temporary user: ${userId}`);
+      user = await prisma.user.create({
+        data: {
+          id: userId,
+          email: `${userId}@temp.local`,
+          name: 'Temporary User',
+          phone: '+0000000000'
+        }
+      });
+    }
+
+    console.log(`[SAVE_DRAFT] Saving draft for user: ${userId}`);
+
+    const bill = await prisma.bill.create({
+      data: {
+        userId,
+        fileName: parsedData?.invoiceNumber || 'draft',
+        filePath: imageUri || '/temp/draft',
+        fileSize: 0,
+        mimeType: 'image/jpeg',
+        status: 'draft',
+
+        // Pharmacy details
+        pharmacyName: parsedData?.pharmacyName || null,
+        shopAddress: parsedData?.shopAddress || null,
+        phoneNumbers: parsedData?.phoneNumbers ? JSON.stringify(parsedData.phoneNumbers) : null,
+
+        // Invoice identification
+        invoiceNumber: parsedData?.invoiceNumber || null,
+        invoiceDate: parsedData?.invoiceDate ? parseDateString(parsedData.invoiceDate) : null,
+
+        // Customer details
+        customerName: parsedData?.customerName || null,
+        customerPhone: parsedData?.customerPhone || null,
+        customerAddress: parsedData?.customerAddress || null,
+        doctorName: parsedData?.doctorName || null,
+
+        // Financial totals
+        subtotal: parsedData?.subtotal ? parseFloat(parsedData.subtotal) : null,
+        cgst: parsedData?.cgst ? parseFloat(parsedData.cgst) : null,
+        sgst: parsedData?.sgst ? parseFloat(parsedData.sgst) : null,
+        totalGst: parsedData?.totalGst ? parseFloat(parsedData.totalGst) : null,
+        discountAmount: parsedData?.discountAmount ? parseFloat(parsedData.discountAmount) : null,
+        roundOff: parsedData?.roundOff ? parseFloat(parsedData.roundOff) : null,
+        grandTotal: parsedData?.grandTotal ? parseFloat(parsedData.grandTotal) : null,
+
+        // Payment details
+        paymentType: parsedData?.paymentType || null,
+        amountPaid: parsedData?.amountPaid ? parseFloat(parsedData.amountPaid) : null,
+        balanceAmount: parsedData?.balanceAmount ? parseFloat(parsedData.balanceAmount) : null,
+
+        // Additional info
+        remarks: parsedData?.remarks || null,
+
+        // OCR data
+        rawOcrText: ocrText || null,
+        ocrEngine: 'ml-kit',
+        aiParser: 'gemini-ai',
+
+        // Items
+        items: parsedData?.items ? {
+          create: parsedData.items.map(item => ({
+            serialNumber: item.sn ? parseInt(item.sn) : null,
+            name: item.name || '',
+            manufacturer: item.manufacturer || null,
+            batchNumber: item.batchNumber || null,
+            expiryDate: item.expiryDate || null,
+            hsnCode: item.hsnCode || null,
+            quantity: item.quantity ? parseFloat(item.quantity) : 0,
+            freeQuantity: item.freeQuantity ? parseFloat(item.freeQuantity) : null,
+            unit: item.unit || 'units',
+            mrp: item.mrp ? parseFloat(item.mrp) : null,
+            rate: item.rate ? parseFloat(item.rate) : 0,
+            gstPercent: item.gstPercent ? parseFloat(item.gstPercent) : null,
+            cgstPercent: item.cgstPercent ? parseFloat(item.cgstPercent) : null,
+            sgstPercent: item.sgstPercent ? parseFloat(item.sgstPercent) : null,
+            discount: item.discount ? parseFloat(item.discount) : null,
+            itemTotal: item.itemTotal ? parseFloat(item.itemTotal) : 0,
+            confidence: item.confidence || 1.0
+          }))
+        } : undefined
+      },
+      include: { items: true }
+    });
+
+    console.log(`[SAVE_DRAFT] ✓ Draft saved: ${bill.id}`);
+
+    res.status(201).json({
+      message: 'Draft saved successfully',
+      bill: {
+        id: bill.id,
+        fileName: bill.fileName,
+        status: bill.status,
+        createdAt: bill.createdAt
+      }
+    });
+  } catch (error) {
+    console.error('Error saving draft:', error.message);
+    res.status(500).json({ error: 'Failed to save draft' });
+  }
+};
+
+// Get all drafts for a user
+exports.getUserDrafts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const drafts = await prisma.bill.findMany({
+      where: { userId, status: 'draft' },
+      include: {
+        distributor: {
+          select: { id: true, name: true, phone: true, gstin: true, address: true, dlNumber: true }
+        },
+        items: {
+          select: {
+            id: true, serialNumber: true, name: true, manufacturer: true,
+            batchNumber: true, expiryDate: true, hsnCode: true,
+            quantity: true, freeQuantity: true, unit: true,
+            mrp: true, rate: true, gstPercent: true, cgstPercent: true, sgstPercent: true,
+            discount: true, itemTotal: true, confidence: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({
+      message: 'Drafts fetched successfully',
+      total: drafts.length,
+      drafts
+    });
+  } catch (error) {
+    console.error('Error fetching drafts:', error.message);
+    res.status(500).json({ error: 'Failed to fetch drafts' });
+  }
+};
+
+// Convert a draft to a completed bill (with distributor & product sync)
+exports.convertDraft = async (req, res) => {
+  try {
+    const { billId } = req.params;
+    const { parsedData } = req.body;
+
+    const bill = await prisma.bill.findUnique({
+      where: { id: billId },
+      include: { items: true }
+    });
+
+    if (!bill) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    if (bill.status !== 'draft') {
+      return res.status(400).json({ error: 'Bill is not a draft' });
+    }
+
+    // Find or create distributor
+    let distributorId = null;
+    const distName = parsedData?.pharmacyName || bill.pharmacyName;
+    if (distName) {
+      try {
+        const distributorData = {
+          name: parsedData?.distributor?.name || distName,
+          gstin: parsedData?.distributor?.gstin || parsedData?.gstin || null,
+          phone: parsedData?.distributor?.phone || null,
+          address: parsedData?.distributor?.address || parsedData?.shopAddress || bill.shopAddress || null,
+          dlNumber: parsedData?.distributor?.dlNumber || null
+        };
+        const distributor = await distributorService.findOrCreateDistributor(bill.userId, distributorData);
+        if (distributor) distributorId = distributor.id;
+      } catch (distError) {
+        console.error('[CONVERT_DRAFT] Distributor error (non-fatal):', distError.message);
+      }
+    }
+
+    // If parsedData has updated items, delete old items and create new ones
+    if (parsedData?.items && parsedData.items.length > 0) {
+      // Delete existing items
+      await prisma.billItem.deleteMany({ where: { billId } });
+
+      // Create new items
+      await prisma.billItem.createMany({
+        data: parsedData.items.map(item => ({
+          billId,
+          serialNumber: item.sn ? parseInt(item.sn) : null,
+          name: item.name || '',
+          manufacturer: item.manufacturer || null,
+          batchNumber: item.batchNumber || null,
+          expiryDate: item.expiryDate || null,
+          hsnCode: item.hsnCode || null,
+          quantity: item.quantity ? parseFloat(item.quantity) : 0,
+          freeQuantity: item.freeQuantity ? parseFloat(item.freeQuantity) : null,
+          unit: item.unit || 'units',
+          mrp: item.mrp ? parseFloat(item.mrp) : null,
+          rate: item.rate ? parseFloat(item.rate) : 0,
+          gstPercent: item.gstPercent ? parseFloat(item.gstPercent) : null,
+          cgstPercent: item.cgstPercent ? parseFloat(item.cgstPercent) : null,
+          sgstPercent: item.sgstPercent ? parseFloat(item.sgstPercent) : null,
+          discount: item.discount ? parseFloat(item.discount) : null,
+          itemTotal: item.itemTotal ? parseFloat(item.itemTotal) : 0,
+          confidence: item.confidence || 1.0
+        }))
+      });
+    }
+
+    // Update the bill to completed
+    const updatedBill = await prisma.bill.update({
+      where: { id: billId },
+      data: {
+        status: 'completed',
+        distributorId,
+        processedAt: new Date(),
+        // Update fields from parsedData if provided
+        ...(parsedData?.pharmacyName && { pharmacyName: parsedData.pharmacyName }),
+        ...(parsedData?.shopAddress && { shopAddress: parsedData.shopAddress }),
+        ...(parsedData?.invoiceNumber && { invoiceNumber: parsedData.invoiceNumber }),
+        ...(parsedData?.invoiceDate && { invoiceDate: parseDateString(parsedData.invoiceDate) }),
+        ...(parsedData?.subtotal && { subtotal: parseFloat(parsedData.subtotal) }),
+        ...(parsedData?.cgst && { cgst: parseFloat(parsedData.cgst) }),
+        ...(parsedData?.sgst && { sgst: parseFloat(parsedData.sgst) }),
+        ...(parsedData?.totalGst && { totalGst: parseFloat(parsedData.totalGst) }),
+        ...(parsedData?.discountAmount && { discountAmount: parseFloat(parsedData.discountAmount) }),
+        ...(parsedData?.roundOff && { roundOff: parseFloat(parsedData.roundOff) }),
+        ...(parsedData?.grandTotal && { grandTotal: parseFloat(parsedData.grandTotal) }),
+        ...(parsedData?.paymentType && { paymentType: parsedData.paymentType }),
+      },
+      include: { items: true }
+    });
+
+    // Sync products from bill items
+    if (updatedBill.items && updatedBill.items.length > 0) {
+      try {
+        const syncResult = await productService.syncProductsFromBillItems(bill.userId, updatedBill.items);
+        console.log(`[CONVERT_DRAFT] ✓ Product sync: ${syncResult.created} created, ${syncResult.updated} updated`);
+      } catch (syncError) {
+        console.error('[CONVERT_DRAFT] Product sync warning:', syncError.message);
+      }
+    }
+
+    console.log(`[CONVERT_DRAFT] ✓ Draft ${billId} converted to bill`);
+
+    res.json({
+      message: 'Draft converted to bill successfully',
+      bill: updatedBill
+    });
+  } catch (error) {
+    console.error('Error converting draft:', error.message);
+    res.status(500).json({ error: 'Failed to convert draft' });
   }
 };
 

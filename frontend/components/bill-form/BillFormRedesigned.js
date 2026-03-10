@@ -26,6 +26,7 @@ import {
 export default function BillFormRedesigned({
   ocrText,
   onSubmit,
+  onSaveDraft,
   onCancel,
   initialData,
 }) {
@@ -481,6 +482,12 @@ export default function BillFormRedesigned({
     setEditingItemIndex(null);
   };
 
+  const handleSaveDraft = () => {
+    if (onSaveDraft) {
+      onSaveDraft(formData);
+    }
+  };
+
   const handleSubmit = () => {
     // Validation
     // if (!formData.pharmacyName.trim()) {
@@ -534,6 +541,7 @@ export default function BillFormRedesigned({
         onAddItem={handleAddItem}
         onEditItem={handleEditItem}
         onSubmit={handleSubmit}
+        onSaveDraft={onSaveDraft ? handleSaveDraft : undefined}
         onCancel={onCancel}
         geminiLoading={geminiLoading}
         geminiConfidence={geminiConfidence}

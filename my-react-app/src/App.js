@@ -16,6 +16,7 @@ import DistributorFormPage from './pages/DistributorFormPage';
 import DistributorDetailPage from './pages/DistributorDetailPage';
 import InvoicesPage from './pages/InvoicesPage';
 import CreateInvoicePage from './pages/CreateInvoicePage';
+import DraftsPage from './pages/DraftsPage';
 import InventoryPage from './pages/InventoryPage';
 import ProfilePage from './pages/ProfilePage';
 
@@ -51,6 +52,7 @@ function AppRoutes() {
         <Route path="bill-form" element={<BillFormPage />} />
         <Route path="bills" element={<BillsListPage />} />
         <Route path="bills/:billId" element={<BillDetailsPage />} />
+        <Route path="drafts" element={<DraftsPage />} />
         <Route path="products" element={<ProductsPage />} />
         <Route path="products/new" element={<ProductFormPage />} />
         <Route path="products/:productId/edit" element={<ProductFormPage />} />

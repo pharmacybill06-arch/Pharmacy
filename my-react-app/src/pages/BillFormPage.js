@@ -16,7 +16,7 @@ export default function BillFormPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { parsedData, ocrText, imageFile } = location.state || {};
+  const { parsedData, ocrText, imageFile, draftId } = location.state || {};
 
   const [billData, setBillData] = useState({
     invoiceNumber: '',
@@ -173,7 +173,18 @@ export default function BillFormPage() {
       };
 
       await billApi.saveBill(user.id, saveData, ocrText || '', '');
-      toast.success('Bill saved successfully!');
+
+      // If editing a draft, delete the draft after successful save
+      if (draftId) {
+        try {
+          await billApi.deleteBill(draftId);
+          console.log('[BillForm] Draft deleted after conversion:', draftId);
+        } catch (delErr) {
+          console.warn('[BillForm] Failed to delete draft (non-fatal):', delErr.message);
+        }
+      }
+
+      toast.success(draftId ? 'Draft saved as bill!' : 'Bill saved successfully!');
       navigate('/bills');
     } catch (err) {
       toast.error(err.message || 'Failed to save bill');
@@ -188,8 +199,21 @@ export default function BillFormPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h2 style={{ fontSize: 24, fontWeight: 700 }}>Bill Form</h2>
-          <p style={{ color: '#6b7280', fontSize: 14 }}>Review and edit parsed bill data</p>
+          <h2 style={{ fontSize: 24, fontWeight: 700 }}>
+            Bill Form
+            {draftId && (
+              <span style={{
+                marginLeft: 10, fontSize: 12, fontWeight: 600,
+                background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A',
+                borderRadius: 999, padding: '3px 10px', verticalAlign: 'middle',
+              }}>
+                Editing Draft
+              </span>
+            )}
+          </h2>
+          <p style={{ color: '#6b7280', fontSize: 14 }}>
+            {draftId ? 'Edit the draft and save as a final bill' : 'Review and edit parsed bill data'}
+          </p>
         </div>
         <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? <Loader size={16} className="spinner" /> : <Save size={16} />}
