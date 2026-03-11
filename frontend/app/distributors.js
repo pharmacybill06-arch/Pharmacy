@@ -3,6 +3,8 @@ import { View, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDistributors, DistributorProvider } from '@/contexts/DistributorContext';
+import { PaymentProvider } from '@/contexts/PaymentContext';
+import { paymentApi } from '@/services/api';
 import DistributorsListScreen from '@/components/screens/DistributorsListScreen';
 import DistributorFormScreen from '@/components/screens/DistributorFormScreen';
 import DistributorDetailScreen from '@/components/screens/DistributorDetailScreen';
@@ -37,6 +39,10 @@ function DistributorsScreenContent() {
   const [hasMoreBills, setHasMoreBills] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
+
+  // Payment data for distributor detail
+  const [distributorPaymentStats, setDistributorPaymentStats] = useState(null);
+  const [distributorRecentPayments, setDistributorRecentPayments] = useState([]);
 
   const userId = user?.id;
 
@@ -89,6 +95,22 @@ function DistributorsScreenContent() {
     
     setCurrentView('detail');
   }, [getDistributor, getDistributorBills]);
+
+  // Fetch payment stats when viewing distributor detail
+  useEffect(() => {
+    async function fetchPaymentData() {
+      if (currentView === 'detail' && selectedDistributor?.id) {
+        try {
+          const result = await paymentApi.getDistributorPayments(selectedDistributor.id, { page: 1, limit: 5 });
+          setDistributorPaymentStats(result.stats || null);
+          setDistributorRecentPayments(result.payments || []);
+        } catch (err) {
+          console.log('Could not fetch distributor payments:', err.message);
+        }
+      }
+    }
+    fetchPaymentData();
+  }, [currentView, selectedDistributor?.id]);
 
   // Open add form
   const handleAddPress = useCallback(() => {
@@ -161,6 +183,16 @@ function DistributorsScreenContent() {
     console.log('Bill pressed:', bill.id);
   }, []);
 
+  // Navigate to payments screen filtered by this distributor
+  const handleViewPayments = useCallback(() => {
+    if (selectedDistributor?.id) {
+      router.push({
+        pathname: '/payments',
+        params: { distributorId: selectedDistributor.id },
+      });
+    }
+  }, [selectedDistributor, router]);
+
   // Render based on current view
   if (currentView === 'form') {
     return (
@@ -195,6 +227,9 @@ function DistributorsScreenContent() {
           onLoadMoreBills={handleLoadMoreBills}
           loading={isLoading}
           hasMoreBills={hasMoreBills}
+          paymentStats={distributorPaymentStats}
+          recentPayments={distributorRecentPayments}
+          onViewPayments={handleViewPayments}
         />
         <Toast
           visible={toast.visible}
@@ -235,8 +270,10 @@ function DistributorsScreenContent() {
  */
 export default function DistributorsScreen() {
   return (
-    <DistributorProvider>
-      <DistributorsScreenContent />
-    </DistributorProvider>
+    <PaymentProvider>
+      <DistributorProvider>
+        <DistributorsScreenContent />
+      </DistributorProvider>
+    </PaymentProvider>
   );
 }

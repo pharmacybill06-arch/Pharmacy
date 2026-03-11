@@ -16,6 +16,7 @@ import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import SecondaryButton from '@/components/ui/SecondaryButton';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 /**
  * Info Row Component
@@ -96,6 +97,10 @@ export default function DistributorDetailScreen({
   onLoadMoreBills,
   loading = false,
   hasMoreBills = false,
+  // Payment props
+  paymentStats = null,
+  recentPayments = [],
+  onViewPayments,
 }) {
   if (!distributor) {
     return (
@@ -248,6 +253,75 @@ export default function DistributorDetailScreen({
           style={styles.actionButton}
         />
       </View>
+
+      {/* Payment Summary Card */}
+      <Card style={styles.paymentSummaryCard}>
+        <View style={styles.paymentSummaryHeader}>
+          <View style={styles.paymentSummaryTitleRow}>
+            <MaterialIcons name="payment" size={18} color="#4F46E5" />
+            <ThemedText style={styles.sectionTitle}>Payment History</ThemedText>
+          </View>
+          {onViewPayments && (
+            <Pressable onPress={onViewPayments}>
+              <ThemedText style={styles.viewAllLink}>View All</ThemedText>
+            </Pressable>
+          )}
+        </View>
+
+        {paymentStats ? (
+          <View style={styles.paymentStatsRow}>
+            <View style={styles.paymentStatBox}>
+              <ThemedText style={styles.paymentStatValue}>
+                {formatAmount(paymentStats.totalPaid)}
+              </ThemedText>
+              <ThemedText style={styles.paymentStatLabel}>Total Paid</ThemedText>
+            </View>
+            <View style={styles.paymentStatDivider} />
+            <View style={styles.paymentStatBox}>
+              <ThemedText style={[styles.paymentStatValue, { color: '#4F46E5' }]}>
+                {paymentStats.totalPayments || 0}
+              </ThemedText>
+              <ThemedText style={styles.paymentStatLabel}>Payments</ThemedText>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.noPayments}>
+            <MaterialIcons name="payment" size={32} color="#CBD5E1" />
+            <ThemedText style={styles.noPaymentsText}>No payments recorded</ThemedText>
+            <ThemedText style={styles.noPaymentsHint}>
+              Share payment receipts from UPI apps to track them here
+            </ThemedText>
+          </View>
+        )}
+
+        {recentPayments.length > 0 && (
+          <View style={styles.recentPaymentsList}>
+            {recentPayments.slice(0, 3).map((payment) => (
+              <View key={payment.id} style={styles.recentPaymentRow}>
+                <View style={[
+                  styles.paymentStatusDot,
+                  { backgroundColor: payment.paymentStatus === 'success' ? '#059669' : '#D97706' },
+                ]} />
+                <View style={styles.recentPaymentInfo}>
+                  <ThemedText style={styles.recentPaymentAmount}>
+                    ₹{parseFloat(payment.amount).toLocaleString('en-IN')}
+                  </ThemedText>
+                  <ThemedText style={styles.recentPaymentDate}>
+                    {payment.paymentDate
+                      ? new Date(payment.paymentDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+                      : '-'}
+                  </ThemedText>
+                </View>
+                {payment.paymentApp && (
+                  <ThemedText style={styles.recentPaymentApp}>
+                    {payment.paymentApp.replace('_', ' ')}
+                  </ThemedText>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+      </Card>
 
       {/* Bills Section Header */}
       <View style={styles.billsHeader}>
@@ -469,6 +543,111 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
+  },
+  // Payment Summary
+  paymentSummaryCard: {
+    padding: 16,
+    marginBottom: 16,
+  },
+  paymentSummaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  paymentSummaryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewAllLink: {
+    fontSize: 13,
+    color: '#4F46E5',
+    fontWeight: '600',
+  },
+  paymentStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  paymentStatBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  paymentStatDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 12,
+  },
+  paymentStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  paymentStatLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  noPayments: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  noPaymentsText: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 8,
+    fontWeight: '600',
+  },
+  noPaymentsHint: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  recentPaymentsList: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingTop: 12,
+  },
+  recentPaymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  paymentStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 10,
+  },
+  recentPaymentInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recentPaymentAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  recentPaymentDate: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  recentPaymentApp: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textTransform: 'capitalize',
   },
   billsHeader: {
     flexDirection: 'row',

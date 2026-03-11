@@ -371,6 +371,21 @@ export default function BillsHomeScreen() {
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Distributors</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage suppliers</ThemedText>
               </Pressable>
+
+              {/* Payments Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/payments')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#F0FDF4' }]}>
+                  <MaterialIcons name="payment" size={22} color="#059669" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Payments</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Track UPI payments</ThemedText>
+              </Pressable>
             </View>
           </View>
 

@@ -563,6 +563,109 @@ export const distributorApi = {
   },
 };
 
+// ============================================================================
+// PAYMENT API - Track UPI payments to distributors
+// ============================================================================
+
+export const paymentApi = {
+  /**
+   * Get all payments for a user
+   * @param {string} userId - User ID
+   * @param {Object} options - Query options (distributorId, paymentApp, startDate, endDate, page, limit)
+   */
+  getPayments: async (userId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.distributorId) params.append('distributorId', options.distributorId);
+    if (options.paymentApp) params.append('paymentApp', options.paymentApp);
+    if (options.paymentStatus) params.append('paymentStatus', options.paymentStatus);
+    if (options.startDate) params.append('startDate', options.startDate);
+    if (options.endDate) params.append('endDate', options.endDate);
+    if (options.sortBy) params.append('sortBy', options.sortBy);
+    if (options.sortOrder) params.append('sortOrder', options.sortOrder);
+    if (options.page) params.append('page', options.page);
+    if (options.limit) params.append('limit', options.limit);
+
+    const queryString = params.toString();
+    return apiFetch(`/payments/user/${userId}${queryString ? `?${queryString}` : ''}`);
+  },
+
+  /**
+   * Get payment stats for a user
+   * @param {string} userId - User ID
+   */
+  getPaymentStats: async (userId) => {
+    return apiFetch(`/payments/user/${userId}/stats`);
+  },
+
+  /**
+   * Create a new payment from shared UPI receipt
+   * @param {string} userId - User ID
+   * @param {Object} data - Payment data
+   */
+  createPayment: async (userId, data) => {
+    return apiFetch(`/payments/user/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Auto-match distributor from payee name
+   * @param {string} userId - User ID
+   * @param {string} payeeName - Payee name from UPI receipt
+   */
+  matchDistributor: async (userId, payeeName) => {
+    return apiFetch(`/payments/user/${userId}/match-distributor`, {
+      method: 'POST',
+      body: JSON.stringify({ payeeName }),
+    });
+  },
+
+  /**
+   * Get payments for a specific distributor
+   * @param {string} distributorId - Distributor ID
+   * @param {Object} options - Query options (page, limit)
+   */
+  getDistributorPayments: async (distributorId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.page) params.append('page', options.page);
+    if (options.limit) params.append('limit', options.limit);
+
+    const queryString = params.toString();
+    return apiFetch(`/payments/distributor/${distributorId}${queryString ? `?${queryString}` : ''}`);
+  },
+
+  /**
+   * Get a single payment by ID
+   * @param {string} paymentId - Payment ID
+   */
+  getPaymentById: async (paymentId) => {
+    return apiFetch(`/payments/${paymentId}`);
+  },
+
+  /**
+   * Update a payment (link distributor, add notes)
+   * @param {string} paymentId - Payment ID
+   * @param {Object} data - Update data
+   */
+  updatePayment: async (paymentId, data) => {
+    return apiFetch(`/payments/${paymentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Delete a payment
+   * @param {string} paymentId - Payment ID
+   */
+  deletePayment: async (paymentId) => {
+    return apiFetch(`/payments/${paymentId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 // Default export with all APIs
 export default {
   auth: authApi,
@@ -572,5 +675,6 @@ export default {
   product: productApi,
   gstin: gstinApi,
   distributor: distributorApi,
+  payment: paymentApi,
   baseUrl: API_BASE_URL,
 };

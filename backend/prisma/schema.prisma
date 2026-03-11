@@ -27,6 +27,7 @@ model User {
   bills     Bill[]
   products  Product[]
   distributors Distributor[]
+  payments  Payment[]
 
   @@index([email])
   @@index([phone])
@@ -53,6 +54,7 @@ model Distributor {
   
   // ========== RELATIONSHIPS ==========
   bills       Bill[]
+  payments    Payment[]
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -210,6 +212,50 @@ model Bill {
   @@index([invoiceDate])
   @@index([pharmacyName])
   @@index([invoiceNumber])
+}
+
+// Payment model: Track payments made to distributors via UPI (Google Pay, PhonePe, Paytm, etc.)
+// Captures shared payment receipts from UPI apps
+model Payment {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // ========== DISTRIBUTOR LINK ==========
+  distributorId   String?
+  distributor     Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+  
+  // ========== TRANSACTION DETAILS ==========
+  transactionId   String?                           // UPI Transaction ID / UTR Number
+  upiRefNumber    String?                           // UPI Reference Number
+  amount          Float                             // Amount paid
+  payeeName       String?                           // Payee name from UPI receipt
+  payeeUpiId      String?                           // Payee UPI ID (e.g., merchant@upi)
+  payerName       String?                           // Payer name
+  payerUpiId      String?                           // Payer UPI ID
+  
+  // ========== PAYMENT INFO ==========
+  paymentApp      String?                           // google_pay, phonepe, paytm, etc.
+  paymentMethod   String     @default("upi")        // upi, neft, rtgs, cash, cheque
+  paymentDate     DateTime?                         // Date of the actual payment
+  paymentStatus   String     @default("success")    // success, pending, failed
+  
+  // ========== RAW DATA ==========
+  rawSharedText   String?                           // Raw text received from share intent
+  screenshotPath  String?                           // Path to payment screenshot if shared as image
+  
+  // ========== NOTES ==========
+  notes           String?                           // User notes about the payment
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([transactionId, userId])                 // Prevent duplicate transaction entries
+  @@index([userId])
+  @@index([distributorId])
+  @@index([paymentDate])
+  @@index([transactionId])
+  @@index([paymentApp])
 }
 
 // BillItem model: Individual line items from invoice (medicines, products)

@@ -33,6 +33,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": ["text/*", "image/*"]
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan pharmacy bills"
