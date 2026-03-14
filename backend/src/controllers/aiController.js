@@ -1,5 +1,16 @@
+
 const { parseOcrWithGemini, parseImageWithVision } = require('../utils/geminiService');
 const { extractTextFromImage } = require('../utils/ocrService');
+const {
+  normalizeEasyOcr,
+  normalizeVision,
+  normalizeOcrSpace,
+  mergeTokens,
+  sortTokens,
+  groupTokensByRows,
+  detectHeaders,
+  assignTokensToColumns
+} = require('../utils/ocrNormalizer');
 const fs = require('fs');
 
 /**
@@ -80,11 +91,18 @@ exports.parseImage = async (req, res) => {
       console.warn('[AIController] Image compression failed, using original:', compressErr.message);
     }
 
+    // Call vision API and get raw annotation output (simulate for now)
+    // TODO: Replace with actual vision API output if available
     const parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
+
+    // If you have raw Google Vision output, normalize it here
+    // Example: const visionTokens = normalizeVision(visionAnnotations);
+    // For now, just return parsedData as before
 
     res.json({
       success: true,
       data: parsedData,
+      // tokens: visionTokens, // Uncomment if you have raw tokens
       confidence: 0.95,
       method: 'vision'
     });
@@ -139,6 +157,12 @@ exports.ocrImage = async (req, res) => {
     console.log('[AIController] Running OCR.space on image...');
     const ocrResult = await extractTextFromImage(imageBuffer, mimeType);
 
+    // If OCR.space returns words with coordinates, normalize them
+    let tokens = [];
+    if (ocrResult.words) {
+      tokens = normalizeOcrSpace(ocrResult.words);
+    }
+
     // If parseWithAI flag is set, also parse the OCR text with AI
     const shouldParse = req.body.parseWithAI === 'true' || req.body.parseWithAI === true;
     if (shouldParse && ocrResult.text.length > 10) {
@@ -148,6 +172,7 @@ exports.ocrImage = async (req, res) => {
         success: true,
         ocrText: ocrResult.text,
         data: parsedData,
+        tokens,
         confidence: ocrResult.confidence,
         method: 'ocr+ai'
       });
@@ -156,6 +181,7 @@ exports.ocrImage = async (req, res) => {
     res.json({
       success: true,
       ocrText: ocrResult.text,
+      tokens,
       confidence: ocrResult.confidence,
       method: 'ocr'
     });

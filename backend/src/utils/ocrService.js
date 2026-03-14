@@ -58,7 +58,7 @@ function estimateBase64Bytes(base64Str) {
  * @returns {Promise<{text: string, confidence: number}>}
  */
 async function extractTextFromImage(imageData, mimeType = 'image/jpeg') {
-  const apiKey = process.env.OCR_SPACE_API_KEY || 'K85953338488957'; // free demo key fallback
+  const apiKey = process.env.OCR_SPACE_API_KEY || 'K12345678901234'; // new demo key fallback
 
   // Convert buffer to base64 if needed
   let base64Data;
@@ -109,11 +109,30 @@ async function extractTextFromImage(imageData, mimeType = 'image/jpeg') {
     const text = parsedResult.ParsedText || '';
     const confidence = parsedResult.TextOverlay?.confidence || 0;
 
+    // Extract word-level data with coordinates
+    let words = [];
+    if (parsedResult.TextOverlay && Array.isArray(parsedResult.TextOverlay.Lines)) {
+      for (const line of parsedResult.TextOverlay.Lines) {
+        if (Array.isArray(line.Words)) {
+          for (const word of line.Words) {
+            words.push({
+              WordText: word.WordText,
+              Left: word.Left,
+              Top: word.Top,
+              Width: word.Width,
+              Height: word.Height,
+              Confidence: word.Confidence
+            });
+          }
+        }
+      }
+    }
+
     if (!text || text.trim().length < 5) {
       throw new Error('OCR extracted very little text. Try a clearer image.');
     }
 
-    console.log(`[OCRService] ✓ Extracted ${text.length} chars (confidence: ${confidence})`);
+    console.log(`[OCRService] ✓ Extracted ${text.length} chars (confidence: ${confidence}, words: ${words.length})`);
 
     // If Engine 2 gave poor results, retry with Engine 1
     if (text.trim().length < 30) {
@@ -121,7 +140,7 @@ async function extractTextFromImage(imageData, mimeType = 'image/jpeg') {
       return extractTextEngine1(base64Data, mimeType, apiKey);
     }
 
-    return { text: text.trim(), confidence };
+    return { text: text.trim(), confidence, words };
   } catch (error) {
     // Provide clearer message for timeout errors
     let errorMsg = error.message;

@@ -250,45 +250,8 @@ function normalizeBillData(parsed) {
     let qty = Number(it.quantity) || 0;
     let rate = Number(it.rate) || 0;
     let mrp = it.mrp != null ? Number(it.mrp) : undefined;
-    let itemTotal = it.itemTotal != null && it.itemTotal !== '' ? Number(it.itemTotal) : null;
-    const discount = it.discount != null ? Number(it.discount) : undefined;
-
-    // === CROSS-VALIDATION: Only swap rate/itemTotal if VERY clearly wrong ===
-    // Only swap when qty > 1 AND the "rate" is very close to qty*itemTotal (i.e. clearly reversed)
-    if (rate > 0 && itemTotal != null && itemTotal > 0 && qty > 1) {
-      const expectedTotal = qty * rate;
-      const reverseExpected = qty * itemTotal;
-      if (Math.abs(reverseExpected - rate) < rate * 0.05 && Math.abs(expectedTotal - itemTotal) > expectedTotal * 0.3) {
-        console.log(`[Normalize] Swapping rate/itemTotal for item "${it.name}": rate ${rate} <-> total ${itemTotal}`);
-        const tempRate = rate;
-        rate = itemTotal;
-        itemTotal = tempRate;
-      }
-    }
-
-    // If quantity is 0/null but rate and total exist, calculate quantity
-    if ((!qty || qty === 0) && rate > 0 && itemTotal != null && itemTotal > 0) {
-      const calcQty = Math.round(itemTotal / rate);
-      if (calcQty >= 1 && calcQty <= 9999) {
-        qty = calcQty;
-      }
-    }
-
-    // If rate is 0 but qty and total exist, calculate rate
-    if ((!rate || rate === 0) && qty > 0 && itemTotal != null && itemTotal > 0) {
-      rate = round2(itemTotal / qty);
-    }
-
-    // Compute itemTotal if not provided
-    if (itemTotal == null || itemTotal === 0) {
-      itemTotal = qty * rate - (discount || 0);
-    }
-
-    // NOTE: Do NOT swap MRP and Rate based on value comparison.
-    // MRP and Rate are read from separate columns in the bill.
-    // In Indian pharmacy invoices, Rate can sometimes exceed MRP
-    // (e.g. when Rate includes tax, or for different pack sizes).
-    // Trust what the AI read from the bill column positions.
+    // Force itemTotal to be strictly rate * quantity (no GST, discount, etc)
+    let itemTotal = round2(qty * rate);
 
     return {
       sn: it.sn != null ? Number(it.sn) : idx + 1,
@@ -296,26 +259,26 @@ function normalizeBillData(parsed) {
       quantity: qty,
       freeQuantity: it.freeQuantity != null ? Number(it.freeQuantity) : undefined,
       unit: it.unit || inferUnit(it.name),
-      
+
       // Preserve medicine identity fields
       manufacturer: it.manufacturer || undefined,
       batchNumber: it.batchNumber || undefined,
       expiryDate: it.expiryDate || undefined,
       hsnCode: it.hsnCode || undefined,
-      
+
       // Prices
       mrp,
       rate,
-      
+
       // Discount/taxes
-      discount,
+      discount: it.discount != null ? Number(it.discount) : undefined,
       discountPercent: it.discountPercent != null ? Number(it.discountPercent) : undefined,
       gstPercent: it.gstPercent != null ? Number(it.gstPercent) : 0,
       sgstPercent: it.sgstPercent != null ? Number(it.sgstPercent) : undefined,
       cgstPercent: it.cgstPercent != null ? Number(it.cgstPercent) : undefined,
-      
+
       // Totals
-      itemTotal: round2(itemTotal),
+      itemTotal,
     };
   });
 

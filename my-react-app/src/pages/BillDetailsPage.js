@@ -215,10 +215,8 @@ export default function BillDetailsPage() {
               {items.length === 0 ? (
                 <tr><td colSpan={13} style={{ textAlign: 'center', padding: 32, color: '#6b7280' }}>No items</td></tr>
               ) : items.map((item, i) => {
+                // Strictly show itemTotal as rate × quantity, ignore discount and GST in this column
                 const baseAmount = (item.rate || 0) * (item.quantity || 0);
-                const discountAmt = baseAmount * ((item.discount || 0) / 100);
-                const taxableBase = baseAmount - discountAmt;
-                const gstAmt = taxableBase * ((item.gstPercent || 0) / 100);
                 return (
                   <tr key={item.id || i}>
                     <td>{i + 1}</td>
@@ -233,14 +231,15 @@ export default function BillDetailsPage() {
                     <td>{item.discount || 0}%</td>
                     <td style={{ color: '#1d4ed8', fontWeight: 600 }}>{item.gstPercent || 0}%</td>
                     <td style={{ color: '#1d4ed8' }}>
-                      {gstAmt > 0 ? `₹${gstAmt.toFixed(2)}` : '-'}
+                      {/* GST amount can still be shown for info, but not included in itemTotal */}
+                      {item.gstPercent > 0 ? `₹${(baseAmount * (item.gstPercent / 100)).toFixed(2)}` : '-'}
                       {item.cgstPercent > 0 && (
                         <div style={{ fontSize: 11, color: '#94a3b8' }}>
                           CGST {item.cgstPercent}% + SGST {item.sgstPercent}%
                         </div>
                       )}
                     </td>
-                    <td style={{ fontWeight: 600 }}>₹{(item.itemTotal || 0).toFixed(2)}</td>
+                    <td style={{ fontWeight: 600 }}>₹{baseAmount.toFixed(2)}</td>
                   </tr>
                 );
               })}
@@ -250,14 +249,10 @@ export default function BillDetailsPage() {
                 <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
                   <td colSpan={11} style={{ textAlign: 'right', padding: '10px 16px', color: '#374151' }}>Totals:</td>
                   <td style={{ color: '#1d4ed8', padding: '10px 16px' }}>
-                    ₹{items.reduce((s, item) => {
-                      const base = (item.rate || 0) * (item.quantity || 0);
-                      const disc = base * ((item.discount || 0) / 100);
-                      return s + (base - disc) * ((item.gstPercent || 0) / 100);
-                    }, 0).toFixed(2)}
+                    ₹{items.reduce((s, item) => s + ((item.rate || 0) * (item.quantity || 0)), 0).toFixed(2)}
                   </td>
                   <td style={{ padding: '10px 16px' }}>
-                    ₹{items.reduce((s, item) => s + (item.itemTotal || 0), 0).toFixed(2)}
+                    ₹{items.reduce((s, item) => s + ((item.rate || 0) * (item.quantity || 0)), 0).toFixed(2)}
                   </td>
                 </tr>
               </tfoot>

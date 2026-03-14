@@ -309,3 +309,20 @@ model BillItem {
   @@index([productId])
   @@index([name])
 }
+
+// EmailProcessingLog: Tracks Zoho emails that have been processed (prevents re-processing)
+model EmailProcessingLog {
+  id            String   @id @default(cuid())
+  messageId     String   @unique        // Zoho Mail message ID
+  subject       String?
+  sender        String?
+  emailDate     DateTime?
+  attachments   Int      @default(0)    // Number of attachments processed
+  billsCreated  Int      @default(0)    // How many bills were saved
+  status        String   @default("processed") // processed, failed, skipped
+  errorMessage  String?
+  processedAt   DateTime @default(now())
+
+  @@index([messageId])
+  @@index([processedAt])
+}

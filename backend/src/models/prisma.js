@@ -1,3 +1,7 @@
+
+// Load environment variables early
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+
 // Prisma client singleton pattern to avoid multiple instances
 const { PrismaClient } = require('@prisma/client');
 
