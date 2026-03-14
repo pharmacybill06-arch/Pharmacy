@@ -19,6 +19,7 @@ import CreateInvoicePage from './pages/CreateInvoicePage';
 import DraftsPage from './pages/DraftsPage';
 import InventoryPage from './pages/InventoryPage';
 import ProfilePage from './pages/ProfilePage';
+import EmailBillsPage from './pages/EmailBillsPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -49,6 +50,7 @@ function AppRoutes() {
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<DashboardPage />} />
         <Route path="scan" element={<ScanBillPage />} />
+        <Route path="email-bills" element={<EmailBillsPage />} />
         <Route path="bill-form" element={<BillFormPage />} />
         <Route path="bills" element={<BillsListPage />} />
         <Route path="bills/:billId" element={<BillDetailsPage />} />

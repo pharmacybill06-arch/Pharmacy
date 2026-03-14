@@ -1,20 +1,110 @@
 /**
  * Email Bill Controller
  * Handles API endpoints for Zoho email invoice extraction
+ * Now with smart email browsing and selective processing
  */
 
 const prisma = require('../models/prisma');
 const emailInvoiceService = require('../services/emailInvoiceService');
 
 /**
+ * GET /api/email-bills/inbox
+ * List emails from Zoho inbox with smart bill detection
+ */
+exports.listInbox = async (req, res) => {
+  try {
+    const { limit = 30, search } = req.query;
+
+    // Check if Zoho is configured
+    if (!process.env.ZOHO_ACCESS_TOKEN && !process.env.ZOHO_REFRESH_TOKEN) {
+      return res.status(400).json({
+        success: false,
+        error: 'Zoho Mail is not configured. Please set ZOHO_ACCESS_TOKEN or ZOHO_REFRESH_TOKEN in .env',
+      });
+    }
+
+    console.log(`[EmailBill] Listing inbox (limit: ${limit}, search: ${search || 'none'})`);
+    const emails = await emailInvoiceService.listInboxEmails(parseInt(limit), search || null);
+
+    res.json({
+      success: true,
+      data: emails,
+      total: emails.length,
+    });
+  } catch (error) {
+    console.error('[EmailBill] Inbox listing error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to list inbox emails',
+    });
+  }
+};
+
+/**
+ * POST /api/email-bills/process-selected
+ * Process user-selected emails (smart: handles attachments + body text)
+ */
+exports.processSelected = async (req, res) => {
+  try {
+    const { userId, emails } = req.body;
+
+    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please select at least one email to process',
+      });
+    }
+
+    // Validate each email has messageId and folderId
+    const validEmails = emails.filter(e => e.messageId && e.folderId);
+    if (validEmails.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Selected emails are missing messageId or folderId',
+      });
+    }
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: `User ${targetUserId} not found`,
+      });
+    }
+
+    console.log(`[EmailBill] Processing ${validEmails.length} selected emails for user: ${targetUserId}`);
+    const results = await emailInvoiceService.processSelectedEmails(targetUserId, validEmails);
+
+    res.json({
+      success: true,
+      message: `Processed ${results.processed} emails, created ${results.billsCreated} bills`,
+      data: results,
+    });
+  } catch (error) {
+    console.error('[EmailBill] Process selected error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to process selected emails',
+    });
+  }
+};
+
+/**
  * POST /api/email-bills/fetch
- * Trigger email fetch + processing from Zoho Mail
+ * Legacy: Auto-fetch and process all emails (original behavior)
  */
 exports.fetchAndProcess = async (req, res) => {
   try {
     const { userId, limit } = req.body;
-
-    // Use provided userId or fall back to env default
     const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
 
     if (!targetUserId) {
@@ -24,7 +114,6 @@ exports.fetchAndProcess = async (req, res) => {
       });
     }
 
-    // Check if Zoho is configured
     if (!process.env.ZOHO_ACCESS_TOKEN) {
       return res.status(400).json({
         success: false,
@@ -32,7 +121,6 @@ exports.fetchAndProcess = async (req, res) => {
       });
     }
 
-    // Verify user exists
     let user = await prisma.user.findUnique({ where: { id: targetUserId } });
     if (!user) {
       return res.status(404).json({
@@ -60,7 +148,6 @@ exports.fetchAndProcess = async (req, res) => {
 
 /**
  * GET /api/email-bills/logs
- * List email processing history
  */
 exports.getEmailLogs = async (req, res) => {
   try {
@@ -101,7 +188,6 @@ exports.getEmailLogs = async (req, res) => {
 
 /**
  * GET /api/email-bills/logs/:logId
- * Get single email processing log detail
  */
 exports.getEmailLogById = async (req, res) => {
   try {
@@ -121,7 +207,6 @@ exports.getEmailLogById = async (req, res) => {
 
 /**
  * POST /api/email-bills/retry/:logId
- * Retry a failed email processing
  */
 exports.retryEmail = async (req, res) => {
   try {
@@ -141,7 +226,6 @@ exports.retryEmail = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Only failed emails can be retried' });
     }
 
-    // Delete old log and re-process
     await prisma.emailProcessingLog.delete({ where: { id: logId } });
     const results = await emailInvoiceService.fetchAndProcessEmails(targetUserId, 50);
 

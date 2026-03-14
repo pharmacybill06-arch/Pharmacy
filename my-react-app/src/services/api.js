@@ -358,6 +358,46 @@ export const aiApi = {
 // ============================================================================
 // HEALTH CHECK
 // ============================================================================
+// EMAIL BILL API
+// ============================================================================
+export const emailBillApi = {
+  // ===== NEW: Smart email processing =====
+  listInbox: async (limit = 30, search = '') => {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit);
+    if (search) params.append('search', search);
+    return apiFetch(`/email-bills/inbox?${params.toString()}`);
+  },
+  processSelected: async (userId, emails) => {
+    return apiFetch('/email-bills/process-selected', {
+      method: 'POST',
+      body: JSON.stringify({ userId, emails }),
+    });
+  },
+  // ===== Legacy =====
+  fetchAndProcess: async (userId, limit = 20) => {
+    return apiFetch('/email-bills/fetch', {
+      method: 'POST',
+      body: JSON.stringify({ userId, limit }),
+    });
+  },
+  getLogs: async (page = 1, limit = 50) => {
+    return apiFetch(`/email-bills/logs?page=${page}&limit=${limit}`);
+  },
+  getLogDetails: async (logId) => {
+    return apiFetch(`/email-bills/logs/${logId}`);
+  },
+  retryEmail: async (logId, userId) => {
+    return apiFetch(`/email-bills/retry/${logId}`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
+  },
+};
+
+// ============================================================================
+// HEALTH API
+// ============================================================================
 export const healthApi = {
   check: async () => {
     return apiFetch('/health');
@@ -372,6 +412,7 @@ const api = {
   distributor: distributorApi,
   gstin: gstinApi,
   ai: aiApi,
+  emailBill: emailBillApi,
   health: healthApi,
   baseUrl: API_BASE_URL,
 };
