@@ -105,6 +105,63 @@ export default function BillFormPage() {
     }));
   };
 
+  // Keyboard navigation for Excel-like feel
+  const handleKeyDown = (e, rowIndex, field) => {
+    const cols = ['name', 'batchNumber', 'expiryDate', 'quantity', 'rate', 'discount', 'gstPercent'];
+    const colIndex = cols.indexOf(field);
+
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      let nextRow = rowIndex;
+      let nextField = field;
+      
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        nextRow = Math.max(0, rowIndex - 1);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        nextRow = Math.min(items.length - 1, rowIndex + 1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // Only jump if cursor is at the edge to allow normal text editing
+        try {
+          const input = e.target;
+          if (input.type !== 'number') {
+            if (e.key === 'ArrowLeft' && input.selectionStart > 0) return;
+            if (e.key === 'ArrowRight' && input.selectionEnd < input.value.length) return;
+          }
+        } catch (err) {
+          // Fallback if selection properties are unsupported
+        }
+
+        e.preventDefault();
+        if (e.key === 'ArrowLeft') {
+          if (colIndex > 0) {
+            nextField = cols[colIndex - 1];
+          } else if (rowIndex > 0) {
+            nextRow = rowIndex - 1;
+            nextField = cols[cols.length - 1];
+          }
+        } else if (e.key === 'ArrowRight') {
+          if (colIndex < cols.length - 1) {
+            nextField = cols[colIndex + 1];
+          } else if (rowIndex < items.length - 1) {
+            nextRow = rowIndex + 1;
+            nextField = cols[0];
+          }
+        }
+      }
+      
+      if (nextRow !== rowIndex || nextField !== field) {
+        setTimeout(() => {
+          const nextInput = document.getElementById(`input-${nextRow}-${nextField}`);
+          if (nextInput) {
+            nextInput.focus();
+            nextInput.select();
+          }
+        }, 0);
+      }
+    }
+  };
+
   const addItem = () => setItems(prev => [...prev, { ...emptyItem }]);
 
   const removeItem = (index) => {
@@ -300,19 +357,19 @@ export default function BillFormPage() {
                 <tr key={index}>
                   <td>{index + 1}</td>
                   <td>
-                    <input className="form-input" value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} placeholder="Item name" style={{ minWidth: 150 }} />
+                    <input id={`input-${index}-name`} className="form-input" value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'name')} placeholder="Item name" style={{ minWidth: 150 }} />
                     <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, paddingLeft: 2 }}>
                       {item.batchNumber && <span>Batch: {item.batchNumber} </span>}
                       {item.expiryDate && <span>Exp: {item.expiryDate}</span>}
                     </div>
                   </td>
-                  <td><input className="form-input" value={item.batchNumber} onChange={e => updateItem(index, 'batchNumber', e.target.value)} placeholder="Batch" style={{ width: 80 }} /></td>
-                  <td><input className="form-input" value={item.expiryDate} onChange={e => updateItem(index, 'expiryDate', e.target.value)} placeholder="MM/YY" style={{ width: 80 }} /></td>
-                  <td><input className="form-input" type="number" min="0" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} style={{ width: 60 }} /></td>
-                  <td><input className="form-input" type="number" min="0" value={item.rate} onChange={e => updateItem(index, 'rate', e.target.value)} placeholder="0.00" style={{ width: 80 }} /></td>
-                  <td><input className="form-input" type="number" min="0" max="100" value={item.discount} onChange={e => updateItem(index, 'discount', e.target.value)} placeholder="0" style={{ width: 55 }} /></td>
+                  <td><input id={`input-${index}-batchNumber`} className="form-input" value={item.batchNumber} onChange={e => updateItem(index, 'batchNumber', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'batchNumber')} placeholder="Batch" style={{ width: 80 }} /></td>
+                  <td><input id={`input-${index}-expiryDate`} className="form-input" value={item.expiryDate} onChange={e => updateItem(index, 'expiryDate', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'expiryDate')} placeholder="MM/YY" style={{ width: 80 }} /></td>
+                  <td><input id={`input-${index}-quantity`} className="form-input" type="number" min="0" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'quantity')} style={{ width: 60 }} /></td>
+                  <td><input id={`input-${index}-rate`} className="form-input" type="number" min="0" value={item.rate} onChange={e => updateItem(index, 'rate', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'rate')} placeholder="0.00" style={{ width: 80 }} /></td>
+                  <td><input id={`input-${index}-discount`} className="form-input" type="number" min="0" max="100" value={item.discount} onChange={e => updateItem(index, 'discount', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'discount')} placeholder="0" style={{ width: 55 }} /></td>
                   <td>
-                    <input className="form-input" type="number" min="0" max="100" value={item.gstPercent} onChange={e => updateItem(index, 'gstPercent', e.target.value)} placeholder="0" style={{ width: 55 }} />
+                    <input id={`input-${index}-gstPercent`} className="form-input" type="number" min="0" max="100" value={item.gstPercent} onChange={e => updateItem(index, 'gstPercent', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'gstPercent')} placeholder="0" style={{ width: 55 }} />
                   </td>
                   <td style={{ color: '#1d4ed8', fontWeight: 600, minWidth: 60 }}>
                     {gstAmt > 0 ? `₹${gstAmt.toFixed(2)}` : '—'}

@@ -374,6 +374,18 @@ export const emailBillApi = {
       body: JSON.stringify({ userId, emails }),
     });
   },
+  extractFromEmail: async (userId, messageId, folderId) => {
+    return apiFetch('/email-bills/extract', {
+      method: 'POST',
+      body: JSON.stringify({ userId, messageId, folderId }),
+    });
+  },
+  checkDuplicate: async (userId, invoiceNumber) => {
+    return apiFetch('/email-bills/check-duplicate', {
+      method: 'POST',
+      body: JSON.stringify({ userId, invoiceNumber }),
+    });
+  },
   // ===== Legacy =====
   fetchAndProcess: async (userId, limit = 20) => {
     return apiFetch('/email-bills/fetch', {

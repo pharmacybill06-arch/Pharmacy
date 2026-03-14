@@ -472,6 +472,93 @@ async function processSelectedEmails(userId, selectedEmails) {
 }
 
 // ============================================================================
+// EXTRACT FROM SINGLE EMAIL (no save — returns data for editable form)
+// ============================================================================
+
+/**
+ * Extract bill data from a single email WITHOUT saving to DB.
+ * Tries attachments first, then email body text.
+ * @param {string} messageId - Zoho message ID
+ * @param {string} folderId - Zoho folder ID
+ * @returns {Object} { parsedData, ocrText, source, subject, sender }
+ */
+async function extractFromEmail(messageId, folderId) {
+  // Get email details
+  const emailDetails = await zohoMailService.getEmailDetails(messageId, folderId);
+  const subject = emailDetails?.subject || '(no subject)';
+  const sender = emailDetails?.fromAddress || emailDetails?.sender || '';
+
+  let parsedData = null;
+  let ocrText = '';
+  let source = 'unknown';
+
+  // ===== STEP 1: Try attachments =====
+  const attachments = emailDetails?.attachments || [];
+  const supportedAttachments = attachments.filter(isSupportedAttachment);
+
+  if (supportedAttachments.length > 0) {
+    // Process the first supported attachment
+    const attachment = supportedAttachments[0];
+    const attachmentId = attachment.attachmentId;
+    const attachmentName = attachment.attachmentName || 'attachment';
+    const ext = path.extname(attachmentName).toLowerCase();
+    const mimeType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
+
+    console.log(`[EmailInvoice] Downloading attachment for extraction: ${attachmentName}`);
+    const fileBuffer = await zohoMailService.downloadAttachment(messageId, attachmentId, folderId);
+    const result = await processAttachment(fileBuffer, attachmentName, mimeType);
+
+    if (result.parsedData && result.parsedData.items && result.parsedData.items.length > 0) {
+      parsedData = result.parsedData;
+      ocrText = result.ocrText;
+      source = 'attachment';
+      console.log(`[EmailInvoice] ✓ Extracted ${parsedData.items.length} items from attachment`);
+    }
+  }
+
+  // ===== STEP 2: Try email body text if no attachment data =====
+  if (!parsedData) {
+    try {
+      const content = await zohoMailService.getEmailContent(messageId, folderId);
+      if (content) {
+        const rawHtml = content.content || content.htmlContent || content;
+        const bodyText = typeof rawHtml === 'string' ? rawHtml.replace(/<[^>]*>?/gm, ' ') : '';
+
+        if (bodyText.length > 50) {
+          const detection = await detectBillContent(subject, bodyText, false);
+
+          if (detection.isBill && (detection.billType === 'body-text' || detection.billType === 'both')) {
+            console.log(`[EmailInvoice] Extracting bill from email body...`);
+            const result = await processEmailBodyText(bodyText, subject);
+
+            if (result.parsedData && result.parsedData.items && result.parsedData.items.length > 0) {
+              parsedData = result.parsedData;
+              ocrText = result.ocrText;
+              source = 'body-text';
+              console.log(`[EmailInvoice] ✓ Extracted ${parsedData.items.length} items from email body`);
+            }
+          }
+        }
+      }
+    } catch (bodyErr) {
+      console.warn('[EmailInvoice] Email body extraction failed:', bodyErr.message);
+    }
+  }
+
+  if (!parsedData || !parsedData.items || parsedData.items.length === 0) {
+    throw new Error('Could not extract any bill data from this email. No items found in attachment or email body.');
+  }
+
+  return {
+    parsedData,
+    ocrText,
+    source,
+    subject,
+    sender,
+  };
+}
+
+// ============================================================================
 // ORIGINAL: Process a single attachment through OCR + AI pipeline
 // ============================================================================
 
@@ -834,6 +921,7 @@ module.exports = {
   // New smart features
   listInboxEmails,
   processSelectedEmails,
+  extractFromEmail,
   detectBillContent,
   processEmailBodyText,
 };

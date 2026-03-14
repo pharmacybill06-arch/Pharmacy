@@ -63,7 +63,6 @@ exports.processSelected = async (req, res) => {
       });
     }
 
-    // Validate each email has messageId and folderId
     const validEmails = emails.filter(e => e.messageId && e.folderId);
     if (validEmails.length === 0) {
       return res.status(400).json({
@@ -72,7 +71,6 @@ exports.processSelected = async (req, res) => {
       });
     }
 
-    // Verify user exists
     const user = await prisma.user.findUnique({ where: { id: targetUserId } });
     if (!user) {
       return res.status(404).json({
@@ -95,6 +93,120 @@ exports.processSelected = async (req, res) => {
       success: false,
       error: error.message || 'Failed to process selected emails',
     });
+  }
+};
+
+/**
+ * POST /api/email-bills/extract
+ * Extract bill data from a single email WITHOUT saving to DB.
+ * Returns the parsed data so the frontend can show it in the editable bill form.
+ * Also checks for duplicates by invoice number.
+ */
+exports.extractFromEmail = async (req, res) => {
+  try {
+    const { userId, messageId, folderId } = req.body;
+
+    if (!messageId || !folderId) {
+      return res.status(400).json({
+        success: false,
+        error: 'messageId and folderId are required',
+      });
+    }
+
+    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+
+    console.log(`[EmailBill] Extracting data from email ${messageId} (extract only, no save)`);
+    const result = await emailInvoiceService.extractFromEmail(messageId, folderId);
+
+    // Check for duplicate bill by invoice number
+    let duplicateBill = null;
+    if (result.parsedData?.invoiceNumber && targetUserId) {
+      try {
+        const existing = await prisma.bill.findFirst({
+          where: {
+            userId: targetUserId,
+            invoiceNumber: result.parsedData.invoiceNumber,
+          },
+          select: {
+            id: true,
+            invoiceNumber: true,
+            invoiceDate: true,
+            pharmacyName: true,
+            grandTotal: true,
+            createdAt: true,
+          },
+        });
+        if (existing) {
+          duplicateBill = existing;
+          console.log(`[EmailBill] ⚠ Duplicate found: Invoice ${existing.invoiceNumber} (Bill ID: ${existing.id})`);
+        }
+      } catch (dupErr) {
+        console.warn('[EmailBill] Duplicate check warning:', dupErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        parsedData: result.parsedData,
+        ocrText: result.ocrText,
+        source: result.source,
+        subject: result.subject,
+        sender: result.sender,
+        duplicateBill,
+      },
+    });
+  } catch (error) {
+    console.error('[EmailBill] Extract error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to extract bill data from email',
+    });
+  }
+};
+
+/**
+ * POST /api/email-bills/check-duplicate
+ * Check if a bill with the given invoice number already exists
+ */
+exports.checkDuplicate = async (req, res) => {
+  try {
+    const { userId, invoiceNumber } = req.body;
+
+    if (!invoiceNumber) {
+      return res.json({ success: true, data: { isDuplicate: false } });
+    }
+
+    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    if (!targetUserId) {
+      return res.json({ success: true, data: { isDuplicate: false } });
+    }
+
+    const existing = await prisma.bill.findFirst({
+      where: {
+        userId: targetUserId,
+        invoiceNumber: invoiceNumber,
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        invoiceDate: true,
+        pharmacyName: true,
+        grandTotal: true,
+        createdAt: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        isDuplicate: !!existing,
+        existingBill: existing || null,
+      },
+    });
+  } catch (error) {
+    console.error('[EmailBill] Duplicate check error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 

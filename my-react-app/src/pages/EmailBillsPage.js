@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { emailBillApi } from '../services/api';
 import {
@@ -30,6 +31,7 @@ const billTypeLabels = {
 // ============================================================================
 export default function EmailBillsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('inbox');  // 'inbox' or 'history'
 
   // Inbox state
@@ -37,6 +39,7 @@ export default function EmailBillsPage() {
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState(new Set());
   const [processing, setProcessing] = useState(false);
+  const [extractingEmailId, setExtractingEmailId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // History state
@@ -85,10 +88,69 @@ export default function EmailBillsPage() {
 
   const clearSelection = () => setSelectedEmails(new Set());
 
+  // Extract a single email and navigate to the editable bill form
+  const handleExtractEmail = async (email) => {
+    if (!user?.id) return;
+    setExtractingEmailId(email.messageId);
+
+    try {
+      toast.loading('Extracting bill data from email...', { id: 'extract' });
+      const result = await emailBillApi.extractFromEmail(user.id, email.messageId, email.folderId);
+      toast.dismiss('extract');
+
+      if (!result.data?.parsedData) {
+        toast.error('Could not extract bill data from this email');
+        return;
+      }
+
+      const { parsedData, ocrText, duplicateBill, subject, source } = result.data;
+
+      // Show duplicate warning
+      if (duplicateBill) {
+        const proceed = window.confirm(
+          `⚠️ Duplicate Invoice Found!\n\n` +
+          `Invoice #${duplicateBill.invoiceNumber} already exists in your records.\n` +
+          `Distributor: ${duplicateBill.pharmacyName || 'N/A'}\n` +
+          `Amount: ₹${duplicateBill.grandTotal || 'N/A'}\n` +
+          `Saved on: ${new Date(duplicateBill.createdAt).toLocaleDateString('en-IN')}\n\n` +
+          `Do you still want to open this bill for editing?`
+        );
+        if (!proceed) return;
+      }
+
+      // Navigate to the bill form with extracted data
+      toast.success(`Bill extracted from ${source === 'attachment' ? 'attachment' : 'email body'} — review and save!`);
+      navigate('/bill-form', {
+        state: {
+          parsedData,
+          ocrText: ocrText || '',
+          imageFile: null,
+          emailSource: { messageId: email.messageId, subject, source },
+        },
+      });
+    } catch (err) {
+      toast.dismiss('extract');
+      toast.error(err.message || 'Extraction failed');
+    } finally {
+      setExtractingEmailId(null);
+    }
+  };
+
   const handleProcessSelected = async () => {
     if (!user?.id || selectedEmails.size === 0) return;
-    setProcessing(true);
 
+    // If only one email selected, use extract flow (navigate to form)
+    if (selectedEmails.size === 1) {
+      const msgId = [...selectedEmails][0];
+      const email = inboxEmails.find(e => e.messageId === msgId);
+      if (email) {
+        await handleExtractEmail(email);
+        return;
+      }
+    }
+
+    // For multiple emails, use batch processing
+    setProcessing(true);
     const emailsToProcess = inboxEmails
       .filter(e => selectedEmails.has(e.messageId))
       .map(e => ({ messageId: e.messageId, folderId: e.folderId }));
@@ -96,7 +158,6 @@ export default function EmailBillsPage() {
     try {
       const result = await emailBillApi.processSelected(user.id, emailsToProcess);
       toast.success(result.message || 'Processing complete!');
-      // Refresh inbox and logs
       await loadInbox(searchQuery);
       await loadLogs();
     } catch (err) {
@@ -356,7 +417,7 @@ export default function EmailBillsPage() {
               <div>
                 {/* Header */}
                 <div style={{
-                  display: 'grid', gridTemplateColumns: '36px 1fr 160px 100px 100px 100px',
+                  display: 'grid', gridTemplateColumns: '36px 1fr 160px 100px 100px 80px 80px',
                   padding: '10px 14px', borderBottom: '1px solid var(--border)',
                   fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
                   textTransform: 'uppercase', letterSpacing: '0.5px',
@@ -368,6 +429,7 @@ export default function EmailBillsPage() {
                   <span>Date</span>
                   <span style={{ textAlign: 'center' }}>Bill?</span>
                   <span style={{ textAlign: 'center' }}>Status</span>
+                  <span style={{ textAlign: 'center' }}>Action</span>
                 </div>
 
                 {/* Rows */}
@@ -383,7 +445,7 @@ export default function EmailBillsPage() {
                       key={email.messageId}
                       onClick={() => !alreadyProcessed && toggleEmailSelection(email.messageId)}
                       style={{
-                        display: 'grid', gridTemplateColumns: '36px 1fr 160px 100px 100px 100px',
+                        display: 'grid', gridTemplateColumns: '36px 1fr 160px 100px 100px 80px 80px',
                         padding: '12px 14px', borderBottom: '1px solid var(--border)',
                         cursor: alreadyProcessed ? 'default' : 'pointer',
                         gap: 8, alignItems: 'center',
@@ -498,6 +560,29 @@ export default function EmailBillsPage() {
                           </span>
                         ) : (
                           <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>
+                        )}
+                      </div>
+
+                      {/* Extract Action Button */}
+                      <div style={{ textAlign: 'center' }}>
+                        {!alreadyProcessed && detection.isBill && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleExtractEmail(email); }}
+                            disabled={extractingEmailId === email.messageId}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                              border: 'none', cursor: extractingEmailId === email.messageId ? 'wait' : 'pointer',
+                              background: extractingEmailId === email.messageId ? 'var(--bg-secondary)' : 'var(--primary)',
+                              color: '#fff', transition: 'all 0.15s',
+                            }}
+                          >
+                            {extractingEmailId === email.messageId ? (
+                              <><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> ...</>
+                            ) : (
+                              <><Zap size={11} /> Extract</>
+                            )}
+                          </button>
                         )}
                       </div>
                     </div>

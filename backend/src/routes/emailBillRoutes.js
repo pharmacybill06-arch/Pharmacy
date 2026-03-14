@@ -16,6 +16,12 @@ router.get('/inbox', emailBillController.listInbox);
 // POST /api/email-bills/process-selected — process user-selected emails
 router.post('/process-selected', emailBillController.processSelected);
 
+// POST /api/email-bills/extract — extract bill data from single email (no save, for review)
+router.post('/extract', emailBillController.extractFromEmail);
+
+// POST /api/email-bills/check-duplicate — check if invoice number already exists
+router.post('/check-duplicate', emailBillController.checkDuplicate);
+
 // ===== LEGACY ENDPOINTS =====
 
 // POST /api/email-bills/fetch — auto-fetch and process all emails
