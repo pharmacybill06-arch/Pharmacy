@@ -35,7 +35,10 @@
       [
         "expo-share-intent",
         {
-          "androidIntentFilters": ["text/*", "image/*"]
+          "androidIntentFilters": [
+            "text/*",
+            "image/*"
+          ]
         }
       ],
       [
@@ -60,10 +63,11 @@
       "router": {
         "origin": false
       },
+      "EXPO_PUBLIC_ENABLE_GEMINI": true,
       "eas": {
-        "projectId": "26bfafbd-7f63-41ae-84b7-86c8e3449eaf"
-      },
-      "EXPO_PUBLIC_ENABLE_GEMINI": true
-    }
+        "projectId": "80d2ae2d-e764-4692-9a10-1e768c35b713"
+      }
+    },
+    "owner": "setupharma"
   }
 }

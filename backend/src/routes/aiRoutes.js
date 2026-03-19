@@ -24,4 +24,10 @@ router.post('/parse-image', upload.single('image'), aiController.parseImage);
  */
 router.post('/ocr', upload.single('image'), aiController.ocrImage);
 
+/**
+ * POST /api/ai/medicine-details
+ * Get medicine salt and manufacturer via AI
+ */
+router.post('/medicine-details', aiController.getMedicineDetails);
+
 module.exports = router;

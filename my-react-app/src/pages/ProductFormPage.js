@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { productApi } from '../services/api';
-import { ArrowLeft, Save, Loader } from 'lucide-react';
+import { productApi, aiApi } from '../services/api';
+import { ArrowLeft, Save, Loader, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ProductFormPage() {
@@ -12,13 +12,14 @@ export default function ProductFormPage() {
   const isEditing = !!productId;
 
   const [form, setForm] = useState({
-    name: '', manufacturer: '', hsnCode: '', batchNumber: '',
+    name: '', salt: '', manufacturer: '', hsnCode: '', batchNumber: '',
     expiryDate: '', stock: '', minStock: '', unit: 'pcs',
     defaultMrp: '', purchaseRate: '', sellingRate: '', ptr: '',
     gstPercent: '',
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [fetchingAI, setFetchingAI] = useState(false);
 
   useEffect(() => {
     if (isEditing && user?.id) {
@@ -28,6 +29,7 @@ export default function ProductFormPage() {
           const p = res.product || res;
           setForm({
             name: p.name || '',
+            salt: p.salt || '',
             manufacturer: p.manufacturer || '',
             hsnCode: p.hsnCode || '',
             batchNumber: p.batchNumber || '',
@@ -48,6 +50,26 @@ export default function ProductFormPage() {
   }, [productId, user?.id]);
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const handleFetchDetails = async () => {
+    if (!form.name.trim()) return;
+    setFetchingAI(true);
+    try {
+      const res = await aiApi.getMedicineDetails(form.name);
+      if (res.success && res.data) {
+        setForm(prev => ({
+          ...prev,
+          salt: res.data.salt || prev.salt,
+          manufacturer: res.data.manufacturer || prev.manufacturer
+        }));
+        toast.success('Medicine details fetched successfully!');
+      }
+    } catch (err) {
+      toast.error('Failed to fetch details via AI');
+    } finally {
+      setFetchingAI(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -100,10 +122,19 @@ export default function ProductFormPage() {
         <div className="card" style={{ marginBottom: 24 }}>
           <div className="card-header"><h3>Basic Info</h3></div>
           <div className="card-body">
-            <div className="form-row">
+            <div className="form-row-3">
               <div className="form-group">
                 <label className="form-label">Product Name *</label>
-                <input className="form-input" value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="e.g. Paracetamol 500mg" required />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input className="form-input" style={{ flex: 1 }} value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="e.g. Paracetamol 500mg" required />
+                  <button type="button" className="btn btn-secondary" onClick={handleFetchDetails} disabled={fetchingAI || !form.name.trim()} title="Get details via AI" style={{ padding: '0 12px' }}>
+                    {fetchingAI ? <Loader size={16} className="spinner" /> : <Wand2 size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Salt Composition</label>
+                <input className="form-input" value={form.salt} onChange={e => updateField('salt', e.target.value)} placeholder="e.g. Paracetamol" />
               </div>
               <div className="form-group">
                 <label className="form-label">Manufacturer</label>

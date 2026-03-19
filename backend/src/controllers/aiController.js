@@ -193,3 +193,23 @@ exports.ocrImage = async (req, res) => {
     });
   }
 };
+
+/**
+ * Get medicine details (salt and manufacturer) via AI
+ */
+exports.getMedicineDetails = async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ success: false, error: 'Medicine name is required' });
+    }
+
+    const { fetchMedicineDetails } = require('../utils/geminiService');
+    const details = await fetchMedicineDetails(name);
+
+    res.json({ success: true, data: details });
+  } catch (error) {
+    console.error('[AIController] getMedicineDetails error:', error.message);
+    res.status(500).json({ success: false, error: error.message || 'Failed to fetch details' });
+  }
+};

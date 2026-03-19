@@ -76,6 +76,7 @@ model Product {
   // ========== PRODUCT IDENTIFICATION ==========
   name          String                              // Product/medicine name
   nameNormalized String                             // Normalized name for matching (lowercase, no spaces)
+  salt          String?                             // Salt composition of medicine
   manufacturer  String?                             // Manufacturer name
   hsnCode       String?                             // HSN/SAC code for taxation
   batchNumber   String?                             // Batch number for tracking

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { billApi, distributorApi } from '../services/api';
+import { billApi, distributorApi, productApi } from '../services/api';
 import { Save, Plus, Trash2, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -34,6 +34,41 @@ export default function BillFormPage() {
   const [distributors, setDistributors] = useState([]);
   const [distributorSearch, setDistributorSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
+
+  const searchProducts = async (query, index) => {
+    if (!query || query.length < 2) {
+      setSearchResults([]);
+      setActiveSearchIndex(-1);
+      return;
+    }
+    try {
+      const res = await productApi.searchProducts(user.id, query, 5, true);
+      setSearchResults(res.products || []);
+      setActiveSearchIndex(index);
+    } catch {
+      setSearchResults([]);
+    }
+  };
+
+  const selectProduct = (index, product) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      return {
+        ...item,
+        productId: product.id,
+        name: product.name,
+        manufacturer: product.manufacturer || item.manufacturer,
+        hsnCode: product.hsnCode || item.hsnCode,
+        mrp: product.defaultMrp || item.mrp,
+        rate: product.defaultRate || product.sellingRate || item.rate,
+        gstPercent: product.gstPercent || item.gstPercent,
+      };
+    }));
+    setSearchResults([]);
+    setActiveSearchIndex(-1);
+  };
 
   useEffect(() => {
     if (user?.id) {
@@ -356,8 +391,50 @@ export default function BillFormPage() {
                 return (
                 <tr key={index}>
                   <td>{index + 1}</td>
-                  <td>
-                    <input id={`input-${index}-name`} className="form-input" value={item.name} onChange={e => updateItem(index, 'name', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'name')} placeholder="Item name" style={{ minWidth: 150 }} />
+                  <td style={{ position: 'relative' }}>
+                    <input 
+                      id={`input-${index}-name`} 
+                      className="form-input" 
+                      value={item.name} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        updateItem(index, 'name', val);
+                        searchProducts(val, index);
+                      }} 
+                      onFocus={() => { if (item.name) searchProducts(item.name, index); }}
+                      onBlur={() => setTimeout(() => { if (activeSearchIndex === index) setActiveSearchIndex(-1) }, 200)}
+                      onKeyDown={e => handleKeyDown(e, index, 'name')} 
+                      placeholder="Item name" 
+                      style={{ minWidth: 150 }} 
+                    />
+                    {activeSearchIndex === index && searchResults.length > 0 && (
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0,
+                        background: 'white', border: '1px solid #e5e7eb',
+                        borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        zIndex: 10, maxHeight: 200, overflowY: 'auto', minWidth: 250
+                      }}>
+                        {searchResults.map(p => (
+                          <button
+                            type="button"
+                            key={p.id}
+                            onClick={() => selectProduct(index, p)}
+                            style={{
+                              display: 'block', width: '100%', padding: '8px 12px',
+                              textAlign: 'left', border: 'none', background: 'none',
+                              cursor: 'pointer', fontSize: 13,
+                            }}
+                            onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
+                            onMouseOut={e => e.currentTarget.style.background = 'none'}
+                          >
+                            <div style={{ fontWeight: 500 }}>{p.name}</div>
+                            <div style={{ fontSize: 11, color: '#6b7280' }}>
+                              MRP: ₹{p.defaultMrp || 0} | Rate: ₹{p.defaultRate || p.sellingRate || 0} | GST: {p.gstPercent || 0}%
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, paddingLeft: 2 }}>
                       {item.batchNumber && <span>Batch: {item.batchNumber} </span>}
                       {item.expiryDate && <span>Exp: {item.expiryDate}</span>}

@@ -353,6 +353,12 @@ export const aiApi = {
     }
     return apiUpload('/ai/ocr', formData);
   },
+  getMedicineDetails: async (name) => {
+    return apiFetch('/ai/medicine-details', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+  },
 };
 
 // ============================================================================

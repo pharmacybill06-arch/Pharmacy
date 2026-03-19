@@ -106,6 +106,7 @@ async function createProduct(userId, productData) {
       userId,
       name: productData.name.trim(),
       nameNormalized,
+      salt: productData.salt?.trim() || null,
       manufacturer: productData.manufacturer?.trim() || null,
       hsnCode: productData.hsnCode?.trim() || null,
       batchNumber: productData.batchNumber?.trim() || null,
@@ -243,6 +244,9 @@ async function updateProduct(productId, userId, updateData) {
     }
   }
   
+  if (updateData.salt !== undefined) {
+    data.salt = updateData.salt?.trim() || null;
+  }
   if (updateData.manufacturer !== undefined) {
     data.manufacturer = updateData.manufacturer?.trim() || null;
   }
