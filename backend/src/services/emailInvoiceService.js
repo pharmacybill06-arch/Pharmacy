@@ -11,8 +11,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const XLSX = require('xlsx');
 const prisma = require('../models/prisma');
-const zohoMailService = require('./zohoMailService');
+const { getZohoMailClientForUser, isAttachmentContentType } = require('./zohoMailService');
 const productService = require('./productService');
 const distributorService = require('./distributorService');
 const { extractTextFromImage } = require('../utils/ocrService');
@@ -21,7 +22,29 @@ const { parseOcrWithGemini, parseImageWithVision } = require('../utils/geminiSer
 // Supported attachment types
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff'];
 const SUPPORTED_PDF_TYPES = ['application/pdf'];
-const SUPPORTED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.tiff'];
+const SUPPORTED_SPREADSHEET_TYPES = [
+  'text/csv',
+  'application/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
+const SUPPORTED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.tiff', '.csv', '.xlsx', '.xls'];
+
+async function getEmailContext(userId) {
+  const mailClient = await getZohoMailClientForUser(userId);
+  return {
+    mailClient,
+    connectionId: mailClient.connection.id || null,
+  };
+}
+
+function buildLogWhere(userId, connectionId, messageId) {
+  return {
+    userId,
+    connectionId,
+    messageId: String(messageId),
+  };
+}
 
 /**
  * Check if an attachment is a supported invoice file
@@ -29,7 +52,7 @@ const SUPPORTED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.tiff']
 function isSupportedAttachment(attachment) {
   const name = (attachment.attachmentName || '').toLowerCase();
   const ext = path.extname(name);
-  return SUPPORTED_EXTENSIONS.includes(ext);
+  return SUPPORTED_EXTENSIONS.includes(ext) || isAttachmentContentType(attachment.contentType || '');
 }
 
 /**
@@ -43,6 +66,107 @@ function parseDateString(dateStr) {
   } catch {
     return null;
   }
+}
+
+function normalizeSpreadsheetKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function findSpreadsheetValue(row, aliases) {
+  const entries = Object.entries(row);
+  for (const [key, value] of entries) {
+    const normalizedKey = normalizeSpreadsheetKey(key);
+    if (aliases.includes(normalizedKey)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const cleaned = String(value).replace(/[^0-9.-]/g, '');
+  if (!cleaned) return null;
+  const parsed = parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseSpreadsheetAttachment(fileBuffer, fileName) {
+  const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    throw new Error('Spreadsheet has no sheets');
+  }
+
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+  if (!rows.length) {
+    throw new Error('Spreadsheet is empty');
+  }
+
+  const items = rows
+    .map((row, idx) => {
+      const name = findSpreadsheetValue(row, ['item', 'product', 'productname', 'medicine', 'description', 'particulars']);
+      const quantity = toNumber(findSpreadsheetValue(row, ['qty', 'quantity', 'units']));
+      const rate = toNumber(findSpreadsheetValue(row, ['rate', 'price', 'unitprice', 'ptr', 'purchaserate']));
+      const mrp = toNumber(findSpreadsheetValue(row, ['mrp', 'maxretailprice']));
+      const itemTotal = toNumber(findSpreadsheetValue(row, ['amount', 'total', 'linetotal', 'netamount']))
+        || (quantity && rate ? quantity * rate : null);
+
+      if (!name) return null;
+
+      return {
+        sn: idx + 1,
+        name: String(name).trim(),
+        quantity: quantity || 0,
+        freeQuantity: toNumber(findSpreadsheetValue(row, ['free', 'freeqty', 'scheme'])),
+        unit: findSpreadsheetValue(row, ['unit', 'pack', 'packing']) || 'units',
+        manufacturer: findSpreadsheetValue(row, ['manufacturer', 'company', 'mfg']) || null,
+        batchNumber: findSpreadsheetValue(row, ['batch', 'batchno', 'batchnumber']) || null,
+        expiryDate: findSpreadsheetValue(row, ['expiry', 'exp', 'expdate']) || null,
+        hsnCode: findSpreadsheetValue(row, ['hsn', 'hsncode']) || null,
+        mrp,
+        rate: rate || mrp || 0,
+        gstPercent: toNumber(findSpreadsheetValue(row, ['gst', 'gstpercent', 'taxpercent'])),
+        cgstPercent: toNumber(findSpreadsheetValue(row, ['cgst', 'cgstpercent'])),
+        sgstPercent: toNumber(findSpreadsheetValue(row, ['sgst', 'sgstpercent'])),
+        discount: toNumber(findSpreadsheetValue(row, ['discount', 'discountamount'])),
+        itemTotal: itemTotal || 0,
+      };
+    })
+    .filter(Boolean);
+
+  if (!items.length) {
+    throw new Error('Could not detect invoice rows in spreadsheet');
+  }
+
+  const subtotal = items.reduce((sum, item) => sum + (item.itemTotal || 0), 0);
+
+  return {
+    parsedData: {
+      pharmacyName: '',
+      shopAddress: '',
+      phoneNumbers: [],
+      gstin: '',
+      dlNumber: '',
+      invoiceNumber: path.basename(fileName, path.extname(fileName)),
+      invoiceDate: null,
+      paymentType: null,
+      items,
+      subtotal,
+      discountAmount: 0,
+      cgst: 0,
+      sgst: 0,
+      totalGst: 0,
+      roundOff: 0,
+      grandTotal: subtotal,
+    },
+    ocrText: JSON.stringify(rows.slice(0, 50)),
+    fileName,
+  };
 }
 
 /**
@@ -70,13 +194,74 @@ function stripHtml(html) {
 }
 
 /**
+ * Generate a cache key from subject and sender
+ * Normalizes the text to match similar patterns
+ */
+function generateCacheKey(subject, sender) {
+  const crypto = require('crypto');
+  
+  // Normalize subject: remove numbers, dates, special chars, lowercase
+  const normalizedSubject = (subject || '')
+    .toLowerCase()
+    .replace(/\d+/g, 'N')  // Replace numbers with N
+    .replace(/[^a-z\s]/g, '') // Remove special chars
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Normalize sender: extract domain and key parts
+  const normalizedSender = (sender || '')
+    .toLowerCase()
+    .replace(/<.*@(.+?)>/, '$1') // Extract domain from email
+    .replace(/.*@(.+)/, '$1')    // Get domain part
+    .trim();
+  
+  // Combine and hash
+  const combined = `${normalizedSubject}|${normalizedSender}`;
+  return crypto.createHash('md5').update(combined).digest('hex');
+}
+
+/**
  * AI-powered bill detection: Analyze content to determine if it's a bill/invoice
+ * WITH SMART CACHING to reduce API calls
  * @param {string} subject - Email subject
  * @param {string} bodyText - Plain text content of email
  * @param {boolean} hasAttachments - Whether email has supported attachments
  * @returns {Object} { isBill: boolean, confidence: number, reason: string, billType: string }
  */
 async function detectBillContent(subject, bodyText, hasAttachments) {
+  // Generate cache key based on subject/sender pattern
+  const cacheKey = generateCacheKey(subject, bodyText.substring(0, 100));
+  
+  // Check cache first
+  try {
+    const cached = await prisma.billDetectionCache.findUnique({
+      where: { cacheKey },
+    });
+    
+    if (cached) {
+      // Update hit count and last hit time
+      await prisma.billDetectionCache.update({
+        where: { id: cached.id },
+        data: {
+          hitCount: { increment: 1 },
+          lastHitAt: new Date(),
+        },
+      }).catch(() => {}); // Ignore update errors
+      
+      console.log(`[BillDetect] Cache HIT for "${subject}" (hits: ${cached.hitCount + 1})`);
+      return {
+        isBill: cached.isBill,
+        confidence: cached.confidence,
+        reason: cached.reason || '',
+        billType: cached.billType,
+      };
+    }
+  } catch (cacheErr) {
+    console.warn('[BillDetect] Cache lookup failed:', cacheErr.message);
+  }
+  
+  console.log(`[BillDetect] Cache MISS for "${subject}" - running detection`);
+  
   // Quick keyword-based pre-check for efficiency
   const combinedText = `${subject} ${bodyText}`.toLowerCase();
   const billKeywords = [
@@ -91,47 +276,91 @@ async function detectBillContent(subject, bodyText, hasAttachments) {
 
   const keywordMatches = billKeywords.filter(kw => combinedText.includes(kw));
   
+  let detectionResult;
+  
   // Fast path: if very few keywords match and no attachments, it's probably not a bill
   if (keywordMatches.length === 0 && !hasAttachments) {
-    return {
+    detectionResult = {
       isBill: false,
       confidence: 0.95,
       reason: 'No bill-related keywords found',
       billType: 'none',
     };
   }
-
   // Fast path: strong keyword match = definitely a bill
-  if (keywordMatches.length >= 5) {
+  else if (keywordMatches.length >= 5) {
     const hasItems = /\d+\s*(tab|cap|strip|bottle|vial|amp|inj|syrup|ml|mg|gm)/i.test(bodyText);
     const hasAmounts = /₹?\s*\d+\.?\d*/.test(bodyText);
     
     if (hasItems && hasAmounts) {
-      return {
+      detectionResult = {
         isBill: true,
         confidence: 0.95,
         reason: `Strong bill indicators: ${keywordMatches.slice(0, 5).join(', ')}`,
         billType: bodyText.trim().length > 100 ? 'body-text' : 'attachment',
       };
+    } else {
+      detectionResult = await runAIDetection(subject, bodyText, hasAttachments, keywordMatches);
     }
   }
-
   // For moderate matches, use AI for precise detection
-  if (keywordMatches.length >= 2 || hasAttachments) {
-    try {
-      const Groq = require('groq-sdk');
-      const groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  else if (keywordMatches.length >= 2 || hasAttachments) {
+    detectionResult = await runAIDetection(subject, bodyText, hasAttachments, keywordMatches);
+  }
+  // Fallback: keyword-based decision
+  else {
+    detectionResult = {
+      isBill: keywordMatches.length >= 3 || hasAttachments,
+      confidence: Math.min(0.5 + keywordMatches.length * 0.1, 0.85),
+      reason: keywordMatches.length > 0 ? `Keywords found: ${keywordMatches.join(', ')}` : 'No bill indicators',
+      billType: hasAttachments ? 'attachment' : keywordMatches.length >= 3 ? 'body-text' : 'none',
+    };
+  }
+  
+  // Cache the result (expires in 30 days)
+  try {
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    
+    await prisma.billDetectionCache.create({
+      data: {
+        cacheKey,
+        subject: subject.substring(0, 200),
+        sender: bodyText.substring(0, 100), // Store snippet for debugging
+        isBill: detectionResult.isBill,
+        confidence: detectionResult.confidence,
+        reason: detectionResult.reason,
+        billType: detectionResult.billType,
+        expiresAt,
+      },
+    }).catch(() => {}); // Ignore duplicate key errors
+    
+    console.log(`[BillDetect] Cached result for "${subject}"`);
+  } catch (cacheErr) {
+    console.warn('[BillDetect] Failed to cache result:', cacheErr.message);
+  }
+  
+  return detectionResult;
+}
 
-      const truncatedBody = bodyText.substring(0, 2000); // Limit to save tokens
-      const response = await groqClient.chat.completions.create({
-        messages: [
-          {
-            role: 'system',
-            content: 'You analyze emails to detect if they contain pharmacy/medical invoices or bills. Return ONLY valid JSON.',
-          },
-          {
-            role: 'user',
-            content: `Analyze this email and determine if it contains a pharmacy/medical bill or invoice.
+/**
+ * Run AI detection using Groq API
+ */
+async function runAIDetection(subject, bodyText, hasAttachments, keywordMatches) {
+  try {
+    const Groq = require('groq-sdk');
+    const groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+    const truncatedBody = bodyText.substring(0, 2000); // Limit to save tokens
+    const response = await groqClient.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: 'You analyze emails to detect if they contain pharmacy/medical invoices or bills. Return ONLY valid JSON.',
+        },
+        {
+          role: 'user',
+          content: `Analyze this email and determine if it contains a pharmacy/medical bill or invoice.
 
 Subject: ${subject}
 Body (first 2000 chars):
@@ -152,30 +381,29 @@ billType meanings:
 - "attachment" = bill is likely in the attached files
 - "both" = both body and attachments contain bill info
 - "none" = not a bill`,
-          },
-        ],
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.1,
-        max_tokens: 256,
-        response_format: { type: 'json_object' },
-      });
+        },
+      ],
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.1,
+      max_tokens: 256,
+      response_format: { type: 'json_object' },
+    });
 
-      const text = response.choices[0]?.message?.content || '';
-      const parsed = JSON.parse(text);
-      console.log(`[BillDetect] "${subject}" → isBill: ${parsed.isBill}, type: ${parsed.billType}, confidence: ${parsed.confidence}`);
-      return parsed;
-    } catch (aiErr) {
-      console.warn('[BillDetect] AI detection failed, using keyword fallback:', aiErr.message);
-    }
+    const text = response.choices[0]?.message?.content || '';
+    const parsed = JSON.parse(text);
+    console.log(`[BillDetect] AI: "${subject}" → isBill: ${parsed.isBill}, type: ${parsed.billType}, confidence: ${parsed.confidence}`);
+    return parsed;
+  } catch (aiErr) {
+    console.warn('[BillDetect] AI detection failed, using keyword fallback:', aiErr.status, aiErr.message);
+    
+    // Fallback to keyword-based decision
+    return {
+      isBill: keywordMatches.length >= 3 || hasAttachments,
+      confidence: Math.min(0.5 + keywordMatches.length * 0.1, 0.85),
+      reason: keywordMatches.length > 0 ? `Keywords found: ${keywordMatches.join(', ')}` : 'No bill indicators',
+      billType: hasAttachments ? 'attachment' : keywordMatches.length >= 3 ? 'body-text' : 'none',
+    };
   }
-
-  // Fallback: keyword-based decision
-  return {
-    isBill: keywordMatches.length >= 3 || hasAttachments,
-    confidence: Math.min(0.5 + keywordMatches.length * 0.1, 0.85),
-    reason: keywordMatches.length > 0 ? `Keywords found: ${keywordMatches.join(', ')}` : 'No bill indicators',
-    billType: hasAttachments ? 'attachment' : keywordMatches.length >= 3 ? 'body-text' : 'none',
-  };
 }
 
 /**
@@ -213,80 +441,104 @@ async function processEmailBodyText(bodyText, subject) {
  * @param {string} searchKey - Optional search keyword
  * @returns {Array} Enriched email list
  */
-async function listInboxEmails(limit = 30, searchKey = null) {
+async function listInboxEmails(userId, limit = 50, searchKey = null) {
+  const { mailClient, connectionId } = await getEmailContext(userId);
+
   // Fetch emails
   let emails;
   if (searchKey) {
-    emails = await zohoMailService.searchEmails(searchKey, limit);
+    emails = await mailClient.searchEmails(searchKey, limit);
   } else {
-    emails = await zohoMailService.fetchEmails(limit);
+    emails = await mailClient.fetchEmails(limit);
   }
 
-  // Enrich each email with detection info and processing status
+  // Batch check processing status for all emails at once (much faster)
+  const messageIds = emails.map(e => String(e.messageId));
+  const processedLogs = await prisma.emailProcessingLog.findMany({
+    where: {
+      userId,
+      connectionId,
+      messageId: { in: messageIds },
+    },
+    select: {
+      messageId: true,
+      status: true,
+      billsCreated: true,
+      processedAt: true,
+    },
+  });
+
+  // Create a map for quick lookup
+  const processedMap = new Map();
+  processedLogs.forEach(log => {
+    processedMap.set(log.messageId, {
+      status: log.status,
+      billsCreated: log.billsCreated || 0,
+      processedAt: log.processedAt,
+    });
+  });
+
+  // Process emails in batches to avoid "too many connections" error
+  const BATCH_SIZE = 10; // Gmail allows ~15 concurrent connections, use 10 to be safe
   const enrichedEmails = [];
 
-  for (const email of emails) {
-    const messageId = String(email.messageId);
-    const folderId = email.folderId;
-    const subject = email.subject || '(no subject)';
-    const sender = email.fromAddress || email.sender || '';
-    const hasAtt = String(email.hasAttachment) === '1' || email.hasAttachment === true;
-    const receivedTime = email.receivedTime ? new Date(parseInt(email.receivedTime)) : null;
+  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+    const batch = emails.slice(i, i + BATCH_SIZE);
+    
+    const batchResults = await Promise.all(
+      batch.map(async (email) => {
+        const messageId = String(email.messageId);
+        const folderId = email.folderId;
+        const subject = email.subject || '(no subject)';
+        const sender = email.fromAddress || email.sender || '';
+        const hasAtt = String(email.hasAttachment) === '1' || email.hasAttachment === true;
+        const receivedTime = email.receivedTime ? new Date(parseInt(email.receivedTime)) : null;
 
-    // Check if already processed
-    let processingStatus = null;
-    try {
-      const existing = await prisma.emailProcessingLog.findUnique({
-        where: { messageId },
-      });
-      if (existing) {
-        processingStatus = {
-          status: existing.status,
-          billsCreated: existing.billsCreated || 0,
-          processedAt: existing.processedAt,
-        };
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    // Get a short preview of the email content
-    let bodyPreview = email.summary || '';
-    let bodyText = '';
-
-    // Try to get body text for bill detection (only first batch)
-    if (enrichedEmails.length < 15) {
-      try {
-        const content = await zohoMailService.getEmailContent(messageId, folderId);
-        if (content) {
-          const rawHtml = content.content || content.htmlContent || content;
-          bodyText = typeof rawHtml === 'string' ? stripHtml(rawHtml) : '';
-          bodyPreview = bodyText.substring(0, 200);
+        // Get body text for AI detection
+        let bodyText = '';
+        try {
+          const content = await mailClient.getEmailContent(messageId, folderId);
+          if (content) {
+            const rawHtml = content.content || content.htmlContent || content;
+            bodyText = typeof rawHtml === 'string' ? stripHtml(rawHtml) : '';
+          }
+        } catch (e) {
+          // If content fetch fails, use subject only
         }
-      } catch (e) {
-        // If content fetch fails, we still have the summary
-      }
-    }
 
-    // Run bill detection
-    let billDetection = { isBill: false, confidence: 0, reason: '', billType: 'none' };
-    try {
-      billDetection = await detectBillContent(subject, bodyText || bodyPreview, hasAtt);
-    } catch (e) {
-      console.warn(`[EmailInvoice] Detection failed for "${subject}":`, e.message);
-    }
+        // Run AI bill detection
+        let billDetection = { isBill: false, confidence: 0, reason: '', billType: 'none' };
+        try {
+          billDetection = await detectBillContent(subject, bodyText, hasAtt);
+        } catch (e) {
+          console.warn(`[EmailInvoice] Detection failed for "${subject}":`, e.message);
+          // Fallback to keyword detection
+          const combinedText = `${subject} ${sender}`.toLowerCase();
+          const billKeywords = ['invoice', 'bill', 'receipt', 'purchase', 'order', 'payment', 'gstin', 'gst'];
+          const keywordMatches = billKeywords.filter(kw => combinedText.includes(kw)).length;
+          billDetection = {
+            isBill: keywordMatches >= 2 || hasAtt,
+            confidence: Math.min(0.5 + keywordMatches * 0.15, 0.85),
+            reason: keywordMatches > 0 ? `Keywords: ${keywordMatches}` : 'No bill indicators',
+            billType: hasAtt ? 'attachment' : keywordMatches >= 2 ? 'body-text' : 'none',
+          };
+        }
 
-    enrichedEmails.push({
-      messageId,
-      folderId,
-      subject,
-      sender,
-      receivedTime,
-      hasAttachments: hasAtt,
-      preview: bodyPreview.substring(0, 200),
-      billDetection,
-      processingStatus,
-    });
+        return {
+          messageId,
+          folderId,
+          subject,
+          sender,
+          receivedTime,
+          hasAttachments: hasAtt,
+          preview: bodyText.substring(0, 200) || subject.substring(0, 200),
+          billDetection,
+          processingStatus: processedMap.get(messageId) || null,
+        };
+      })
+    );
+
+    enrichedEmails.push(...batchResults);
   }
 
   return enrichedEmails;
@@ -303,6 +555,8 @@ async function listInboxEmails(limit = 30, searchKey = null) {
  * @returns {Object} Processing results
  */
 async function processSelectedEmails(userId, selectedEmails) {
+  const { mailClient, connectionId } = await getEmailContext(userId);
+
   const results = {
     total: selectedEmails.length,
     processed: 0,
@@ -319,8 +573,8 @@ async function processSelectedEmails(userId, selectedEmails) {
 
     try {
       // Check if already processed
-      const existing = await prisma.emailProcessingLog.findUnique({
-        where: { messageId: msgId },
+      const existing = await prisma.emailProcessingLog.findFirst({
+        where: buildLogWhere(userId, connectionId, msgId),
       });
       if (existing && existing.status === 'processed') {
         results.skipped++;
@@ -338,7 +592,7 @@ async function processSelectedEmails(userId, selectedEmails) {
       }
 
       // Get basic email details
-      const emailDetails = await zohoMailService.getEmailDetails(messageId, folderId);
+      const emailDetails = await mailClient.getEmailDetails(messageId, folderId);
       subject = emailDetails?.subject || '(no subject)';
       sender = emailDetails?.fromAddress || emailDetails?.sender || '';
 
@@ -359,11 +613,11 @@ async function processSelectedEmails(userId, selectedEmails) {
               ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
 
             console.log(`[EmailInvoice] Downloading attachment: ${attachmentName}`);
-            const fileBuffer = await zohoMailService.downloadAttachment(messageId, attachmentId, folderId);
+            const fileBuffer = await mailClient.downloadAttachment(messageId, attachmentId, folderId);
             const { parsedData, ocrText } = await processAttachment(fileBuffer, attachmentName, mimeType);
 
             if (parsedData && parsedData.items && parsedData.items.length > 0) {
-              const bill = await saveBillFromParsedData(userId, parsedData, ocrText, `zoho-email-${msgId}`);
+              const bill = await saveBillFromParsedData(userId, parsedData, ocrText, `email-attachment-${msgId}`);
               billsFromThisEmail++;
               results.billsCreated++;
               console.log(`[EmailInvoice] ✓ Bill from attachment: ${bill.id}`);
@@ -379,7 +633,7 @@ async function processSelectedEmails(userId, selectedEmails) {
       // ===== STEP 2: Try email body text (if no bills from attachments or no attachments) =====
       if (billsFromThisEmail === 0) {
         try {
-          const content = await zohoMailService.getEmailContent(messageId, folderId);
+          const content = await mailClient.getEmailContent(messageId, folderId);
           if (content) {
             const rawHtml = content.content || content.htmlContent || content;
             const bodyText = typeof rawHtml === 'string' ? stripHtml(rawHtml) : '';
@@ -393,7 +647,7 @@ async function processSelectedEmails(userId, selectedEmails) {
                 const { parsedData, ocrText } = await processEmailBodyText(bodyText, subject);
 
                 if (parsedData && parsedData.items && parsedData.items.length > 0) {
-                  const bill = await saveBillFromParsedData(userId, parsedData, ocrText, `zoho-email-body-${msgId}`);
+                  const bill = await saveBillFromParsedData(userId, parsedData, ocrText, `email-body-${msgId}`);
                   billsFromThisEmail++;
                   results.billsCreated++;
                   console.log(`[EmailInvoice] ✓ Bill from email body: ${bill.id}`);
@@ -416,9 +670,12 @@ async function processSelectedEmails(userId, selectedEmails) {
       const status = billsFromThisEmail > 0 ? 'processed' : errors.length > 0 ? 'failed' : 'skipped';
       await prisma.emailProcessingLog.create({
         data: {
+          userId,
+          connectionId,
           messageId: msgId,
           subject,
           sender,
+          folderId,
           emailDate: new Date(),
           attachments: supportedAttachments.length,
           billsCreated: billsFromThisEmail,
@@ -429,7 +686,7 @@ async function processSelectedEmails(userId, selectedEmails) {
 
       if (billsFromThisEmail > 0) {
         results.processed++;
-        await zohoMailService.markAsRead(messageId, folderId);
+        await mailClient.markAsRead(messageId, folderId);
       } else {
         results.failed++;
       }
@@ -454,9 +711,12 @@ async function processSelectedEmails(userId, selectedEmails) {
       try {
         await prisma.emailProcessingLog.create({
           data: {
+            userId,
+            connectionId,
             messageId: msgId,
             subject,
             sender,
+            folderId,
             status: 'failed',
             errorMessage: emailErr.message,
           },
@@ -482,9 +742,11 @@ async function processSelectedEmails(userId, selectedEmails) {
  * @param {string} folderId - Zoho folder ID
  * @returns {Object} { parsedData, ocrText, source, subject, sender }
  */
-async function extractFromEmail(messageId, folderId) {
+async function extractFromEmail(userId, messageId, folderId) {
+  const { mailClient } = await getEmailContext(userId);
+
   // Get email details
-  const emailDetails = await zohoMailService.getEmailDetails(messageId, folderId);
+  const emailDetails = await mailClient.getEmailDetails(messageId, folderId);
   const subject = emailDetails?.subject || '(no subject)';
   const sender = emailDetails?.fromAddress || emailDetails?.sender || '';
 
@@ -505,7 +767,7 @@ async function extractFromEmail(messageId, folderId) {
     const mimeType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
 
     console.log(`[EmailInvoice] Downloading attachment for extraction: ${attachmentName}`);
-    const fileBuffer = await zohoMailService.downloadAttachment(messageId, attachmentId, folderId);
+    const fileBuffer = await mailClient.downloadAttachment(messageId, attachmentId, folderId);
     const result = await processAttachment(fileBuffer, attachmentName, mimeType);
 
     if (result.parsedData && result.parsedData.items && result.parsedData.items.length > 0) {
@@ -519,7 +781,7 @@ async function extractFromEmail(messageId, folderId) {
   // ===== STEP 2: Try email body text if no attachment data =====
   if (!parsedData) {
     try {
-      const content = await zohoMailService.getEmailContent(messageId, folderId);
+      const content = await mailClient.getEmailContent(messageId, folderId);
       if (content) {
         const rawHtml = content.content || content.htmlContent || content;
         const bodyText = typeof rawHtml === 'string' ? rawHtml.replace(/<[^>]*>?/gm, ' ') : '';
@@ -572,9 +834,15 @@ async function extractFromEmail(messageId, folderId) {
 async function processAttachment(fileBuffer, fileName, mimeType) {
   const isImage = SUPPORTED_IMAGE_TYPES.includes(mimeType);
   const isPdf = SUPPORTED_PDF_TYPES.includes(mimeType);
+  const isSpreadsheet = SUPPORTED_SPREADSHEET_TYPES.includes(mimeType)
+    || ['.csv', '.xlsx', '.xls'].includes(path.extname(fileName).toLowerCase());
 
   let ocrText = '';
   let parsedData = null;
+
+  if (isSpreadsheet) {
+    return parseSpreadsheetAttachment(fileBuffer, fileName);
+  }
 
   if (isPdf) {
     try {
@@ -636,7 +904,7 @@ async function processAttachment(fileBuffer, fileName, mimeType) {
 /**
  * Save parsed data as a Bill + BillItems record
  */
-async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'zoho-email') {
+async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'email-import') {
   if (!parsedData) {
     throw new Error('No parsed data to save');
   }
@@ -685,7 +953,7 @@ async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'zoh
       paymentType: parsedData.paymentType || null,
 
       rawOcrText: ocrText || null,
-      ocrEngine: 'zoho-email',
+      ocrEngine: 'email-import',
       aiParser: 'gemini-ai',
       processedAt: new Date(),
       status: 'completed',
@@ -734,6 +1002,8 @@ async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'zoh
 // ============================================================================
 
 async function fetchAndProcessEmails(userId, limit = 20) {
+  const { mailClient, connectionId } = await getEmailContext(userId);
+
   const results = {
     emailsScanned: 0,
     emailsProcessed: 0,
@@ -745,8 +1015,8 @@ async function fetchAndProcessEmails(userId, limit = 20) {
   };
 
   try {
-    console.log(`[EmailInvoice] Fetching up to ${limit} emails from Zoho...`);
-    const emails = await zohoMailService.fetchEmails(limit);
+    console.log(`[EmailInvoice] Fetching up to ${limit} emails from mailbox...`);
+    const emails = await mailClient.fetchEmails(limit);
     results.emailsScanned = emails.length;
 
     for (const email of emails) {
@@ -756,8 +1026,8 @@ async function fetchAndProcessEmails(userId, limit = 20) {
       const sender = email.fromAddress || email.sender || '';
 
       try {
-        const existing = await prisma.emailProcessingLog.findUnique({
-          where: { messageId: String(messageId) },
+        const existing = await prisma.emailProcessingLog.findFirst({
+          where: buildLogWhere(userId, connectionId, messageId),
         });
 
         if (existing) {
@@ -769,9 +1039,12 @@ async function fetchAndProcessEmails(userId, limit = 20) {
         if (!hasAtt) {
           await prisma.emailProcessingLog.create({
             data: {
+              userId,
+              connectionId,
               messageId: String(messageId),
               subject,
               sender,
+              folderId,
               emailDate: email.receivedTime ? new Date(parseInt(email.receivedTime)) : null,
               status: 'skipped',
               errorMessage: 'No attachments',
@@ -781,14 +1054,17 @@ async function fetchAndProcessEmails(userId, limit = 20) {
           continue;
         }
 
-        const emailDetails = await zohoMailService.getEmailDetails(messageId, folderId);
+        const emailDetails = await mailClient.getEmailDetails(messageId, folderId);
 
         if (!emailDetails || !emailDetails.attachments || emailDetails.attachments.length === 0) {
           await prisma.emailProcessingLog.create({
             data: {
+              userId,
+              connectionId,
               messageId: String(messageId),
               subject,
               sender,
+              folderId,
               emailDate: email.receivedTime ? new Date(parseInt(email.receivedTime)) : null,
               status: 'skipped',
               errorMessage: 'No downloadable attachments',
@@ -803,9 +1079,12 @@ async function fetchAndProcessEmails(userId, limit = 20) {
         if (supportedAttachments.length === 0) {
           await prisma.emailProcessingLog.create({
             data: {
+              userId,
+              connectionId,
               messageId: String(messageId),
               subject,
               sender,
+              folderId,
               emailDate: email.receivedTime ? new Date(parseInt(email.receivedTime)) : null,
               status: 'skipped',
               errorMessage: 'No PDF/image attachments',
@@ -826,11 +1105,11 @@ async function fetchAndProcessEmails(userId, limit = 20) {
             const mimeType =
               ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
 
-            const fileBuffer = await zohoMailService.downloadAttachment(messageId, attachmentId, folderId);
+            const fileBuffer = await mailClient.downloadAttachment(messageId, attachmentId, folderId);
             const { parsedData, ocrText } = await processAttachment(fileBuffer, attachmentName, mimeType);
 
             if (parsedData && parsedData.items && parsedData.items.length > 0) {
-              const bill = await saveBillFromParsedData(userId, parsedData, ocrText, `zoho-email-${messageId}`);
+              const bill = await saveBillFromParsedData(userId, parsedData, ocrText, `email-attachment-${messageId}`);
               billsFromThisEmail++;
               results.billsCreated++;
               console.log(`[EmailInvoice] ✓ Bill saved: ${bill.id} (${parsedData.items.length} items)`);
@@ -845,9 +1124,12 @@ async function fetchAndProcessEmails(userId, limit = 20) {
         const status = billsFromThisEmail > 0 ? 'processed' : attachmentErrors.length > 0 ? 'failed' : 'skipped';
         await prisma.emailProcessingLog.create({
           data: {
+            userId,
+            connectionId,
             messageId: String(messageId),
             subject,
             sender,
+            folderId,
             emailDate: email.receivedTime ? new Date(parseInt(email.receivedTime)) : null,
             attachments: supportedAttachments.length,
             billsCreated: billsFromThisEmail,
@@ -858,7 +1140,7 @@ async function fetchAndProcessEmails(userId, limit = 20) {
 
         if (billsFromThisEmail > 0) {
           results.emailsProcessed++;
-          await zohoMailService.markAsRead(messageId, folderId);
+          await mailClient.markAsRead(messageId, folderId);
         } else {
           results.emailsFailed++;
         }
@@ -879,9 +1161,12 @@ async function fetchAndProcessEmails(userId, limit = 20) {
         try {
           await prisma.emailProcessingLog.create({
             data: {
+              userId,
+              connectionId,
               messageId: String(messageId),
               subject,
               sender,
+              folderId,
               status: 'failed',
               errorMessage: emailErr.message,
             },

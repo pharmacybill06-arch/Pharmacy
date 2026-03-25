@@ -12,6 +12,7 @@ const {
   assignTokensToColumns
 } = require('../utils/ocrNormalizer');
 const fs = require('fs');
+const Groq = require('groq-sdk');
 
 /**
  * Parse OCR text using AI (text-only fallback)
@@ -195,21 +196,69 @@ exports.ocrImage = async (req, res) => {
 };
 
 /**
- * Get medicine details (salt and manufacturer) via AI
+ * Get medicine details like salt and manufacturer from AI.
+ * POST /api/ai/medicine-details
+ * Body: { name }
  */
 exports.getMedicineDetails = async (req, res) => {
   try {
     const { name } = req.body;
-    if (!name || name.trim() === '') {
-      return res.status(400).json({ success: false, error: 'Medicine name is required' });
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Medicine name is required',
+      });
     }
 
-    const { fetchMedicineDetails } = require('../utils/geminiService');
-    const details = await fetchMedicineDetails(name);
+    if (!process.env.GROQ_API_KEY) {
+      return res.status(503).json({
+        success: false,
+        error: 'AI service not configured',
+      });
+    }
 
-    res.json({ success: true, data: details });
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    const medicineName = String(name).trim();
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.1,
+      max_tokens: 200,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: 'Return only valid JSON with medicine metadata.',
+        },
+        {
+          role: 'user',
+          content: `For the medicine "${medicineName}", return JSON in this exact shape:
+{
+  "salt": string|null,
+  "manufacturer": string|null
+}
+
+If uncertain, use null values.`,
+        },
+      ],
+    });
+
+    const text = completion.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(text);
+
+    res.json({
+      success: true,
+      data: {
+        salt: parsed.salt || null,
+        manufacturer: parsed.manufacturer || null,
+      },
+    });
   } catch (error) {
-    console.error('[AIController] getMedicineDetails error:', error.message);
-    res.status(500).json({ success: false, error: error.message || 'Failed to fetch details' });
+    console.error('[AIController] Medicine details error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch medicine details',
+    });
   }
 };

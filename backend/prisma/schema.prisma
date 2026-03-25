@@ -29,9 +29,48 @@ model User {
   products  Product[]
   distributors Distributor[]
   payments  Payment[]
+  emailConnections EmailInboxConnection[]
+  emailProcessingLogs EmailProcessingLog[]
 
   @@index([email])
   @@index([phone])
+}
+
+model EmailInboxConnection {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider        String   @default("zoho")
+  authType        String   @default("imap_password")
+  emailAddress    String?
+  displayName     String?
+  password        String?
+  imapHost        String?
+  imapPort        Int?     @default(993)
+  imapSecure      Boolean  @default(true)
+  mailbox         String?  @default("INBOX")
+
+  accountId       String?
+  accessToken     String?
+  refreshToken    String?
+  clientId        String?
+  clientSecret    String?
+  apiDomain       String   @default("https://mail.zoho.in")
+  accountsBaseUrl String   @default("https://accounts.zoho.in")
+  folderId        String?
+
+  isActive        Boolean  @default(true)
+  lastSyncedAt    DateTime?
+  tokenUpdatedAt  DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  processingLogs  EmailProcessingLog[]
+
+  @@unique([userId, provider])
+  @@index([userId, isActive])
 }
 
 // Distributor model: Suppliers/Distributors (Bhalla, Laksh, etc.)
@@ -315,9 +354,14 @@ model BillItem {
 // EmailProcessingLog: Tracks Zoho emails that have been processed (prevents re-processing)
 model EmailProcessingLog {
   id            String   @id @default(cuid())
-  messageId     String   @unique        // Zoho Mail message ID
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId  String?
+  connection    EmailInboxConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  messageId     String                  // Zoho Mail message ID
   subject       String?
   sender        String?
+  folderId      String?
   emailDate     DateTime?
   attachments   Int      @default(0)    // Number of attachments processed
   billsCreated  Int      @default(0)    // How many bills were saved
@@ -325,6 +369,30 @@ model EmailProcessingLog {
   errorMessage  String?
   processedAt   DateTime @default(now())
 
+  @@unique([connectionId, messageId])
+  @@index([userId])
   @@index([messageId])
   @@index([processedAt])
+}
+
+
+// BillDetectionCache: Cache AI detection results to reduce API calls
+// Caches based on subject/sender patterns to avoid re-analyzing similar emails
+model BillDetectionCache {
+  id          String    @id @default(cuid())
+  cacheKey    String    @unique                  // Hash of normalized subject + sender
+  subject     String?                            // Original subject (for debugging)
+  sender      String?                            // Original sender (for debugging)
+  isBill      Boolean                            // Detection result
+  confidence  Float                              // Confidence score (0-1)
+  reason      String?                            // Detection reason
+  billType    String                             // body-text, attachment, both, none
+  hitCount    Int       @default(1)              // Number of cache hits
+  lastHitAt   DateTime  @default(now())          // Last time this cache was used
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?                          // Optional expiration (for cleanup)
+
+  @@index([cacheKey])
+  @@index([expiresAt])
+  @@index([lastHitAt])
 }

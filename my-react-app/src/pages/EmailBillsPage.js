@@ -26,6 +26,24 @@ const billTypeLabels = {
   'none':       { label: 'Not a Bill', color: '#94a3b8', icon: MinusCircle },
 };
 
+const providerDefaults = {
+  zoho: { imapHost: 'imap.zoho.in', imapPort: '993', imapSecure: true, mailbox: 'INBOX' },
+  gmail: { imapHost: 'imap.gmail.com', imapPort: '993', imapSecure: true, mailbox: 'INBOX' },
+  custom: { imapHost: '', imapPort: '993', imapSecure: true, mailbox: 'INBOX' },
+};
+
+const emptyConnectionForm = {
+  provider: 'zoho',
+  authType: 'imap_password',
+  emailAddress: '',
+  displayName: '',
+  password: '',
+  imapHost: 'imap.zoho.in',
+  imapPort: '993',
+  imapSecure: true,
+  mailbox: 'INBOX',
+};
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -41,6 +59,11 @@ export default function EmailBillsPage() {
   const [processing, setProcessing] = useState(false);
   const [extractingEmailId, setExtractingEmailId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [connection, setConnection] = useState(null);
+  const [connectionForm, setConnectionForm] = useState(emptyConnectionForm);
+  const [loadingConnection, setLoadingConnection] = useState(false);
+  const [savingConnection, setSavingConnection] = useState(false);
+  const [connectionChecked, setConnectionChecked] = useState(false);
 
   // History state
   const [logs, setLogs] = useState([]);
@@ -48,20 +71,101 @@ export default function EmailBillsPage() {
   const [expandedLog, setExpandedLog] = useState(null);
   const [stats, setStats] = useState({ processed: 0, failed: 0, skipped: 0, totalBills: 0 });
 
+  const updateConnectionField = (field, value) => {
+    setConnectionForm(prev => {
+      if (field === 'provider') {
+        const defaults = providerDefaults[value] || providerDefaults.custom;
+        return {
+          ...prev,
+          provider: value,
+          imapHost: defaults.imapHost,
+          imapPort: defaults.imapPort,
+          imapSecure: defaults.imapSecure,
+          mailbox: prev.mailbox || defaults.mailbox,
+        };
+      }
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const loadConnection = useCallback(async () => {
+    if (!user?.id) return;
+    setConnectionChecked(false);
+    setLoadingConnection(true);
+    try {
+      const result = await emailBillApi.getConnection(user.id);
+      const data = result.data || null;
+      setConnection(data);
+      setConnectionForm(prev => ({
+        ...emptyConnectionForm,
+        ...prev,
+        provider: data?.provider || 'zoho',
+        authType: data?.authType || 'imap_password',
+        emailAddress: data?.emailAddress || '',
+        displayName: data?.displayName || '',
+        imapHost: data?.imapHost || (providerDefaults[data?.provider || 'zoho'] || providerDefaults.custom).imapHost,
+        imapPort: data?.imapPort ? String(data.imapPort) : (providerDefaults[data?.provider || 'zoho'] || providerDefaults.custom).imapPort,
+        imapSecure: data?.imapSecure !== undefined ? data.imapSecure : true,
+        mailbox: data?.mailbox || 'INBOX',
+        password: '',
+      }));
+    } catch (err) {
+      console.error('Failed to load email connection:', err);
+      toast.error(err.message || 'Failed to load email connection');
+    } finally {
+      setConnectionChecked(true);
+      setLoadingConnection(false);
+    }
+  }, [user?.id]);
+
+  const handleSaveConnection = async (e) => {
+    e.preventDefault();
+    if (!user?.id) return;
+
+    if (!connectionForm.emailAddress || !connectionForm.password) {
+      toast.error('Email and app password are required');
+      return;
+    }
+
+    if (!connectionForm.imapHost || !connectionForm.imapPort) {
+      toast.error('IMAP host and port are required');
+      return;
+    }
+
+    setSavingConnection(true);
+    try {
+      await emailBillApi.saveConnection({
+        userId: user.id,
+        ...connectionForm,
+      });
+      toast.success('Mailbox connection saved');
+      await loadConnection();
+      await loadInbox(searchQuery);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save mailbox connection');
+    } finally {
+      setSavingConnection(false);
+    }
+  };
+
   // ===== INBOX FUNCTIONS =====
   const loadInbox = useCallback(async (search = '') => {
+    if (!user?.id) return;
     setLoadingInbox(true);
     try {
-      const result = await emailBillApi.listInbox(30, search);
+      const result = await emailBillApi.listInbox(user.id, 30, search);
       setInboxEmails(result.data || []);
       setSelectedEmails(new Set());
     } catch (err) {
       console.error('Failed to load inbox:', err);
+      if (/connection|configured|No active email inbox connection/i.test(err.message || '')) {
+        setConnection(null);
+      }
       toast.error(err.message || 'Failed to load inbox');
     } finally {
       setLoadingInbox(false);
     }
-  }, []);
+  }, [user?.id]);
 
   const handleSearch = () => {
     loadInbox(searchQuery);
@@ -169,9 +273,10 @@ export default function EmailBillsPage() {
 
   // ===== HISTORY FUNCTIONS =====
   const loadLogs = useCallback(async () => {
+    if (!user?.id) return;
     setLoadingLogs(true);
     try {
-      const result = await emailBillApi.getLogs();
+      const result = await emailBillApi.getLogs(user.id);
       setLogs(result.data || []);
       const data = result.data || [];
       setStats({
@@ -185,7 +290,7 @@ export default function EmailBillsPage() {
     } finally {
       setLoadingLogs(false);
     }
-  }, []);
+  }, [user?.id]);
 
   const handleRetry = async (logId) => {
     if (!user?.id) return;
@@ -199,12 +304,19 @@ export default function EmailBillsPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'inbox') {
+    if (user?.id) {
+      loadConnection();
+    }
+  }, [user?.id, loadConnection]);
+
+  useEffect(() => {
+    if (!connectionChecked) return;
+    if (activeTab === 'inbox' && connection) {
       loadInbox();
-    } else {
+    } else if (activeTab === 'history' && connection) {
       loadLogs();
     }
-  }, [activeTab, loadInbox, loadLogs]);
+  }, [activeTab, connection, connectionChecked, loadInbox, loadLogs]);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
@@ -249,9 +361,112 @@ export default function EmailBillsPage() {
             Smart Email Bills
           </h2>
           <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>
-            Browse your inbox, detect bills, and extract data from emails and attachments
+            Connect your email to automatically detect and import bills
           </p>
         </div>
+      </div>
+
+      <div style={{
+        background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border)',
+        padding: 18, marginBottom: 20,
+      }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 12, marginBottom: 14, flexWrap: 'wrap',
+        }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={16} />
+              Connect Your Email
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
+              Connect your Gmail or Zoho account to automatically scan for bills
+            </p>
+          </div>
+          <div style={{
+            fontSize: 12, fontWeight: 700, padding: '6px 10px', borderRadius: 999,
+            background: connection ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.12)',
+            color: connection ? '#22c55e' : '#f59e0b',
+          }}>
+            {loadingConnection ? 'Checking...' : connection ? 'Connected' : 'Not connected'}
+          </div>
+        </div>
+
+        {connection && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 10, marginBottom: 16,
+          }}>
+            <div style={miniCardStyle}>
+              <div style={miniLabelStyle}>Email</div>
+              <div style={miniValueStyle}>{connection.emailAddress || 'Configured'}</div>
+            </div>
+            <div style={miniCardStyle}>
+              <div style={miniLabelStyle}>Provider</div>
+              <div style={miniValueStyle}>{String(connection.provider || 'custom').toUpperCase()}</div>
+            </div>
+            <div style={miniCardStyle}>
+              <div style={miniLabelStyle}>Last Synced</div>
+              <div style={miniValueStyle}>{formatDate(connection.lastSyncedAt)}</div>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveConnection}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: 12, marginBottom: 14,
+          }}>
+            <div>
+              <label style={fieldLabelStyle}>Email Provider</label>
+              <select
+                value={connectionForm.provider}
+                onChange={e => updateConnectionField('provider', e.target.value)}
+                style={fieldInputStyle}
+              >
+                <option value="gmail">Gmail</option>
+                <option value="zoho">Zoho Mail</option>
+              </select>
+            </div>
+            <div>
+              <label style={fieldLabelStyle}>Email Address</label>
+              <input
+                value={connectionForm.emailAddress}
+                onChange={e => updateConnectionField('emailAddress', e.target.value)}
+                placeholder="your-email@gmail.com"
+                style={fieldInputStyle}
+              />
+            </div>
+            <div>
+              <label style={fieldLabelStyle}>App Password</label>
+              <input
+                type="password"
+                value={connectionForm.password}
+                onChange={e => updateConnectionField('password', e.target.value)}
+                placeholder="16-character app password"
+                style={fieldInputStyle}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              type="submit"
+              disabled={savingConnection}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '10px 16px', fontSize: 13, fontWeight: 700,
+                border: 'none', borderRadius: 8, cursor: savingConnection ? 'wait' : 'pointer',
+                background: 'var(--primary)', color: '#fff',
+              }}
+            >
+              {savingConnection ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : <><Shield size={14} /> Connect Mailbox</>}
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              Generate an app password from your {connectionForm.provider === 'gmail' ? 'Gmail' : 'Zoho'} account settings
+            </span>
+          </div>
+        </form>
       </div>
 
       {/* Tabs */}
@@ -296,9 +511,21 @@ export default function EmailBillsPage() {
       {/* ================================================================== */}
       {activeTab === 'inbox' && (
         <>
+          {!connection && connectionChecked && (
+            <div style={{
+              marginBottom: 16, padding: 16, borderRadius: 10,
+              background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+              color: '#92400e',
+            }}>
+              Connect your email above to start scanning for bills
+            </div>
+          )}
+
           {/* Search + Actions Bar */}
           <div style={{
             display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center',
+            opacity: connection ? 1 : 0.55,
+            pointerEvents: connection ? 'auto' : 'none',
           }}>
             <div style={{
               display: 'flex', flex: 1, minWidth: 200, maxWidth: 400,
@@ -411,24 +638,22 @@ export default function EmailBillsPage() {
               <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <Inbox size={48} style={{ opacity: 0.3, marginBottom: 16 }} />
                 <p style={{ fontSize: 16, fontWeight: 500, margin: '0 0 6px' }}>No emails found</p>
-                <p style={{ fontSize: 13, margin: 0 }}>Click "Refresh Inbox" to scan your Zoho Mail</p>
+                <p style={{ fontSize: 13, margin: 0 }}>Click "Refresh Inbox" to scan your mailbox</p>
               </div>
             ) : (
               <div>
                 {/* Header */}
                 <div style={{
-                  display: 'grid', gridTemplateColumns: '36px 1fr 160px 100px 100px 80px 80px',
+                  display: 'grid', gridTemplateColumns: '36px 1fr 180px 120px 100px',
                   padding: '10px 14px', borderBottom: '1px solid var(--border)',
                   fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
                   textTransform: 'uppercase', letterSpacing: '0.5px',
                   gap: 8,
                 }}>
                   <span></span>
-                  <span>Email</span>
-                  <span>Sender</span>
+                  <span>Subject</span>
+                  <span>From</span>
                   <span>Date</span>
-                  <span style={{ textAlign: 'center' }}>Bill?</span>
-                  <span style={{ textAlign: 'center' }}>Status</span>
                   <span style={{ textAlign: 'center' }}>Action</span>
                 </div>
 
@@ -436,16 +661,15 @@ export default function EmailBillsPage() {
                 {inboxEmails.map(email => {
                   const isSelected = selectedEmails.has(email.messageId);
                   const detection = email.billDetection || {};
-                  const typeInfo = billTypeLabels[detection.billType] || billTypeLabels.none;
-                  const TypeIcon = typeInfo.icon;
                   const alreadyProcessed = email.processingStatus?.status === 'processed';
+                  const isBill = detection.isBill;
 
                   return (
                     <div
                       key={email.messageId}
                       onClick={() => !alreadyProcessed && toggleEmailSelection(email.messageId)}
                       style={{
-                        display: 'grid', gridTemplateColumns: '36px 1fr 160px 100px 100px 80px 80px',
+                        display: 'grid', gridTemplateColumns: '36px 1fr 180px 120px 100px',
                         padding: '12px 14px', borderBottom: '1px solid var(--border)',
                         cursor: alreadyProcessed ? 'default' : 'pointer',
                         gap: 8, alignItems: 'center',
@@ -476,18 +700,32 @@ export default function EmailBillsPage() {
                         )}
                       </div>
 
-                      {/* Subject + Preview */}
+                      {/* Subject + Preview + Bill Badge */}
                       <div style={{ overflow: 'hidden' }}>
                         <div style={{
                           fontWeight: 600, fontSize: 13,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          display: 'flex', alignItems: 'center', gap: 6,
                         }}>
                           {email.hasAttachments && (
                             <Paperclip size={12} style={{
-                              color: 'var(--text-secondary)', marginRight: 6, verticalAlign: 'middle',
+                              color: 'var(--text-secondary)', flexShrink: 0,
                             }} />
                           )}
-                          {email.subject}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {email.subject}
+                          </span>
+                          {isBill && (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 3,
+                              padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700,
+                              background: 'rgba(34,197,94,0.12)', color: '#16a34a',
+                              flexShrink: 0,
+                            }}>
+                              <FileText size={10} />
+                              Bill
+                            </span>
+                          )}
                         </div>
                         {email.preview && (
                           <div style={{
@@ -513,77 +751,36 @@ export default function EmailBillsPage() {
                         {formatDate(email.receivedTime)}
                       </div>
 
-                      {/* Bill Detection */}
-                      <div style={{ textAlign: 'center' }}>
-                        {detection.isBill ? (
-                          <div>
-                            <span style={{
-                              display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                              background: `${typeInfo.color}15`, color: typeInfo.color,
-                            }}>
-                              <TypeIcon size={11} />
-                              {typeInfo.label}
-                            </span>
-                            <div style={{ marginTop: 2 }}>
-                              {getConfidenceBadge(detection)}
-                            </div>
-                          </div>
-                        ) : (
-                          <span style={{
-                            fontSize: 11, color: '#94a3b8', fontWeight: 500,
-                          }}>
-                            Not a bill
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Processing Status */}
+                      {/* Extract Action Button */}
                       <div style={{ textAlign: 'center' }}>
                         {alreadyProcessed ? (
                           <span style={{
                             display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                            padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
                             background: 'rgba(34,197,94,0.1)', color: '#22c55e',
                           }}>
                             <CheckCircle size={11} />
-                            Done
+                            Imported
                           </span>
-                        ) : email.processingStatus ? (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                            background: statusConfig[email.processingStatus.status]?.bg || 'rgba(148,163,184,0.1)',
-                            color: statusConfig[email.processingStatus.status]?.color || '#94a3b8',
-                          }}>
-                            {email.processingStatus.status}
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>
-                        )}
-                      </div>
-
-                      {/* Extract Action Button */}
-                      <div style={{ textAlign: 'center' }}>
-                        {!alreadyProcessed && detection.isBill && (
+                        ) : isBill ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleExtractEmail(email); }}
                             disabled={extractingEmailId === email.messageId}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                              padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                               border: 'none', cursor: extractingEmailId === email.messageId ? 'wait' : 'pointer',
                               background: extractingEmailId === email.messageId ? 'var(--bg-secondary)' : 'var(--primary)',
                               color: '#fff', transition: 'all 0.15s',
                             }}
                           >
                             {extractingEmailId === email.messageId ? (
-                              <><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> ...</>
+                              <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> ...</>
                             ) : (
-                              <><Zap size={11} /> Extract</>
+                              <><Download size={12} /> Import</>
                             )}
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -599,10 +796,21 @@ export default function EmailBillsPage() {
       {/* ================================================================== */}
       {activeTab === 'history' && (
         <>
+          {!connection && connectionChecked && (
+            <div style={{
+              marginBottom: 16, padding: 16, borderRadius: 10,
+              background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)',
+              color: 'var(--text-secondary)',
+            }}>
+              Processing history will appear here after this customer connects a mailbox and imports bills.
+            </div>
+          )}
+
           {/* Stats Cards */}
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
             gap: 12, marginBottom: 24,
+            opacity: connection ? 1 : 0.55,
           }}>
             {[
               { label: 'Total Bills', value: stats.totalBills, icon: FileText, color: '#6366f1' },
@@ -633,6 +841,7 @@ export default function EmailBillsPage() {
           <div style={{
             background: 'var(--bg-secondary)', borderRadius: 12,
             border: '1px solid var(--border)', overflow: 'hidden',
+            opacity: connection ? 1 : 0.7,
           }}>
             <div style={{
               padding: '14px 18px', borderBottom: '1px solid var(--border)',
@@ -787,4 +996,49 @@ const thStyle = {
 const tdStyle = {
   padding: '10px 14px',
   verticalAlign: 'middle',
+};
+
+const fieldLabelStyle = {
+  display: 'block',
+  fontSize: 12,
+  fontWeight: 700,
+  color: 'var(--text-secondary)',
+  marginBottom: 6,
+  textTransform: 'uppercase',
+  letterSpacing: '0.4px',
+};
+
+const fieldInputStyle = {
+  width: '100%',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  background: 'var(--bg-primary)',
+  color: 'var(--text-primary)',
+  padding: '10px 12px',
+  fontSize: 13,
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+
+const miniCardStyle = {
+  border: '1px solid var(--border)',
+  borderRadius: 10,
+  padding: '10px 12px',
+  background: 'var(--bg-primary)',
+};
+
+const miniLabelStyle = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: 'var(--text-secondary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.4px',
+  marginBottom: 4,
+};
+
+const miniValueStyle = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--text-primary)',
+  wordBreak: 'break-word',
 };

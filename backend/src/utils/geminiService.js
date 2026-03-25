@@ -555,40 +555,9 @@ async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', oc
   }
 }
 
-async function fetchMedicineDetails(medicineName) {
-  if (!groqClient) {
-    const initialized = initializeGemini();
-    if (!initialized) {
-      throw new Error('Groq AI is not configured. Please set GROQ_API_KEY in .env');
-    }
-  }
-
-  const prompt = `You are a medical data assistant. Given the medicine name "${medicineName}", provide its primary active ingredient (salt composition) and its likely manufacturer (company). Return ONLY a JSON object with keys "salt" and "manufacturer". If unknown, return empty strings for values. No markdown, no extra text.`;
-
-  try {
-    const chatCompletion = await groqClient.chat.completions.create({
-      messages: [
-        { role: 'system', content: 'You are an API that returns ONLY valid JSON objects.' },
-        { role: 'user', content: prompt }
-      ],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.1,
-      max_tokens: 150,
-      response_format: { type: 'json_object' }
-    });
-
-    const text = chatCompletion.choices[0]?.message?.content || '{}';
-    return JSON.parse(text.trim());
-  } catch (error) {
-    console.error('[AIService] fetchMedicineDetails failed:', error.message);
-    throw new Error('Failed to fetch medicine details');
-  }
-}
-
 module.exports = {
   parseOcrWithGemini,
   parseImageWithVision,
   initializeGemini,
   initializeGeminiVision,
-  fetchMedicineDetails,
 };

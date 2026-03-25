@@ -1,291 +1,365 @@
 /**
- * Zoho Mail API Service
- * Handles all interactions with the Zoho Mail REST API
- * Docs: https://www.zoho.com/mail/help/api/
+ * Generic mailbox service backed by IMAP.
+ * Supports Gmail, Zoho Mail, and custom IMAP providers using app passwords.
  */
 
-const axios = require('axios');
+const { ImapFlow } = require('imapflow');
+const { simpleParser } = require('mailparser');
+const dns = require('dns').promises;
+const { getUserEmailConnection, touchConnectionSync } = require('./emailConnectionService');
 
-const ZOHO_API_BASE = process.env.ZOHO_API_DOMAIN || 'https://mail.zoho.in';
-const ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in';
-
-/**
- * Get a fresh access token using the refresh token
- */
-async function refreshAccessToken() {
-  const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
-  const clientId = process.env.ZOHO_CLIENT_ID;
-  const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-
-  if (!refreshToken || !clientId || !clientSecret) {
-    console.warn('[ZohoMail] Missing refresh token credentials, using static access token');
-    return process.env.ZOHO_ACCESS_TOKEN;
-  }
-
-  try {
-    const tokenUrl = `${ZOHO_ACCOUNTS_URL}/oauth/v2/token`;
-    console.log(`[ZohoMail] Refreshing token via: ${tokenUrl}`);
-    
-    const response = await axios.post(tokenUrl, null, {
-      params: {
-        refresh_token: refreshToken,
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: 'refresh_token',
-      },
-    });
-
-    // Log the FULL response so we can see scopes, errors, etc.
-    console.log('[ZohoMail] Token refresh response:', JSON.stringify(response.data, null, 2));
-
-    if (response.data && response.data.access_token) {
-      process.env.ZOHO_ACCESS_TOKEN = response.data.access_token;
-      console.log('[ZohoMail] ✓ Access token refreshed successfully');
-      // Log token prefix for debugging (first 20 chars only)
-      console.log(`[ZohoMail] Token starts with: ${response.data.access_token.substring(0, 20)}...`);
-      if (response.data.scope) {
-        console.log(`[ZohoMail] Token scopes: ${response.data.scope}`);
-      }
-      return response.data.access_token;
-    } else {
-      console.error('[ZohoMail] ✗ Token refresh failed - no access_token in response:', response.data);
-      return process.env.ZOHO_ACCESS_TOKEN;
-    }
-  } catch (error) {
-    console.error('[ZohoMail] ✗ Token refresh error:', error.response?.data || error.message);
-    return process.env.ZOHO_ACCESS_TOKEN;
-  }
+function normalizeAddress(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value.address) return value.address;
+  if (value.name && value.address) return `${value.name} <${value.address}>`;
+  return '';
 }
 
-/**
- * Track whether we've refreshed the token this session
- */
-let tokenRefreshedThisSession = false;
-
-/**
- * Get Zoho API headers with authorization
- * Proactively refreshes the token on first call of each session
- */
-async function getHeaders() {
-  if (!tokenRefreshedThisSession) {
-    const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
-    const clientId = process.env.ZOHO_CLIENT_ID;
-    const clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    if (refreshToken && clientId && clientSecret) {
-      console.log('[ZohoMail] Proactively refreshing access token...');
-      await refreshAccessToken();
-      tokenRefreshedThisSession = true;
-    }
+function normalizeMailboxError(error, connection) {
+  if (!error) {
+    return new Error('Unknown mailbox error');
   }
 
-  let token = process.env.ZOHO_ACCESS_TOKEN;
+  const message = error.message || '';
+  const responseText = error.responseText || error.serverResponse || error.response || '';
+  const combined = `${message} ${responseText}`.trim();
+
+  if (error.code === 'ETIMEOUT' || /timeout/i.test(error.message || '')) {
+    return new Error(
+      `Mailbox connection timed out for ${connection.emailAddress || 'this account'}. ` +
+      `Please verify IMAP host/port, app password, and that IMAP is enabled.`
+    );
+  }
+
+  if (/authentication|login|invalid credentials|auth|password|credentials/i.test(combined)) {
+    return new Error(
+      `Mailbox login failed for ${connection.emailAddress || 'this account'}. ` +
+      `Please check the email address and app password.`
+    );
+  }
+
+  if (/app.*password|application.*password/i.test(combined)) {
+    return new Error(
+      `Mailbox login failed for ${connection.emailAddress || 'this account'}. ` +
+      `Please use an app-specific password instead of the normal mailbox password.`
+    );
+  }
+
+  if (/imap.*disabled|not enabled/i.test(combined)) {
+    return new Error(
+      `IMAP is not enabled for ${connection.emailAddress || 'this account'}. ` +
+      `Enable IMAP in the mailbox settings and try again.`
+    );
+  }
+
+  if (/mailbox.*does not exist|no such mailbox|unknown mailbox/i.test(combined)) {
+    return new Error(
+      `Mailbox folder "${connection.mailbox || connection.folderId || 'INBOX'}" was not found. ` +
+      `Try using INBOX as the mailbox folder.`
+    );
+  }
+
+  if (/command failed/i.test(combined)) {
+    return new Error(
+      `Mailbox command failed for ${connection.emailAddress || 'this account'}. ` +
+      `${responseText || 'Please verify mailbox provider, IMAP settings, and app password.'}`
+    );
+  }
+
+  return error;
+}
+
+function getAttachmentFileName(attachment, fallback = 'attachment') {
+  return attachment.filename || attachment.fileName || fallback;
+}
+
+function isAttachmentContentType(contentType = '') {
+  const lower = String(contentType).toLowerCase();
+  return (
+    lower.includes('application/pdf') ||
+    lower.includes('text/csv') ||
+    lower.includes('application/csv') ||
+    lower.includes('spreadsheet') ||
+    lower.includes('excel') ||
+    lower.includes('officedocument')
+  );
+}
+
+function buildEmailSummary(uid, mailbox, parsed, flags, internalDate) {
+  const subject = parsed.subject || '(no subject)';
+  const fromValue = Array.isArray(parsed.from?.value) ? parsed.from.value[0] : parsed.from?.value;
+  const sender = normalizeAddress(fromValue);
+  const attachments = Array.isArray(parsed.attachments) ? parsed.attachments : [];
+  const preview = (parsed.text || parsed.html || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+
   return {
-    Authorization: `Zoho-oauthtoken ${token}`,
-    'Content-Type': 'application/json',
+    messageId: String(uid),
+    folderId: mailbox,
+    subject,
+    fromAddress: sender,
+    sender,
+    hasAttachment: attachments.length > 0,
+    receivedTime: internalDate ? String(internalDate.getTime()) : String(Date.now()),
+    summary: preview,
+    flags: Array.from(flags || []),
   };
 }
 
-/**
- * Make an authenticated API call, retrying once with a refreshed token on 401
- */
-async function zohoApiCall(method, url, data = null) {
-  let headers = await getHeaders();
-  
-  // Debug: log the URL being called
-  console.log(`[ZohoMail] API Call: ${method} ${url}`);
-  
+function mapAttachment(attachment, index) {
+  return {
+    attachmentId: String(index),
+    attachmentName: getAttachmentFileName(attachment, `attachment-${index + 1}`),
+    contentType: attachment.contentType || 'application/octet-stream',
+    size: attachment.size || (attachment.content ? attachment.content.length : 0),
+    disposition: 'attachment',
+  };
+}
+
+async function resolveImapHost(hostname) {
+  if (!hostname) return hostname;
+
   try {
-    const response = await axios({ method, url, headers, data, timeout: 30000 });
-    return response.data;
+    const result = await dns.lookup(hostname, { family: 4 });
+    return result.address || hostname;
   } catch (error) {
-    // Debug: log full error details
-    console.error(`[ZohoMail] API Error: ${error.response?.status} ${error.response?.statusText}`);
-    console.error(`[ZohoMail] Error URL: ${url}`);
-    if (error.response?.data) {
-      console.error(`[ZohoMail] Error Body:`, JSON.stringify(error.response.data).substring(0, 500));
-    }
-    if (error.response?.headers) {
-      const rateLimitHeaders = {};
-      for (const [key, val] of Object.entries(error.response.headers)) {
-        if (key.toLowerCase().includes('ratelimit') || key.toLowerCase().includes('x-zoho')) {
-          rateLimitHeaders[key] = val;
-        }
-      }
-      if (Object.keys(rateLimitHeaders).length > 0) {
-        console.error('[ZohoMail] Zoho Headers:', JSON.stringify(rateLimitHeaders));
-      }
-    }
-
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      console.log('[ZohoMail] Token expired, refreshing...');
-      tokenRefreshedThisSession = false; // Reset so next getHeaders() refreshes
-      const newToken = await refreshAccessToken();
-      headers.Authorization = `Zoho-oauthtoken ${newToken}`;
-      
-      console.log(`[ZohoMail] Retrying: ${method} ${url}`);
-      const retryResponse = await axios({ method, url, headers, data, timeout: 30000 });
-      return retryResponse.data;
-    }
-    throw error;
+    console.warn(`[Mailbox] IPv4 lookup failed for ${hostname}, falling back to hostname:`, error.message);
+    return hostname;
   }
 }
 
-/**
- * Fetch the Zoho Mail account ID (if not already configured)
- */
-async function getAccountId() {
-  const configuredId = process.env.ZOHO_ACCOUNT_ID;
-  if (configuredId) {
-    console.log(`[ZohoMail] Using configured Account ID: ${configuredId}`);
-    return configuredId;
+// Connection cache to prevent duplicate simultaneous connections
+const activeConnections = new Map();
+
+async function createImapMailClient(connection) {
+  if (!connection.emailAddress || !connection.password || !connection.imapHost) {
+    throw new Error('Mailbox connection is missing IMAP email, password, or host');
   }
 
-  const result = await zohoApiCall('GET', `${ZOHO_API_BASE}/api/accounts`);
-  if (result?.data && result.data.length > 0) {
-    const accountId = result.data[0].accountId;
-    process.env.ZOHO_ACCOUNT_ID = accountId;
-    console.log(`[ZohoMail] ✓ Account ID resolved: ${accountId}`);
-    return accountId;
-  }
-  throw new Error('No Zoho Mail accounts found');
-}
+  // Debug logging (remove after fixing)
+  console.log('[Mailbox] Creating IMAP client:', {
+    emailAddress: connection.emailAddress,
+    passwordLength: connection.password?.length,
+    password: connection.password || 'NONE',
+    imapHost: connection.imapHost,
+    imapPort: connection.imapPort,
+    source: connection.source,
+  });
 
-/**
- * Fetch emails from inbox
- * Uses messages/view endpoint directly (works with ZohoMail.messages.READ scope).
- * Each message in the response includes its folderId, so we don't need to
- * call the folders endpoint (which requires ZohoMail.folders.READ scope).
- * 
- * @param {number} limit - Max emails to fetch (default 50)
- * @param {string} folderId - Folder ID (omit to fetch from all folders)
- * @returns {Array} List of email objects
- */
-async function fetchEmails(limit = 50, folderId = null) {
-  const accountId = await getAccountId();
+  const connectionKey = `${connection.emailAddress}:${connection.imapHost}`;
   
-  // Use provided folderId or env setting if available, otherwise fetch all messages
-  let targetFolderId = folderId || process.env.ZOHO_EMAIL_FOLDER_ID;
+  // Check if there's already an active connection attempt
+  if (activeConnections.has(connectionKey)) {
+    const existingAttempt = activeConnections.get(connectionKey);
+    const timeSinceStart = Date.now() - existingAttempt.startTime;
+    
+    if (timeSinceStart < 30000) { // If less than 30 seconds old
+      console.log(`[Mailbox] Waiting for existing connection attempt (${timeSinceStart}ms ago)...`);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+    }
+  }
 
-  // Build URL - works without folderId (returns messages from all folders)
-  const url = targetFolderId
-    ? `${ZOHO_API_BASE}/api/accounts/${accountId}/messages/view?folderId=${targetFolderId}&limit=${limit}`
-    : `${ZOHO_API_BASE}/api/accounts/${accountId}/messages/view?limit=${limit}`;
-
-  console.log(`[ZohoMail] Fetching messages from: ${url}`);
-  const result = await zohoApiCall('GET', url);
-  console.log(`[ZohoMail] ✓ Fetched ${result?.data?.length || 0} emails`);
-  return result?.data || [];
-}
-
-/**
- * Search emails with a query (e.g., "invoice", "bill")
- * @param {string} searchKey - Search keyword
- * @param {number} limit - Max results
- */
-async function searchEmails(searchKey = 'invoice', limit = 50) {
-  const accountId = await getAccountId();
-  const url = `${ZOHO_API_BASE}/api/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(searchKey)}&limit=${limit}`;
-  const result = await zohoApiCall('GET', url);
-  console.log(`[ZohoMail] ✓ Search for "${searchKey}" returned ${result?.data?.length || 0} results`);
-  return result?.data || [];
-}
-
-/**
- * Get email details (including attachment info)
- * Zoho API requires /details suffix on message URL
- * @param {string} messageId - Zoho message ID
- * @param {string} folderId - Zoho folder ID (required by API)
- */
-async function getEmailDetails(messageId, folderId) {
-  const accountId = await getAccountId();
-  const url = `${ZOHO_API_BASE}/api/accounts/${accountId}/folders/${folderId}/messages/${messageId}/details`;
-  const result = await zohoApiCall('GET', url);
-  return result?.data || null;
-}
-
-/**
- * Download an attachment as a Buffer
- * @param {string} messageId - Zoho message ID
- * @param {string} attachmentId - Attachment ID
- * @param {string} folderId - Folder ID
- * @returns {Buffer} File contents
- */
-async function downloadAttachment(messageId, attachmentId, folderId) {
-  const accountId = await getAccountId();
-  const url = `${ZOHO_API_BASE}/api/accounts/${accountId}/folders/${folderId}/messages/${messageId}/attachments/${attachmentId}`;
-
-  let token = process.env.ZOHO_ACCESS_TOKEN;
-  try {
-    const response = await axios({
-      method: 'GET',
-      url,
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-      responseType: 'arraybuffer',
-      timeout: 60000,
+  async function withMailbox(mailboxOverride, fn) {
+    const startTime = Date.now();
+    activeConnections.set(connectionKey, { startTime });
+    
+    const client = new ImapFlow({
+      host: connection.imapHost,
+      port: connection.imapPort || 993,
+      secure: true,
+      auth: {
+        user: connection.emailAddress,
+        pass: connection.password,
+      },
+      logger: false,
     });
-    console.log(`[ZohoMail] ✓ Downloaded attachment ${attachmentId} (${Math.round(response.data.length / 1024)}KB)`);
-    return Buffer.from(response.data);
-  } catch (error) {
-    if (error.response?.status === 401) {
-      token = await refreshAccessToken();
-      const retryResponse = await axios({
-        method: 'GET',
-        url,
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        responseType: 'arraybuffer',
-        timeout: 60000,
+    
+    let lastError = null;
+    client.on('error', (error) => {
+      lastError = error;
+      console.error('[Mailbox] IMAP client error:', error.message);
+    });
+
+    const mailbox = mailboxOverride || connection.mailbox || connection.folderId || 'INBOX';
+
+    let lock = null;
+    try {
+      await client.connect();
+      lock = await client.getMailboxLock(mailbox);
+      return await fn(client, mailbox);
+    } catch (error) {
+      const rootError =
+        error?.message === 'Connection not available' && lastError
+          ? lastError
+          : (error || lastError);
+      console.error('[Mailbox] Operation failed:', {
+        provider: connection.provider,
+        emailAddress: connection.emailAddress,
+        imapHost: connection.imapHost,
+        imapPort: connection.imapPort,
+        mailbox,
+        code: rootError?.code,
+        message: rootError?.message,
+        responseText: rootError?.responseText || rootError?.serverResponse || rootError?.response || null,
       });
-      return Buffer.from(retryResponse.data);
+      throw normalizeMailboxError(rootError, connection);
+    } finally {
+      activeConnections.delete(connectionKey);
+      if (lock) {
+        lock.release();
+      }
+      await client.logout().catch(() => {});
     }
-    throw error;
   }
-}
 
-/**
- * Get the full email body content (HTML/text)
- * @param {string} messageId - Zoho message ID
- * @param {string} folderId - Folder ID
- * @returns {Object} { content, summary }
- */
-async function getEmailContent(messageId, folderId) {
-  const accountId = await getAccountId();
-  const url = `${ZOHO_API_BASE}/api/accounts/${accountId}/folders/${folderId}/messages/${messageId}/content`;
-  try {
-    const result = await zohoApiCall('GET', url);
-    return result?.data || null;
-  } catch (error) {
-    console.warn(`[ZohoMail] ⚠ Failed to get email content: ${error.message}`);
-    return null;
+  async function fetchMessageSource(client, uid) {
+    const message = await client.fetchOne(
+      Number(uid),
+      { uid: true, source: true, flags: true, internalDate: true },
+      { uid: true }
+    );
+    if (!message?.source) {
+      throw new Error(`Email ${uid} not found`);
+    }
+
+    const raw = Buffer.isBuffer(message.source) ? message.source : Buffer.from(message.source);
+    const parsed = await simpleParser(raw);
+
+    return {
+      raw,
+      parsed,
+      flags: message.flags || new Set(),
+      internalDate: message.internalDate || null,
+    };
   }
-}
 
-/**
- * Mark an email as read
- * @param {string} messageId - Zoho message ID
- * @param {string} folderId - Folder ID
- */
-async function markAsRead(messageId, folderId) {
-  const accountId = await getAccountId();
-  const url = `${ZOHO_API_BASE}/api/accounts/${accountId}/updatemessage`;
-  try {
-    await zohoApiCall('PUT', url, {
-      messageId: [messageId],
-      mode: 'markAsRead',
-      folderId,
+  async function fetchEmails(limit = 50, folderId = null) {
+    return withMailbox(folderId, async (client, mailbox) => {
+      const messages = [];
+      
+      // Get mailbox info to know total messages
+      const mailboxInfo = client.mailbox;
+      const totalMessages = mailboxInfo?.exists || 0;
+      
+      if (totalMessages === 0) {
+        return [];
+      }
+      
+      // Calculate range to fetch the LATEST messages
+      // If we have 131 messages and want 50, fetch 82:131 (latest 50)
+      const start = Math.max(1, totalMessages - limit + 1);
+      const end = totalMessages;
+      const range = `${start}:${end}`;
+      
+      console.log(`[Mailbox] Fetching messages ${start} to ${end} (total: ${totalMessages})`);
+      
+      // Fetch only the latest 'limit' messages using envelope (lightweight)
+      for await (const message of client.fetch(range, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) {
+        const subject = message.envelope?.subject || '(no subject)';
+        const fromValue = message.envelope?.from?.[0];
+        const sender = fromValue?.address || fromValue?.name || '';
+        const hasAttachment = false; // We'll check this later if needed
+        const receivedTime = message.internalDate ? String(message.internalDate.getTime()) : String(Date.now());
+        
+        messages.push({
+          messageId: String(message.uid),
+          folderId: mailbox,
+          subject,
+          fromAddress: sender,
+          sender,
+          hasAttachment,
+          receivedTime,
+          summary: subject.substring(0, 200),
+          flags: Array.from(message.flags || []),
+        });
+      }
+
+      await touchConnectionSync(connection.id);
+      
+      // Sort by receivedTime descending (newest first)
+      return messages.sort((a, b) => Number(b.receivedTime) - Number(a.receivedTime));
     });
-    console.log(`[ZohoMail] ✓ Marked message ${messageId} as read`);
-  } catch (error) {
-    console.warn(`[ZohoMail] ⚠ Failed to mark as read: ${error.message}`);
   }
+
+  async function searchEmails(searchKey = 'invoice', limit = 50) {
+    const lower = String(searchKey || '').toLowerCase();
+    const emails = await fetchEmails(Math.max(limit * 3, limit));
+    return emails.filter((email) => {
+      const haystack = `${email.subject} ${email.sender} ${email.summary}`.toLowerCase();
+      return haystack.includes(lower);
+    }).slice(0, limit);
+  }
+
+  async function getEmailDetails(messageId, folderId) {
+    return withMailbox(folderId, async (client, mailbox) => {
+      const { parsed, flags, internalDate } = await fetchMessageSource(client, messageId);
+      const attachments = (parsed.attachments || []).map(mapAttachment);
+      const fromValue = Array.isArray(parsed.from?.value) ? parsed.from.value[0] : parsed.from?.value;
+
+      return {
+        messageId: String(messageId),
+        folderId: mailbox,
+        subject: parsed.subject || '(no subject)',
+        fromAddress: normalizeAddress(fromValue),
+        sender: normalizeAddress(fromValue),
+        attachments,
+        hasAttachment: attachments.length > 0,
+        receivedTime: internalDate ? String(internalDate.getTime()) : String(Date.now()),
+        flags: Array.from(flags || []),
+      };
+    });
+  }
+
+  async function downloadAttachment(messageId, attachmentId, folderId) {
+    return withMailbox(folderId, async (client) => {
+      const { parsed } = await fetchMessageSource(client, messageId);
+      const attachments = parsed.attachments || [];
+      const attachment = attachments[Number(attachmentId)];
+
+      if (!attachment) {
+        throw new Error(`Attachment ${attachmentId} not found`);
+      }
+
+      return attachment.content;
+    });
+  }
+
+  async function getEmailContent(messageId, folderId) {
+    return withMailbox(folderId, async (client) => {
+      const { parsed } = await fetchMessageSource(client, messageId);
+      return {
+        content: parsed.html || parsed.textAsHtml || parsed.text || '',
+        text: parsed.text || '',
+        subject: parsed.subject || '(no subject)',
+      };
+    });
+  }
+
+  async function markAsRead(messageId, folderId) {
+    return withMailbox(folderId, async (client) => {
+      await client.messageFlagsAdd(Number(messageId), ['\\Seen'], { uid: true });
+    });
+  }
+
+  return {
+    connection,
+    fetchEmails,
+    searchEmails,
+    getEmailDetails,
+    downloadAttachment,
+    getEmailContent,
+    markAsRead,
+    isAttachmentContentType,
+  };
+}
+
+async function getZohoMailClientForUser(userId, options = {}) {
+  const connection = await getUserEmailConnection(userId, options);
+  return createImapMailClient(connection);
 }
 
 module.exports = {
-  refreshAccessToken,
-  getAccountId,
-  fetchEmails,
-  searchEmails,
-  getEmailDetails,
-  getEmailContent,
-  downloadAttachment,
-  markAsRead,
+  createImapMailClient,
+  getZohoMailClientForUser,
+  isAttachmentContentType,
 };

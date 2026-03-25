@@ -6,6 +6,11 @@
 
 const prisma = require('../models/prisma');
 const emailInvoiceService = require('../services/emailInvoiceService');
+const {
+  getUserEmailConnection,
+  upsertUserEmailConnection,
+  toConnectionSummary,
+} = require('../services/emailConnectionService');
 
 /**
  * GET /api/email-bills/inbox
@@ -13,23 +18,22 @@ const emailInvoiceService = require('../services/emailInvoiceService');
  */
 exports.listInbox = async (req, res) => {
   try {
-    const { limit = 30, search } = req.query;
-
-    // Check if Zoho is configured
-    if (!process.env.ZOHO_ACCESS_TOKEN && !process.env.ZOHO_REFRESH_TOKEN) {
+    const { userId, limit = 50, search } = req.query;
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        error: 'Zoho Mail is not configured. Please set ZOHO_ACCESS_TOKEN or ZOHO_REFRESH_TOKEN in .env',
+        error: 'userId is required',
       });
     }
 
-    console.log(`[EmailBill] Listing inbox (limit: ${limit}, search: ${search || 'none'})`);
-    const emails = await emailInvoiceService.listInboxEmails(parseInt(limit), search || null);
+    console.log(`[EmailBill] Listing inbox for user ${userId} (limit: ${limit}, search: ${search || 'none'})`);
+    const emails = await emailInvoiceService.listInboxEmails(userId, parseInt(limit), search || null);
 
     res.json({
       success: true,
       data: emails,
       total: emails.length,
+      limit: parseInt(limit),
     });
   } catch (error) {
     console.error('[EmailBill] Inbox listing error:', error.message);
@@ -48,7 +52,7 @@ exports.processSelected = async (req, res) => {
   try {
     const { userId, emails } = req.body;
 
-    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    const targetUserId = userId;
     if (!targetUserId) {
       return res.status(400).json({
         success: false,
@@ -113,10 +117,16 @@ exports.extractFromEmail = async (req, res) => {
       });
     }
 
-    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    const targetUserId = userId;
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
 
     console.log(`[EmailBill] Extracting data from email ${messageId} (extract only, no save)`);
-    const result = await emailInvoiceService.extractFromEmail(messageId, folderId);
+    const result = await emailInvoiceService.extractFromEmail(targetUserId, messageId, folderId);
 
     // Check for duplicate bill by invoice number
     let duplicateBill = null;
@@ -177,7 +187,7 @@ exports.checkDuplicate = async (req, res) => {
       return res.json({ success: true, data: { isDuplicate: false } });
     }
 
-    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    const targetUserId = userId;
     if (!targetUserId) {
       return res.json({ success: true, data: { isDuplicate: false } });
     }
@@ -217,19 +227,12 @@ exports.checkDuplicate = async (req, res) => {
 exports.fetchAndProcess = async (req, res) => {
   try {
     const { userId, limit } = req.body;
-    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    const targetUserId = userId;
 
     if (!targetUserId) {
       return res.status(400).json({
         success: false,
-        error: 'userId is required. Provide it in the request body or set ZOHO_DEFAULT_USER_ID in .env',
-      });
-    }
-
-    if (!process.env.ZOHO_ACCESS_TOKEN) {
-      return res.status(400).json({
-        success: false,
-        error: 'Zoho Mail is not configured. Please set ZOHO_ACCESS_TOKEN in .env',
+        error: 'userId is required',
       });
     }
 
@@ -263,10 +266,14 @@ exports.fetchAndProcess = async (req, res) => {
  */
 exports.getEmailLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 50, status } = req.query;
+    const { userId, page = 1, limit = 50, status } = req.query;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const where = {};
+    const where = { userId };
     if (status) where.status = status;
 
     const [logs, total] = await Promise.all([
@@ -304,7 +311,13 @@ exports.getEmailLogs = async (req, res) => {
 exports.getEmailLogById = async (req, res) => {
   try {
     const { logId } = req.params;
-    const log = await prisma.emailProcessingLog.findUnique({ where: { id: logId } });
+    const { userId } = req.query;
+    const log = await prisma.emailProcessingLog.findFirst({
+      where: {
+        id: logId,
+        ...(userId ? { userId } : {}),
+      },
+    });
 
     if (!log) {
       return res.status(404).json({ success: false, error: 'Log not found' });
@@ -324,13 +337,15 @@ exports.retryEmail = async (req, res) => {
   try {
     const { logId } = req.params;
     const { userId } = req.body;
-    const targetUserId = userId || process.env.ZOHO_DEFAULT_USER_ID;
+    const targetUserId = userId;
 
     if (!targetUserId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
 
-    const log = await prisma.emailProcessingLog.findUnique({ where: { id: logId } });
+    const log = await prisma.emailProcessingLog.findFirst({
+      where: { id: logId, userId: targetUserId },
+    });
     if (!log) {
       return res.status(404).json({ success: false, error: 'Log not found' });
     }
@@ -349,5 +364,155 @@ exports.retryEmail = async (req, res) => {
   } catch (error) {
     console.error('[EmailBill] Retry error:', error.message);
     res.status(500).json({ success: false, error: error.message || 'Retry failed' });
+  }
+};
+
+exports.getConnection = async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const connection = await getUserEmailConnection(userId, { allowEnvFallback: true });
+    res.json({
+      success: true,
+      data: toConnectionSummary(connection),
+    });
+  } catch (error) {
+    if (error.message === 'No active email inbox connection found for this user') {
+      return res.json({
+        success: true,
+        data: null,
+      });
+    }
+
+    res.status(404).json({
+      success: false,
+      error: error.message || 'Email connection not found',
+    });
+  }
+};
+
+exports.saveConnection = async (req, res) => {
+  try {
+    const {
+      userId,
+      provider,
+      authType,
+      emailAddress,
+      displayName,
+      password,
+      imapHost,
+      imapPort,
+      imapSecure,
+      mailbox,
+      isActive,
+    } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: `User ${userId} not found` });
+    }
+
+    if (!emailAddress || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'emailAddress and password are required',
+      });
+    }
+
+    const connection = await upsertUserEmailConnection(userId, {
+      provider,
+      authType,
+      emailAddress,
+      displayName,
+      password,
+      imapHost,
+      imapPort,
+      imapSecure,
+      mailbox,
+      folderId: mailbox,
+      isActive,
+    });
+
+    res.json({
+      success: true,
+      message: 'Email connection saved',
+      data: connection,
+    });
+  } catch (error) {
+    console.error('[EmailBill] Save connection error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to save email connection',
+    });
+  }
+};
+
+/**
+ * GET /api/email-bills/cache-stats
+ * Get cache statistics and performance metrics
+ */
+exports.getCacheStats = async (req, res) => {
+  try {
+    const { getCacheStats, cleanupExpiredCache } = require('../utils/cleanupCache');
+    
+    // Cleanup expired entries first
+    await cleanupExpiredCache();
+    
+    // Get stats
+    const stats = await getCacheStats();
+    
+    if (!stats) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to retrieve cache statistics',
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error('[EmailBill] Cache stats error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get cache statistics',
+    });
+  }
+};
+
+/**
+ * POST /api/email-bills/cleanup-cache
+ * Manually trigger cache cleanup
+ */
+exports.cleanupCache = async (req, res) => {
+  try {
+    const { cleanupExpiredCache, cleanupOldCache } = require('../utils/cleanupCache');
+    
+    const expiredCount = await cleanupExpiredCache();
+    const oldCount = await cleanupOldCache(60);
+    
+    res.json({
+      success: true,
+      message: `Cleaned up ${expiredCount + oldCount} cache entries`,
+      data: {
+        expiredCount,
+        oldCount,
+        total: expiredCount + oldCount,
+      },
+    });
+  } catch (error) {
+    console.error('[EmailBill] Cache cleanup error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to cleanup cache',
+    });
   }
 };

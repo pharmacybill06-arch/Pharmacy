@@ -367,9 +367,19 @@ export const aiApi = {
 // EMAIL BILL API
 // ============================================================================
 export const emailBillApi = {
+  getConnection: async (userId) => {
+    return apiFetch(`/email-bills/connection?userId=${encodeURIComponent(userId)}`);
+  },
+  saveConnection: async (payload) => {
+    return apiFetch('/email-bills/connection', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
   // ===== NEW: Smart email processing =====
-  listInbox: async (limit = 30, search = '') => {
+  listInbox: async (userId, limit = 30, search = '') => {
     const params = new URLSearchParams();
+    if (userId) params.append('userId', userId);
     if (limit) params.append('limit', limit);
     if (search) params.append('search', search);
     return apiFetch(`/email-bills/inbox?${params.toString()}`);
@@ -399,11 +409,11 @@ export const emailBillApi = {
       body: JSON.stringify({ userId, limit }),
     });
   },
-  getLogs: async (page = 1, limit = 50) => {
-    return apiFetch(`/email-bills/logs?page=${page}&limit=${limit}`);
+  getLogs: async (userId, page = 1, limit = 50) => {
+    return apiFetch(`/email-bills/logs?userId=${encodeURIComponent(userId)}&page=${page}&limit=${limit}`);
   },
-  getLogDetails: async (logId) => {
-    return apiFetch(`/email-bills/logs/${logId}`);
+  getLogDetails: async (userId, logId) => {
+    return apiFetch(`/email-bills/logs/${logId}?userId=${encodeURIComponent(userId)}`);
   },
   retryEmail: async (logId, userId) => {
     return apiFetch(`/email-bills/retry/${logId}`, {
