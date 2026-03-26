@@ -262,62 +262,150 @@ async function detectBillContent(subject, bodyText, hasAttachments) {
   
   console.log(`[BillDetect] Cache MISS for "${subject}" - running detection`);
   
-  // Quick keyword-based pre-check for efficiency
   const combinedText = `${subject} ${bodyText}`.toLowerCase();
-  const billKeywords = [
-    'invoice', 'bill', 'receipt', 'purchase order', 'tax invoice',
-    'proforma', 'credit note', 'debit note', 'challan', 'quotation',
-    'gstin', 'gst', 'cgst', 'sgst', 'hsn', 'batch', 'expiry',
-    'qty', 'quantity', 'rate', 'amount', 'total', 'subtotal',
-    'mrp', 'discount', 'net amount', 'grand total', 'round off',
-    'dl no', 'drug license', 'pharmacy', 'medicine', 'tablet',
-    'capsule', 'syrup', 'injection'
+  
+  // STEP 1: Check for explicit NON-BILL patterns (high priority)
+  const nonBillPatterns = [
+    /security alert/i,
+    /password.*reset/i,
+    /verify.*email/i,
+    /verify.*account/i,
+    /two.*factor/i,
+    /2.*step.*verification/i,
+    /suspicious.*activity/i,
+    /login.*attempt/i,
+    /new.*device/i,
+    /account.*recovery/i,
+    /welcome to/i,
+    /getting started/i,
+    /newsletter/i,
+    /notification/i,
+    /reminder/i,
+    /update available/i,
+    /new.*feature/i,
+    /webinar/i,
+    /invitation/i,
+    /meeting/i,
+    /calendar/i,
+    /github.*pull.*request/i,
+    /github.*issue/i,
+    /github.*merged/i,
+    /netlify.*deploy/i,
+    /build.*success/i,
+    /build.*failed/i,
   ];
-
-  const keywordMatches = billKeywords.filter(kw => combinedText.includes(kw));
+  
+  for (const pattern of nonBillPatterns) {
+    if (pattern.test(combinedText)) {
+      const detectionResult = {
+        isBill: false,
+        confidence: 0.98,
+        reason: `Matched non-bill pattern: ${pattern.source}`,
+        billType: 'none',
+      };
+      await cacheResult(cacheKey, subject, bodyText, detectionResult);
+      return detectionResult;
+    }
+  }
+  
+  // STEP 2: Strong bill indicators (must have multiple)
+  const strongBillKeywords = [
+    'invoice', 'tax invoice', 'bill', 'receipt', 'purchase order',
+    'proforma', 'credit note', 'debit note', 'challan'
+  ];
+  
+  const medicalKeywords = [
+    'pharmacy', 'medicine', 'tablet', 'capsule', 'syrup', 'injection',
+    'drug license', 'dl no', 'batch', 'expiry', 'mrp'
+  ];
+  
+  const financialKeywords = [
+    'gstin', 'gst', 'cgst', 'sgst', 'hsn',
+    'subtotal', 'grand total', 'net amount', 'total amount'
+  ];
+  
+  const itemKeywords = [
+    'qty', 'quantity', 'rate', 'amount', 'discount'
+  ];
+  
+  // Count matches in each category
+  const strongMatches = strongBillKeywords.filter(kw => combinedText.includes(kw));
+  const medicalMatches = medicalKeywords.filter(kw => combinedText.includes(kw));
+  const financialMatches = financialKeywords.filter(kw => combinedText.includes(kw));
+  const itemMatches = itemKeywords.filter(kw => combinedText.includes(kw));
+  
+  // Check for structured data patterns
+  const hasInvoiceNumber = /invoice\s*#?\s*\d+|bill\s*#?\s*\d+|inv\s*no[:\s]*\d+/i.test(combinedText);
+  const hasItemList = /\d+\s*(tab|cap|strip|bottle|vial|amp|inj|syrup|ml|mg|gm)/i.test(bodyText);
+  const hasAmounts = /₹\s*\d+|rs\.?\s*\d+|inr\s*\d+/i.test(bodyText);
+  const hasTaxBreakdown = /(cgst|sgst|igst)\s*[:@]\s*\d+/i.test(bodyText);
+  const hasTableStructure = bodyText.includes('|') && bodyText.split('\n').length > 5;
   
   let detectionResult;
   
-  // Fast path: if very few keywords match and no attachments, it's probably not a bill
-  if (keywordMatches.length === 0 && !hasAttachments) {
+  // STEP 3: Strong positive detection (very high confidence)
+  if (strongMatches.length >= 1 && hasInvoiceNumber && (hasItemList || hasTaxBreakdown)) {
+    detectionResult = {
+      isBill: true,
+      confidence: 0.95,
+      reason: `Strong bill: ${strongMatches[0]}, invoice number, and ${hasItemList ? 'item list' : 'tax breakdown'}`,
+      billType: bodyText.trim().length > 200 ? 'body-text' : 'attachment',
+    };
+  }
+  // STEP 4: Medical/Pharmacy bill detection
+  else if (strongMatches.length >= 1 && medicalMatches.length >= 2 && (hasAmounts || hasItemList)) {
+    detectionResult = {
+      isBill: true,
+      confidence: 0.90,
+      reason: `Medical bill: ${strongMatches[0]}, ${medicalMatches.length} medical terms, amounts present`,
+      billType: bodyText.trim().length > 200 ? 'body-text' : 'attachment',
+    };
+  }
+  // STEP 5: Financial document with structure (even without invoice number in subject)
+  else if (strongMatches.length >= 1 && financialMatches.length >= 2 && (hasTableStructure || hasTaxBreakdown || hasItemList)) {
+    detectionResult = {
+      isBill: true,
+      confidence: 0.88,
+      reason: `Financial document: ${strongMatches[0]}, GST details, structured data`,
+      billType: bodyText.trim().length > 200 ? 'body-text' : 'attachment',
+    };
+  }
+  // STEP 6: Attachment with bill keywords
+  else if (hasAttachments && strongMatches.length >= 1) {
+    detectionResult = {
+      isBill: true,
+      confidence: 0.85,
+      reason: `Attachment with bill keyword: ${strongMatches[0]}`,
+      billType: 'attachment',
+    };
+  }
+  // STEP 7: Use AI for ambiguous cases (moderate keywords but unclear)
+  else if ((strongMatches.length >= 1 || medicalMatches.length >= 2 || financialMatches.length >= 2) && bodyText.length > 100) {
+    detectionResult = await runAIDetection(subject, bodyText, hasAttachments, [...strongMatches, ...medicalMatches, ...financialMatches]);
+  }
+  // STEP 8: Not a bill (low confidence or no strong indicators)
+  else {
+    const totalMatches = strongMatches.length + medicalMatches.length + financialMatches.length + itemMatches.length;
     detectionResult = {
       isBill: false,
-      confidence: 0.95,
-      reason: 'No bill-related keywords found',
+      confidence: 0.90,
+      reason: totalMatches > 0 
+        ? `Insufficient bill indicators (${totalMatches} weak matches, no structure)`
+        : 'No bill-related keywords found',
       billType: 'none',
     };
   }
-  // Fast path: strong keyword match = definitely a bill
-  else if (keywordMatches.length >= 5) {
-    const hasItems = /\d+\s*(tab|cap|strip|bottle|vial|amp|inj|syrup|ml|mg|gm)/i.test(bodyText);
-    const hasAmounts = /₹?\s*\d+\.?\d*/.test(bodyText);
-    
-    if (hasItems && hasAmounts) {
-      detectionResult = {
-        isBill: true,
-        confidence: 0.95,
-        reason: `Strong bill indicators: ${keywordMatches.slice(0, 5).join(', ')}`,
-        billType: bodyText.trim().length > 100 ? 'body-text' : 'attachment',
-      };
-    } else {
-      detectionResult = await runAIDetection(subject, bodyText, hasAttachments, keywordMatches);
-    }
-  }
-  // For moderate matches, use AI for precise detection
-  else if (keywordMatches.length >= 2 || hasAttachments) {
-    detectionResult = await runAIDetection(subject, bodyText, hasAttachments, keywordMatches);
-  }
-  // Fallback: keyword-based decision
-  else {
-    detectionResult = {
-      isBill: keywordMatches.length >= 3 || hasAttachments,
-      confidence: Math.min(0.5 + keywordMatches.length * 0.1, 0.85),
-      reason: keywordMatches.length > 0 ? `Keywords found: ${keywordMatches.join(', ')}` : 'No bill indicators',
-      billType: hasAttachments ? 'attachment' : keywordMatches.length >= 3 ? 'body-text' : 'none',
-    };
-  }
   
-  // Cache the result (expires in 30 days)
+  // Cache the result
+  await cacheResult(cacheKey, subject, bodyText, detectionResult);
+  
+  return detectionResult;
+}
+
+/**
+ * Helper to cache detection result
+ */
+async function cacheResult(cacheKey, subject, bodyText, detectionResult) {
   try {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
@@ -326,7 +414,7 @@ async function detectBillContent(subject, bodyText, hasAttachments) {
       data: {
         cacheKey,
         subject: subject.substring(0, 200),
-        sender: bodyText.substring(0, 100), // Store snippet for debugging
+        sender: bodyText.substring(0, 100),
         isBill: detectionResult.isBill,
         confidence: detectionResult.confidence,
         reason: detectionResult.reason,
@@ -339,8 +427,6 @@ async function detectBillContent(subject, bodyText, hasAttachments) {
   } catch (cacheErr) {
     console.warn('[BillDetect] Failed to cache result:', cacheErr.message);
   }
-  
-  return detectionResult;
 }
 
 /**
@@ -356,17 +442,32 @@ async function runAIDetection(subject, bodyText, hasAttachments, keywordMatches)
       messages: [
         {
           role: 'system',
-          content: 'You analyze emails to detect if they contain pharmacy/medical invoices or bills. Return ONLY valid JSON.',
+          content: `You are a strict bill/invoice detector for pharmacy businesses. 
+          
+ONLY mark as bill if the email contains:
+1. Clear invoice/bill terminology (invoice, bill, receipt, purchase order)
+2. Structured financial data (amounts, quantities, item lists)
+3. Business transaction details (invoice number, dates, GST/tax info)
+
+DO NOT mark as bill:
+- Security alerts, password resets, account notifications
+- Marketing emails, newsletters, webinars
+- GitHub/Netlify/service notifications
+- Welcome emails, getting started guides
+- Meeting invitations, calendar events
+
+Return ONLY valid JSON.`,
         },
         {
           role: 'user',
-          content: `Analyze this email and determine if it contains a pharmacy/medical bill or invoice.
+          content: `Analyze this email strictly. Only mark as bill if it's clearly a business invoice/receipt.
 
 Subject: ${subject}
 Body (first 2000 chars):
 ${truncatedBody}
 
 Has file attachments: ${hasAttachments ? 'Yes' : 'No'}
+Keywords found: ${keywordMatches.join(', ')}
 
 Return JSON:
 {
@@ -377,10 +478,12 @@ Return JSON:
 }
 
 billType meanings:
-- "body-text" = the bill/invoice data is in the email text itself
+- "body-text" = the bill/invoice data is in the email text itself (with item lists, amounts, etc.)
 - "attachment" = bill is likely in the attached files
 - "both" = both body and attachments contain bill info
-- "none" = not a bill`,
+- "none" = not a bill
+
+Be strict: if unsure, mark as NOT a bill.`,
         },
       ],
       model: 'llama-3.3-70b-versatile',
@@ -396,12 +499,18 @@ billType meanings:
   } catch (aiErr) {
     console.warn('[BillDetect] AI detection failed, using keyword fallback:', aiErr.status, aiErr.message);
     
-    // Fallback to keyword-based decision
+    // Strict fallback: only mark as bill if strong evidence
+    const hasStrongKeywords = keywordMatches.some(kw => 
+      ['invoice', 'bill', 'receipt', 'tax invoice', 'purchase order'].includes(kw)
+    );
+    
     return {
-      isBill: keywordMatches.length >= 3 || hasAttachments,
-      confidence: Math.min(0.5 + keywordMatches.length * 0.1, 0.85),
-      reason: keywordMatches.length > 0 ? `Keywords found: ${keywordMatches.join(', ')}` : 'No bill indicators',
-      billType: hasAttachments ? 'attachment' : keywordMatches.length >= 3 ? 'body-text' : 'none',
+      isBill: hasStrongKeywords && hasAttachments,
+      confidence: hasStrongKeywords ? 0.70 : 0.30,
+      reason: hasStrongKeywords 
+        ? `Strong keywords with attachment: ${keywordMatches.join(', ')}` 
+        : `Weak indicators: ${keywordMatches.join(', ')}`,
+      billType: hasAttachments ? 'attachment' : 'none',
     };
   }
 }
