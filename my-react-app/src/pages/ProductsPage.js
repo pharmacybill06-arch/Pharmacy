@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { productApi } from '../services/api';
@@ -14,11 +14,7 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const limit = 20;
 
-  useEffect(() => {
-    loadProducts();
-  }, [user?.id, page, search]);
-
-  const loadProducts = async () => {
+  const loadProducts = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
@@ -30,7 +26,11 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search, user?.id]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [loadProducts]);
 
   const handleDelete = async (productId) => {
     if (!window.confirm('Delete this product?')) return;

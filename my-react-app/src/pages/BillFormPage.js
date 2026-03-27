@@ -16,7 +16,7 @@ export default function BillFormPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { parsedData, ocrText, imageFile, draftId } = location.state || {};
+  const { parsedData, ocrText, draftId } = location.state || {};
 
   const [billData, setBillData] = useState({
     invoiceNumber: '',
@@ -32,7 +32,6 @@ export default function BillFormPage() {
 
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [distributors, setDistributors] = useState([]);
-  const [distributorSearch, setDistributorSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);

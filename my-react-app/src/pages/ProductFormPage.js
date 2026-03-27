@@ -47,7 +47,7 @@ export default function ProductFormPage() {
         .catch(() => { toast.error('Product not found'); navigate('/products'); })
         .finally(() => setLoading(false));
     }
-  }, [productId, user?.id]);
+  }, [isEditing, navigate, productId, user?.id]);
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 

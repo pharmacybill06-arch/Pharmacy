@@ -37,7 +37,7 @@ export default function DistributorFormPage() {
         .catch(() => { toast.error('Distributor not found'); navigate('/distributors'); })
         .finally(() => setLoading(false));
     }
-  }, [distributorId]);
+  }, [distributorId, isEditing, navigate]);
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { invoiceApi, productApi } from '../services/api';
-import { ArrowLeft, Save, Plus, Trash2, Search, Loader } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const emptyItem = {

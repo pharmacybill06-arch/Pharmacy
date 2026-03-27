@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { distributorApi } from '../services/api';
@@ -11,11 +11,7 @@ export default function DistributorsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    loadDistributors();
-  }, [user?.id]);
-
-  const loadDistributors = async () => {
+  const loadDistributors = useCallback(async () => {
     if (!user?.id) return;
     try {
       const res = await distributorApi.getDistributors(user.id);
@@ -25,7 +21,11 @@ export default function DistributorsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadDistributors();
+  }, [loadDistributors]);
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this distributor?')) return;

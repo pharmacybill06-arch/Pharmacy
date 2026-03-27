@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { distributorApi } from '../services/api';
-import { ArrowLeft, Edit, FileText, Truck, Phone, MapPin, Hash } from 'lucide-react';
+import { ArrowLeft, Edit, FileText, Phone, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function DistributorDetailPage() {
@@ -11,11 +11,7 @@ export default function DistributorDetailPage() {
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadDistributor();
-  }, [distributorId]);
-
-  const loadDistributor = async () => {
+  const loadDistributor = useCallback(async () => {
     try {
       const [distRes, billsRes] = await Promise.all([
         distributorApi.getDistributorById(distributorId),
@@ -29,7 +25,11 @@ export default function DistributorDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [distributorId, navigate]);
+
+  useEffect(() => {
+    loadDistributor();
+  }, [loadDistributor]);
 
   if (loading) return <div className="loading-spinner"><div className="spinner" /></div>;
   if (!distributor) return null;

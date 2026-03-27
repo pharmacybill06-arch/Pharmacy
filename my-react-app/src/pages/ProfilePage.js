@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { authApi } from '../services/api';
-import { User, Save, Loader, Store, Phone } from 'lucide-react';
+import { User, Save, Loader, Phone } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ProfilePage() {

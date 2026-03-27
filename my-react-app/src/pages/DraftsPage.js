@@ -127,7 +127,6 @@ export default function DraftsPage() {
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [converting, setConverting] = useState(null);
 
   useEffect(() => {
     loadDrafts();
@@ -197,7 +196,6 @@ export default function DraftsPage() {
   const handleConvert = async (draft) => {
     if (!window.confirm('Convert this draft to a saved bill? This will finalize it and sync products.')) return;
     
-    setConverting(draft.id);
     try {
       // Build parsedData from draft for the convert endpoint
       const parsedData = {
@@ -237,8 +235,6 @@ export default function DraftsPage() {
       setDrafts(prev => prev.filter(d => d.id !== draft.id));
     } catch (err) {
       toast.error(err.message || 'Failed to convert draft');
-    } finally {
-      setConverting(null);
     }
   };
 

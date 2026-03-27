@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { invoiceApi } from '../services/api';
-import { Receipt, Search, Plus, Eye, Trash2, TrendingUp } from 'lucide-react';
+import { Receipt, Search, Plus, Trash2, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function InvoicesPage() {
@@ -11,30 +11,27 @@ export default function InvoicesPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  useEffect(() => {
-    loadInvoices();
-  }, [user?.id, page]);
-
-  const loadInvoices = async () => {
+  const loadInvoices = useCallback(async () => {
     if (!user?.id) return;
     try {
       const [invoicesRes, statsRes] = await Promise.all([
-        invoiceApi.getInvoices(user.id, { page, limit }),
+        invoiceApi.getInvoices(user.id, { page: 1, limit }),
         invoiceApi.getStats(user.id).catch(() => null),
       ]);
       setInvoices(invoicesRes.invoices || invoicesRes.bills || []);
-      setTotal(invoicesRes.total || 0);
       setStats(statsRes);
     } catch (err) {
       toast.error('Failed to load invoices');
     } finally {
       setLoading(false);
     }
-  };
+  }, [limit, user?.id]);
+
+  useEffect(() => {
+    loadInvoices();
+  }, [loadInvoices]);
 
   const handleDelete = async (invoiceId) => {
     if (!window.confirm('Delete this invoice? Stock will be reversed.')) return;

@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { billApi, productApi, invoiceApi, distributorApi } from '../services/api';
 import {
   FileText, Package, Truck, Receipt, ScanLine,
-  Plus, TrendingUp, AlertTriangle, Clock
+  Plus, AlertTriangle, Clock
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -15,12 +14,7 @@ export default function DashboardPage() {
   const [lowStock, setLowStock] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    loadDashboard();
-  }, [user?.id]);
-
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     try {
       const [billsRes, productsRes, distributorsRes, invoiceStats] = await Promise.all([
         billApi.getUserBills(user.id).catch(() => ({ bills: [] })),
@@ -47,7 +41,12 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    loadDashboard();
+  }, [loadDashboard, user?.id]);
 
   if (loading) {
     return <div className="loading-spinner"><div className="spinner" /></div>;

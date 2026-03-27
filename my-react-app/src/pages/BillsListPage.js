@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { billApi } from '../services/api';
@@ -130,11 +130,7 @@ export default function BillsListPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    loadBills();
-  }, [user?.id]);
-
-  const loadBills = async () => {
+  const loadBills = useCallback(async () => {
     if (!user?.id) return;
     try {
       const res = await billApi.getUserBills(user.id);
@@ -144,7 +140,11 @@ export default function BillsListPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadBills();
+  }, [loadBills]);
 
   const handleDelete = async (billId) => {
     if (!window.confirm('Are you sure you want to delete this bill?')) return;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { productApi } from '../services/api';
 import { Warehouse, Search, AlertTriangle, Package, CheckCircle } from 'lucide-react';
@@ -7,30 +7,25 @@ import toast from 'react-hot-toast';
 export default function InventoryPage() {
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
-  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all'); // all | low | out | expiring
 
-  useEffect(() => {
-    loadInventory();
-  }, [user?.id]);
-
-  const loadInventory = async () => {
+  const loadInventory = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [productsRes, statsRes] = await Promise.all([
-        productApi.getProducts(user.id, { limit: 500 }),
-        productApi.getProductStats(user.id).catch(() => null),
-      ]);
+      const productsRes = await productApi.getProducts(user.id, { limit: 500 });
       setProducts(productsRes.products || []);
-      setStats(statsRes);
     } catch (err) {
       toast.error('Failed to load inventory');
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadInventory();
+  }, [loadInventory]);
 
   const now = new Date();
   const threeMonths = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);

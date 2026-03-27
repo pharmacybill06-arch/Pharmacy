@@ -5,8 +5,8 @@ import { emailBillApi } from '../services/api';
 import {
   Mail, Download, RefreshCw, CheckCircle, XCircle, MinusCircle,
   Clock, AlertTriangle, FileText, Loader2, MailOpen, ChevronDown, ChevronUp,
-  Inbox, Search, Zap, Paperclip, FileType, Eye, CheckSquare, Square,
-  ArrowRight, Sparkles, Shield, MailCheck
+  Inbox, Search, Zap, Paperclip, CheckSquare, Square,
+  ArrowRight, Shield, MailCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -17,13 +17,6 @@ const statusConfig = {
   processed: { icon: CheckCircle, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', label: 'Processed' },
   failed:    { icon: XCircle,    color: '#ef4444', bg: 'rgba(239,68,68,0.1)', label: 'Failed' },
   skipped:   { icon: MinusCircle, color: '#94a3b8', bg: 'rgba(148,163,184,0.1)', label: 'Skipped' },
-};
-
-const billTypeLabels = {
-  'body-text':  { label: 'In Email Body', color: '#8b5cf6', icon: FileType },
-  'attachment': { label: 'In Attachment', color: '#3b82f6', icon: Paperclip },
-  'both':       { label: 'Body + Attachment', color: '#f59e0b', icon: Sparkles },
-  'none':       { label: 'Not a Bill', color: '#94a3b8', icon: MinusCircle },
 };
 
 const providerDefaults = {
@@ -325,22 +318,6 @@ export default function EmailBillsPage() {
       day: '2-digit', month: 'short', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
-  };
-
-  const getConfidenceBadge = (detection) => {
-    if (!detection) return null;
-    const pct = Math.round((detection.confidence || 0) * 100);
-    const color = detection.isBill
-      ? pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#94a3b8'
-      : '#94a3b8';
-    return (
-      <span style={{
-        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-        background: `${color}18`, color,
-      }}>
-        {pct}%
-      </span>
-    );
   };
 
   // Count selected bills

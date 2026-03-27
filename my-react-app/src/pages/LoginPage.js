@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { authApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Pill, Phone, ArrowRight, Loader } from 'lucide-react';
+import { Pill, ArrowRight, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function LoginPage() {
@@ -12,7 +12,6 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [shopName, setShopName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(false);
   const [devOtp, setDevOtp] = useState(null);
   const otpRefs = useRef([]);
 
@@ -62,7 +61,6 @@ export default function LoginPage() {
     try {
       const result = await authApi.verifyOtp(phone, otpStr, name || null, shopName || null);
       if (result.isNewUser && !name) {
-        setIsNewUser(true);
         setStep('signup');
         setLoading(false);
         return;

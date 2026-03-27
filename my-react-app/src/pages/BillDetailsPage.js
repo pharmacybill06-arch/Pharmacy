@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { billApi } from '../services/api';
-import { ArrowLeft, Trash2, Edit, FileText } from 'lucide-react';
+import { ArrowLeft, Trash2, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function BillDetailsPage() {
@@ -11,11 +11,7 @@ export default function BillDetailsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadBill();
-  }, [billId]);
-
-  const loadBill = async () => {
+  const loadBill = useCallback(async () => {
     try {
       const [billRes, itemsRes] = await Promise.all([
         billApi.getBillById(billId),
@@ -29,7 +25,11 @@ export default function BillDetailsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [billId, navigate]);
+
+  useEffect(() => {
+    loadBill();
+  }, [loadBill]);
 
   const handleDelete = async () => {
     if (!window.confirm('Are you sure you want to delete this bill?')) return;
