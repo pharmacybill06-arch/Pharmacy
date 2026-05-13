@@ -15,13 +15,11 @@ function parseDateString(dateStr) {
   }
 }
 
-// 1️⃣ Save bill - Accept already-parsed data from frontend
-// Frontend handles: ML Kit OCR → Gemini/Groq parsing
-// Backend just: Saves the data to database
+// Save bill - accept already-reviewed parsed data from the mobile app.
 exports.uploadBill = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { parsedData, ocrText, imageUri } = req.body;
+    const { parsedData, ocrText, imageUri, ocrEngine } = req.body;
 
     // Auto-create user if doesn't exist
     let user = await prisma.user.findUnique({
@@ -109,7 +107,7 @@ exports.uploadBill = async (req, res) => {
         
         // ========== OCR & PROCESSING ==========
         rawOcrText: ocrText || null,
-        ocrEngine: 'ml-kit',
+        ocrEngine: ocrEngine || 'vision-ai',
         aiParser: 'gemini-ai',
         processedAt: new Date(),
         status: 'completed',
@@ -510,7 +508,7 @@ exports.getBillItems = async (req, res) => {
 exports.saveDraft = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { parsedData, ocrText, imageUri } = req.body;
+    const { parsedData, ocrText, imageUri, ocrEngine } = req.body;
 
     // Auto-create user if doesn't exist
     let user = await prisma.user.findUnique({ where: { id: userId } });
@@ -571,7 +569,7 @@ exports.saveDraft = async (req, res) => {
 
         // OCR data
         rawOcrText: ocrText || null,
-        ocrEngine: 'ml-kit',
+        ocrEngine: ocrEngine || 'vision-ai',
         aiParser: 'gemini-ai',
 
         // Items

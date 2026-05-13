@@ -13,6 +13,76 @@ const {
 } = require('../utils/ocrNormalizer');
 const fs = require('fs');
 const Groq = require('groq-sdk');
+const MAX_CONTROLLER_LOG_CHARS = Number(process.env.AI_CONTROLLER_LOG_MAX_CHARS || 12000);
+
+function truncateForLog(value, maxChars = MAX_CONTROLLER_LOG_CHARS) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function logOcrHint(source, text) {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) {
+    console.log(`[AIController] ${source} OCR extracted no usable text`);
+    return;
+  }
+
+  const lineCount = cleanText.split(/\r?\n/).filter((line) => line.trim()).length;
+  console.log(`[AIController] ${source} OCR extracted data: ${cleanText.length} chars, ${lineCount} lines`);
+  console.log(`[AIController] ${source} OCR text:\n${truncateForLog(cleanText)}`);
+}
+
+function logAiResponse(method, parsedData) {
+  console.log(`[AIController] ${method} AI filled data:\n${truncateForLog(parsedData)}`);
+}
+
+function logTerminalResponse(label, responseBody) {
+  console.log(`\n========== ${label} RESPONSE ==========\n${truncateForLog(responseBody)}\n========== END ${label} RESPONSE ==========\n`);
+}
+
+async function extractTesseractHint(imageBuffer) {
+  try {
+    const { createWorker } = require('tesseract.js');
+    const worker = await createWorker('eng');
+    const { data } = await worker.recognize(imageBuffer);
+    await worker.terminate();
+    const text = data?.text?.trim() || '';
+    if (text.length > 20) {
+      console.log(`[AIController] Tesseract OCR hint extracted: ${text.length} chars`);
+      logOcrHint('Tesseract', text);
+      return text;
+    }
+  } catch (error) {
+    console.warn('[AIController] Tesseract OCR hint failed:', error.message);
+  }
+  return '';
+}
+
+async function extractGoogleVisionHint(imageBuffer) {
+  try {
+    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!credentialsPath || !fs.existsSync(credentialsPath)) {
+      return '';
+    }
+
+    const vision = require('@google-cloud/vision');
+    const client = new vision.ImageAnnotatorClient({ keyFilename: credentialsPath });
+    const [result] = await client.documentTextDetection({
+      image: { content: imageBuffer.toString('base64') },
+    });
+
+    const text = result?.fullTextAnnotation?.text?.trim() || '';
+    if (text.length > 20) {
+      console.log(`[AIController] Google Vision OCR hint extracted: ${text.length} chars`);
+      logOcrHint('Google Vision', text);
+      return text;
+    }
+  } catch (error) {
+    console.warn('[AIController] Google Vision OCR hint failed:', error.message);
+  }
+  return '';
+}
 
 /**
  * Parse OCR text using AI (text-only fallback)
@@ -29,13 +99,17 @@ exports.parseOcr = async (req, res) => {
     }
 
     console.log('[AIController] Parsing OCR text...');
+    logOcrHint('Request body', ocrText);
     const parsedData = await parseOcrWithGemini(ocrText);
+    logAiResponse('parse-ocr', parsedData);
 
-    res.json({
+    const responseBody = {
       success: true,
       data: parsedData,
       confidence: 0.85
-    });
+    };
+    logTerminalResponse('PARSE OCR', responseBody);
+    res.json(responseBody);
   } catch (error) {
     console.error('[AIController] Error:', error.message);
     res.status(500).json({
@@ -51,22 +125,28 @@ exports.parseOcr = async (req, res) => {
  */
 exports.parseImage = async (req, res) => {
   try {
-    let base64Image, mimeType, ocrTextHint;
+    let base64Image, mimeType, ocrTextHint, sourceBuffer, ocrSourceBuffer;
 
     if (req.file) {
       // Multipart upload
       const filePath = req.file.path;
       const fileBuffer = fs.readFileSync(filePath);
+      sourceBuffer = fileBuffer;
+      ocrSourceBuffer = fileBuffer;
       base64Image = fileBuffer.toString('base64');
       mimeType = req.file.mimetype;
       ocrTextHint = req.body.ocrText || '';
+      if (ocrTextHint) logOcrHint('Client-provided', ocrTextHint);
       // Clean up uploaded file
       try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
     } else if (req.body.imageBase64) {
       // Base64 in JSON body
       base64Image = req.body.imageBase64;
+      sourceBuffer = Buffer.from(base64Image, 'base64');
+      ocrSourceBuffer = sourceBuffer;
       mimeType = req.body.mimeType || 'image/jpeg';
       ocrTextHint = req.body.ocrText || '';
+      if (ocrTextHint) logOcrHint('Client-provided', ocrTextHint);
     } else {
       return res.status(400).json({
         success: false,
@@ -86,27 +166,59 @@ exports.parseImage = async (req, res) => {
         .jpeg({ quality: 85 })
         .toBuffer();
       base64Image = compressed.toString('base64');
+      sourceBuffer = compressed;
       mimeType = 'image/jpeg';
       console.log(`[AIController] Vision image compressed: ${Math.round(originalSize/1024)}KB → ${Math.round(compressed.length/1024)}KB`);
     } catch (compressErr) {
       console.warn('[AIController] Image compression failed, using original:', compressErr.message);
     }
 
-    // Call vision API and get raw annotation output (simulate for now)
-    // TODO: Replace with actual vision API output if available
+    if (!ocrTextHint || ocrTextHint.trim().length < 20) {
+      const ocrBuffer = ocrSourceBuffer || sourceBuffer || Buffer.from(base64Image, 'base64');
+      ocrTextHint = await extractGoogleVisionHint(ocrBuffer);
+      if (!ocrTextHint || ocrTextHint.trim().length < 20) {
+        ocrTextHint = await extractTesseractHint(ocrBuffer);
+      }
+    }
+
+    if (ocrTextHint && ocrTextHint.trim().length > 50) {
+      try {
+        console.log('[AIController] Parsing Tesseract OCR text with AI...');
+        const parsedData = await parseOcrWithGemini(ocrTextHint);
+        if (parsedData?.items?.length > 0) {
+          logAiResponse('tesseract+ai', parsedData);
+          const responseBody = {
+            success: true,
+            data: parsedData,
+            ocrText: ocrTextHint,
+            confidence: 0.9,
+            method: 'tesseract+ai'
+          };
+          logTerminalResponse('OCR + AI', responseBody);
+          return res.json(responseBody);
+        }
+      } catch (ocrParseErr) {
+        console.warn('[AIController] OCR text parse failed, falling back to Vision AI:', ocrParseErr.message);
+      }
+    }
+
     const parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
+    logAiResponse('vision', parsedData);
 
     // If you have raw Google Vision output, normalize it here
     // Example: const visionTokens = normalizeVision(visionAnnotations);
     // For now, just return parsedData as before
 
-    res.json({
+    const responseBody = {
       success: true,
       data: parsedData,
+      ocrText: ocrTextHint,
       // tokens: visionTokens, // Uncomment if you have raw tokens
       confidence: 0.95,
       method: 'vision'
-    });
+    };
+    logTerminalResponse('VISION OCR + AI', responseBody);
+    res.json(responseBody);
   } catch (error) {
     console.error('[AIController] Vision parse error:', error.message);
     res.status(500).json({
@@ -157,6 +269,7 @@ exports.ocrImage = async (req, res) => {
 
     console.log('[AIController] Running OCR.space on image...');
     const ocrResult = await extractTextFromImage(imageBuffer, mimeType);
+    logOcrHint('OCR.space', ocrResult.text);
 
     // If OCR.space returns words with coordinates, normalize them
     let tokens = [];
@@ -169,23 +282,28 @@ exports.ocrImage = async (req, res) => {
     if (shouldParse && ocrResult.text.length > 10) {
       console.log('[AIController] OCR done, now parsing with AI...');
       const parsedData = await parseOcrWithGemini(ocrResult.text);
-      return res.json({
+      logAiResponse('ocr+ai', parsedData);
+      const responseBody = {
         success: true,
         ocrText: ocrResult.text,
         data: parsedData,
         tokens,
         confidence: ocrResult.confidence,
         method: 'ocr+ai'
-      });
+      };
+      logTerminalResponse('OCR.SPACE + AI', responseBody);
+      return res.json(responseBody);
     }
 
-    res.json({
+    const responseBody = {
       success: true,
       ocrText: ocrResult.text,
       tokens,
       confidence: ocrResult.confidence,
       method: 'ocr'
-    });
+    };
+    logTerminalResponse('OCR.SPACE', responseBody);
+    res.json(responseBody);
   } catch (error) {
     console.error('[AIController] OCR error:', error.message);
     res.status(500).json({

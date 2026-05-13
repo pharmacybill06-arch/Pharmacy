@@ -6,6 +6,7 @@
 
 const https = require('https');
 const API_URL = 'https://api.ocr.space/parse/image';
+const MAX_OCR_LOG_CHARS = Number(process.env.OCR_LOG_MAX_CHARS || 12000);
 
 /**
  * Make a POST request using Node.js https module (more reliable than fetch for large payloads)
@@ -51,6 +52,26 @@ function estimateBase64Bytes(base64Str) {
   return Math.ceil(base64Str.length * 3 / 4);
 }
 
+function truncateForLog(value, maxChars = MAX_OCR_LOG_CHARS) {
+  const text = String(value || '');
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function logOcrExtraction({ engine, text, confidence, words = [] }) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  console.log(`[OCRService] ${engine} extracted data summary: ${text.length} chars, ${lines.length} lines, ${words.length} words, confidence: ${confidence || 0}`);
+  console.log(`[OCRService] ${engine} extracted text:\n${truncateForLog(text)}`);
+
+  if (words.length > 0) {
+    console.log(`[OCRService] ${engine} word sample: ${JSON.stringify(words.slice(0, 30))}`);
+  }
+}
+
 /**
  * Extract text from image using OCR.space API
  * @param {Buffer|string} imageData - Image buffer or base64 string
@@ -58,7 +79,10 @@ function estimateBase64Bytes(base64Str) {
  * @returns {Promise<{text: string, confidence: number}>}
  */
 async function extractTextFromImage(imageData, mimeType = 'image/jpeg') {
-  const apiKey = process.env.OCR_SPACE_API_KEY || 'K12345678901234'; // new demo key fallback
+  const apiKey = process.env.OCR_SPACE_API_KEY;
+  if (!apiKey) {
+    throw new Error('OCR.space is not configured. Set OCR_SPACE_API_KEY or use the Vision AI parser.');
+  }
 
   // Convert buffer to base64 if needed
   let base64Data;
@@ -132,7 +156,8 @@ async function extractTextFromImage(imageData, mimeType = 'image/jpeg') {
       throw new Error('OCR extracted very little text. Try a clearer image.');
     }
 
-    console.log(`[OCRService] ✓ Extracted ${text.length} chars (confidence: ${confidence}, words: ${words.length})`);
+    console.log(`[OCRService] Extracted ${text.length} chars (confidence: ${confidence}, words: ${words.length})`);
+    logOcrExtraction({ engine: 'OCR.space Engine 2', text: text.trim(), confidence, words });
 
     // If Engine 2 gave poor results, retry with Engine 1
     if (text.trim().length < 30) {
@@ -193,7 +218,8 @@ async function extractTextEngine1(base64Data, mimeType, apiKey) {
     throw new Error('OCR Engine 1 also extracted very little text');
   }
 
-  console.log(`[OCRService] ✓ Engine 1 extracted ${text.length} chars`);
+  console.log(`[OCRService] Engine 1 extracted ${text.length} chars`);
+  logOcrExtraction({ engine: 'OCR.space Engine 1', text: text.trim(), confidence: 0, words: [] });
   return { text: text.trim(), confidence: 0 };
 }
 

@@ -5,6 +5,59 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 let groqClient = null;
 // Initialize Gemini AI
 let geminiModel = null;
+const MAX_AI_LOG_CHARS = Number(process.env.AI_LOG_MAX_CHARS || 20000);
+
+function truncateForLog(value, maxChars = MAX_AI_LOG_CHARS) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
+}
+
+function summarizeBillData(data = {}) {
+  return {
+    pharmacyName: data.pharmacyName || null,
+    gstin: data.gstin || null,
+    invoiceNumber: data.invoiceNumber || null,
+    invoiceDate: data.invoiceDate || null,
+    paymentType: data.paymentType || null,
+    itemCount: Array.isArray(data.items) ? data.items.length : 0,
+    subtotal: data.subtotal ?? null,
+    discountAmount: data.discountAmount ?? null,
+    cgst: data.cgst ?? null,
+    sgst: data.sgst ?? null,
+    totalGst: data.totalGst ?? null,
+    roundOff: data.roundOff ?? null,
+    grandTotal: data.grandTotal ?? null,
+  };
+}
+
+function logAiFilledData(source, data) {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  console.log(`[AIService] ${source} filled data summary: ${JSON.stringify(summarizeBillData(data))}`);
+  console.log(`[AIService] ${source} filled fields:\n${truncateForLog(data)}`);
+
+  if (items.length > 0) {
+    const itemPreview = items.slice(0, 20).map((item, index) => ({
+      index: index + 1,
+      sn: item.sn ?? null,
+      name: item.name ?? null,
+      quantity: item.quantity ?? null,
+      freeQuantity: item.freeQuantity ?? null,
+      batchNumber: item.batchNumber ?? null,
+      expiryDate: item.expiryDate ?? null,
+      hsnCode: item.hsnCode ?? null,
+      mrp: item.mrp ?? null,
+      rate: item.rate ?? null,
+      gstPercent: item.gstPercent ?? null,
+      itemTotal: item.itemTotal ?? null,
+    }));
+    console.log(`[AIService] ${source} item preview: ${JSON.stringify(itemPreview, null, 2)}`);
+  }
+}
+
+function logAiRawResponse(source, text) {
+  console.log(`[AIService] ${source} raw response:\n${truncateForLog(text)}`);
+}
 
 function initializeGemini() {
   const apiKey = process.env.GROQ_API_KEY;
@@ -32,7 +85,14 @@ function initializeGeminiVision() {
   }
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    geminiModel = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      },
+    });
     console.log('[AIService] ✓ Gemini Vision (gemini-2.0-flash) initialized');
     return true;
   } catch (error) {
@@ -184,12 +244,13 @@ ${ocrText}
       ],
       model: 'llama-3.3-70b-versatile',
       temperature: 0.2,
-      max_tokens: 4096,
+      max_tokens: 8192,
       response_format: { type: 'json_object' },
     });
 
     const text = chatCompletion.choices[0]?.message?.content || '';
     console.log('[AIService] ✓ Received response from Groq');
+    logAiRawResponse('Groq text parser', text);
     
     // Extract JSON from response (remove markdown if present)
     let jsonText = text.trim();
@@ -213,6 +274,7 @@ ${ocrText}
     
     console.log('[AIService] ✓ Successfully parsed bill data');
     console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
+    logAiFilledData('Groq text parser', normalized);
     
     return normalized;
   } catch (error) {
@@ -247,38 +309,42 @@ function normalizeBillData(parsed) {
 
   // Normalize items
   const normalizedItems = items.map((it, idx) => {
-    let qty = Number(it.quantity) || 0;
-    let rate = Number(it.rate) || 0;
-    let mrp = it.mrp != null ? Number(it.mrp) : undefined;
-    // Force itemTotal to be strictly rate * quantity (no GST, discount, etc)
-    let itemTotal = round2(qty * rate);
+    let qty = toNumber(it.quantity ?? it.qty) || 0;
+    let rate = toNumber(it.rate) || 0;
+    let mrp = toNumber(it.mrp ?? it.nMrp ?? it.nmrp);
+    const discount = toNumber(it.discount ?? it.dis);
+    let itemTotal = toNumber(it.itemTotal ?? it.amount ?? it.amt);
+
+    if (itemTotal == null || itemTotal === 0) {
+      itemTotal = round2(qty * rate - (discount || 0));
+    }
 
     return {
-      sn: it.sn != null ? Number(it.sn) : idx + 1,
-      name: it.name || '',
+      sn: toNumber(it.sn) || idx + 1,
+      name: it.name || it.itemNamePacking || it.itemName || '',
       quantity: qty,
-      freeQuantity: it.freeQuantity != null ? Number(it.freeQuantity) : undefined,
-      unit: it.unit || inferUnit(it.name),
+      freeQuantity: toNumber(it.freeQuantity ?? it.free),
+      unit: it.unit || inferUnit(it.name || it.itemNamePacking || ''),
 
       // Preserve medicine identity fields
-      manufacturer: it.manufacturer || undefined,
-      batchNumber: it.batchNumber || undefined,
-      expiryDate: it.expiryDate || undefined,
-      hsnCode: it.hsnCode || undefined,
+      manufacturer: it.manufacturer || it.mfr || undefined,
+      batchNumber: it.batchNumber || it.batch || undefined,
+      expiryDate: it.expiryDate || it.exp || undefined,
+      hsnCode: it.hsnCode || it.hsn || undefined,
 
       // Prices
       mrp,
       rate,
 
       // Discount/taxes
-      discount: it.discount != null ? Number(it.discount) : undefined,
-      discountPercent: it.discountPercent != null ? Number(it.discountPercent) : undefined,
-      gstPercent: it.gstPercent != null ? Number(it.gstPercent) : 0,
-      sgstPercent: it.sgstPercent != null ? Number(it.sgstPercent) : undefined,
-      cgstPercent: it.cgstPercent != null ? Number(it.cgstPercent) : undefined,
+      discount,
+      discountPercent: toNumber(it.discountPercent),
+      gstPercent: toNumber(it.gstPercent ?? it.gst) || inferGstPercent(it),
+      sgstPercent: toNumber(it.sgstPercent ?? it.sgst),
+      cgstPercent: toNumber(it.cgstPercent ?? it.cgst),
 
       // Totals
-      itemTotal,
+      itemTotal: round2(itemTotal),
     };
   });
 
@@ -287,17 +353,17 @@ function normalizeBillData(parsed) {
   );
 
   // Totals
-  const cgst = Number(parsed.cgst) || 0;
-  const sgst = Number(parsed.sgst) || 0;
+  const cgst = toNumber(parsed.cgst) || 0;
+  const sgst = toNumber(parsed.sgst) || 0;
 
-  let totalGst = Number(parsed.totalGst);
+  let totalGst = toNumber(parsed.totalGst);
   if (!totalGst) totalGst = cgst + sgst;
 
-  const discountAmount = Number(parsed.discountAmount) || 0;
-  const roundOff = Number(parsed.roundOff) || 0;
+  const discountAmount = toNumber(parsed.discountAmount ?? parsed.discount) || 0;
+  const roundOff = toNumber(parsed.roundOff) || 0;
 
   // Subtotal: prefer parsed subtotal if present else computed
-  let subtotal = Number(parsed.subtotal);
+  let subtotal = toNumber(parsed.subtotal);
   if (!subtotal) subtotal = subtotalFromItems;
 
   // Grand total computed (fallback)
@@ -317,7 +383,7 @@ function normalizeBillData(parsed) {
     items: normalizedItems,
     
     subtotal: round2(subtotal),
-    discountPercent: parsed.discountPercent != null ? Number(parsed.discountPercent) : undefined,
+    discountPercent: toNumber(parsed.discountPercent),
     discountAmount: round2(discountAmount),
     cgst: round2(cgst),
     sgst: round2(sgst),
@@ -325,7 +391,7 @@ function normalizeBillData(parsed) {
     roundOff: round2(roundOff),
     grandTotal:
       parsed.grandTotal != null && parsed.grandTotal !== ''
-        ? round2(parsed.grandTotal)
+        ? round2(toNumber(parsed.grandTotal))
         : computedGrand,
   };
 }
@@ -333,6 +399,21 @@ function normalizeBillData(parsed) {
 // Helper functions
 function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  const cleaned = String(value).replace(/,/g, '').replace(/[^\d.-]/g, '');
+  if (!cleaned || cleaned === '-' || cleaned === '.') return undefined;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function inferGstPercent(item) {
+  const sgst = toNumber(item.sgstPercent ?? item.sgst) || 0;
+  const cgst = toNumber(item.cgstPercent ?? item.cgst) || 0;
+  return sgst + cgst || 0;
 }
 
 function inferUnit(name = '') {
@@ -436,6 +517,130 @@ Return ONLY valid JSON matching this schema:
 }`;
 }
 
+function getVisionMetadataPrompt(ocrTextHint) {
+  return `You are reading an Indian pharmacy GST invoice image.
+
+Extract ONLY seller, buyer, invoice metadata, and printed totals. Do NOT extract item rows.
+Return ONLY valid JSON with this schema:
+{
+  "pharmacyName": string|null,
+  "shopAddress": string|null,
+  "phoneNumbers": string[]|null,
+  "gstin": string|null,
+  "dlNumber": string|null,
+  "invoiceNumber": string|null,
+  "invoiceDate": "DD-MM-YYYY"|null,
+  "dueDate": "DD-MM-YYYY"|null,
+  "paymentType": "cash"|"credit"|null,
+  "subtotal": number|null,
+  "discountPercent": number|null,
+  "discountAmount": number|null,
+  "cgst": number|null,
+  "sgst": number|null,
+  "totalGst": number|null,
+  "roundOff": number|null,
+  "grandTotal": number|null
+}
+
+Rules:
+- pharmacyName is the SELLER/SUPPLIER printed at top-left, not the buyer/customer.
+- Totals must be copied from the printed totals section. Do not calculate.
+- If a value is not visible, use null.
+${ocrTextHint ? `\nOCR hint, may contain mistakes:\n${ocrTextHint}\n` : ''}`;
+}
+
+function getVisionItemsPrompt(ocrTextHint) {
+  return `You are reading the item table of an Indian pharmacy GST invoice image.
+
+Extract EVERY printed item row from the table, from top to bottom. Return ONLY valid JSON:
+{
+  "columns": string[],
+  "items": [
+    {
+      "sn": number|null,
+      "quantity": number|null,
+      "freeQuantity": number|null,
+      "name": string|null,
+      "manufacturer": string|null,
+      "batchNumber": string|null,
+      "expiryDate": string|null,
+      "hsnCode": string|null,
+      "mrp": number|null,
+      "rate": number|null,
+      "discount": number|null,
+      "discountPercent": number|null,
+      "sgstPercent": number|null,
+      "cgstPercent": number|null,
+      "gstPercent": number|null,
+      "itemTotal": number|null
+    }
+  ]
+}
+
+Rules:
+- First read the table header row and map each value by visual column position.
+- Do not calculate or infer printed values. Copy the printed itemTotal/Amount exactly.
+- MRP, Rate, Discount, SGST, CGST, and Amount are separate columns. Never move values between them.
+- Quantity must come only from the QTY column. Do not use pack-size text inside the item name, such as 10TAB, 30x10, 100+100, as quantity.
+- Keep pack-size text inside the medicine name/unit. Example: "GPM SR 2 TAB 10TAB" can have quantity 20 if the QTY column says 20.
+- Preserve the exact number of item rows visible in the table. Do not summarize or skip rows.
+- If the table spans many rows, continue until the totals/class section begins.
+- If a field is blank or not readable, use null rather than borrowing from a neighboring column.
+${ocrTextHint ? `\nOCR hint, may contain mistakes:\n${ocrTextHint}\n` : ''}`;
+}
+
+function parseJsonResponse(text) {
+  let jsonText = (text || '').trim();
+  if (jsonText.startsWith('```json')) {
+    jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
+  } else if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
+  }
+
+  const start = jsonText.indexOf('{');
+  const end = jsonText.lastIndexOf('}');
+  if (start !== -1 && end !== -1) {
+    jsonText = jsonText.slice(start, end + 1);
+  }
+
+  return JSON.parse(jsonText);
+}
+
+function mergeParsedBill(metadata, itemResult) {
+  return {
+    ...metadata,
+    items: Array.isArray(itemResult?.items) ? itemResult.items : [],
+  };
+}
+
+async function runGroqVisionJson(base64Image, mimeType, prompt, maxTokens = 4096) {
+  const completion = await groqClient.chat.completions.create({
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: prompt,
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${mimeType};base64,${base64Image}`,
+            },
+          },
+        ],
+      },
+    ],
+    model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    temperature: 0,
+    max_tokens: maxTokens,
+    response_format: { type: 'json_object' },
+  });
+
+  return parseJsonResponse(completion.choices[0]?.message?.content || '');
+}
+
 /**
  * Parse with Gemini Vision (gemini-2.0-flash) — best for document/table parsing
  */
@@ -447,12 +652,10 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
     }
   }
 
-  const prompt = getVisionPrompt(ocrTextHint);
+  console.log('[AIService] Sending image to Gemini Vision metadata pass...');
 
-  console.log('[AIService] Sending image to Gemini Vision (gemini-2.0-flash)...');
-
-  const result = await geminiModel.generateContent([
-    prompt,
+  const metadataResult = await geminiModel.generateContent([
+    getVisionMetadataPrompt(ocrTextHint),
     {
       inlineData: {
         mimeType,
@@ -461,9 +664,10 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
     },
   ]);
 
-  const response = result.response;
+  const response = metadataResult.response;
   const text = response.text();
   console.log('[AIService] ✓ Received Gemini Vision response');
+  logAiRawResponse('Gemini Vision metadata pass', text);
 
   // Extract JSON from response
   let jsonText = text.trim();
@@ -479,10 +683,28 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
     jsonText = jsonText.slice(start, end + 1);
   }
 
-  const parsed = JSON.parse(jsonText);
+  const metadata = JSON.parse(jsonText);
+  console.log(`[AIService] Gemini Vision metadata fields:\n${truncateForLog(metadata)}`);
+
+  console.log('[AIService] Sending image to Gemini Vision item-table pass...');
+  const itemsResult = await geminiModel.generateContent([
+    getVisionItemsPrompt(ocrTextHint),
+    {
+      inlineData: {
+        mimeType,
+        data: base64Image,
+      },
+    },
+  ]);
+  const itemsText = itemsResult.response.text();
+  logAiRawResponse('Gemini Vision item-table pass', itemsText);
+  const itemResult = parseJsonResponse(itemsText);
+  console.log(`[AIService] Gemini Vision item-table fields:\n${truncateForLog(itemResult)}`);
+  const parsed = mergeParsedBill(metadata, itemResult);
   const normalized = normalizeBillData(parsed);
 
   console.log(`[AIService] ✓ Gemini Vision parsed: ${normalized.items?.length || 0} items`);
+  logAiFilledData('Gemini Vision final', normalized);
   return normalized;
 }
 
@@ -497,9 +719,24 @@ async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', oc
     }
   }
 
-  const visionPrompt = getVisionPrompt(ocrTextHint);
-
   try {
+    console.log('[AIService] Sending image to Groq Vision metadata pass...');
+    const metadataPass = await runGroqVisionJson(base64Image, mimeType, getVisionMetadataPrompt(ocrTextHint), 4096);
+    console.log(`[AIService] Groq Vision metadata fields:\n${truncateForLog(metadataPass)}`);
+
+    console.log('[AIService] Sending image to Groq Vision item-table pass...');
+    const itemPass = await runGroqVisionJson(base64Image, mimeType, getVisionItemsPrompt(ocrTextHint), 8192);
+    console.log(`[AIService] Groq Vision item-table fields:\n${truncateForLog(itemPass)}`);
+
+    const mergedParsed = mergeParsedBill(metadataPass, itemPass);
+    const normalizedMulti = normalizeBillData(mergedParsed);
+
+    console.log('[AIService] Vision parsed bill data successfully');
+    console.log(`[AIService] Extracted: ${normalizedMulti.items?.length || 0} items`);
+    logAiFilledData('Groq Vision final', normalizedMulti);
+
+    return normalizedMulti;
+
     console.log('[AIService] Sending image to Groq Vision (llama-4-scout-17b-16e)...');
 
     const chatCompletion = await groqClient.chat.completions.create({
@@ -527,6 +764,7 @@ async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', oc
 
     const text = chatCompletion.choices[0]?.message?.content || '';
     console.log('[AIService] ✓ Received vision response from Groq');
+    logAiRawResponse('Groq Vision single-pass', text);
 
     // Extract JSON from response
     let jsonText = text.trim();
@@ -547,6 +785,7 @@ async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', oc
 
     console.log('[AIService] ✓ Vision parsed bill data successfully');
     console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
+    logAiFilledData('Groq Vision single-pass final', normalized);
 
     return normalized;
   } catch (error) {
