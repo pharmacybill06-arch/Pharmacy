@@ -270,7 +270,7 @@ ${ocrText}
     const parsed = JSON.parse(jsonText);
     
     // Normalize the data
-    const normalized = normalizeBillData(parsed);
+    const normalized = normalizeBillData(parsed, ocrText);
     
     console.log('[AIService] ✓ Successfully parsed bill data');
     console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
@@ -286,8 +286,9 @@ ${ocrText}
 /**
  * Normalize and validate parsed bill data
  */
-function normalizeBillData(parsed) {
+function normalizeBillData(parsed, sourceText = '') {
   const items = Array.isArray(parsed.items) ? parsed.items : [];
+  const ocrTotals = extractTotalsFromOcrText(sourceText);
 
   // Normalize payment type
   let paymentType = parsed.paymentType;
@@ -313,10 +314,68 @@ function normalizeBillData(parsed) {
     let rate = toNumber(it.rate) || 0;
     let mrp = toNumber(it.mrp ?? it.nMrp ?? it.nmrp);
     const discount = toNumber(it.discount ?? it.dis);
-    let itemTotal = toNumber(it.itemTotal ?? it.amount ?? it.amt);
+    const rawItemTotal = toNumber(it.itemTotal ?? it.amount ?? it.amt);
+    let itemTotal = rawItemTotal;
+    let adjustPriority = 0;
 
     if (itemTotal == null || itemTotal === 0) {
       itemTotal = round2(qty * rate - (discount || 0));
+    }
+
+    if (rate > 0 && qty > 0 && itemTotal > 0) {
+      const expectedTotal = round2(qty * rate);
+      const qtyFromTotal = itemTotal / rate;
+
+      if (expectedTotal > itemTotal * 2 && isPlausibleQuantity(qtyFromTotal)) {
+        qty = Math.round(qtyFromTotal);
+      } else if (itemTotal < expectedTotal * 0.5 && expectedTotal < (ocrTotals.grossTotal || ocrTotals.grandTotal || Number.MAX_SAFE_INTEGER)) {
+        itemTotal = expectedTotal;
+      }
+
+      if (rate <= 5 && itemTotal / qty > 5) {
+        rate = round2(itemTotal / qty);
+      }
+    } else if ((!qty || qty === 0) && rate > 0 && itemTotal > 0) {
+      const qtyFromTotal = itemTotal / rate;
+      if (isPlausibleQuantity(qtyFromTotal)) {
+        qty = Math.round(qtyFromTotal);
+      }
+    }
+
+    if ((!qty || qty === 0) && itemTotal > 0 && rate > 0 && rate <= 5) {
+      qty = 1;
+      rate = round2(itemTotal);
+      adjustPriority += 3;
+    }
+
+    if (qty > 0 && rate > 0 && itemTotal > 0) {
+      const ratio = itemTotal / (qty * rate);
+      if (Math.abs(ratio - 10) < 0.2) {
+        rate = round2(rate * 10);
+        adjustPriority += 2;
+      } else if (Math.abs(ratio - 100) < 0.2) {
+        rate = round2(rate * 100);
+        adjustPriority += 2;
+      }
+    }
+
+    if (qty >= 100 && rate > 0 && itemTotal > 0) {
+      const mergedQty = qty / 10;
+      if (Number.isInteger(mergedQty) && Math.abs(itemTotal / rate - mergedQty) < 0.1) {
+        qty = mergedQty;
+        adjustPriority += 2;
+      }
+    }
+
+    if (qty > 0 && rate > 0 && itemTotal > 0) {
+      const expectedTotal = round2(qty * rate);
+      if (Math.abs(expectedTotal - itemTotal) <= 0.5) {
+        itemTotal = expectedTotal;
+      }
+    }
+
+    if (String(it.itemTotal ?? it.amount ?? it.amt ?? '').replace(/[^\d]/g, '').length >= 4 && !String(it.itemTotal ?? it.amount ?? it.amt ?? '').includes('.')) {
+      adjustPriority += 1;
     }
 
     return {
@@ -345,7 +404,19 @@ function normalizeBillData(parsed) {
 
       // Totals
       itemTotal: round2(itemTotal),
+      __rawItemTotal: rawItemTotal,
+      __adjustPriority: adjustPriority,
     };
+  });
+
+  reconcileItemTotalsToGross(normalizedItems, ocrTotals.grossTotal || repairMoneyAmount(toNumber(parsed.subtotal), undefined));
+  normalizeDerivedLineValues(normalizedItems);
+  repairItemTotalRemainder(normalizedItems, ocrTotals.grossTotal);
+  normalizeDerivedLineValues(normalizedItems);
+
+  normalizedItems.forEach((item) => {
+    if (item.__rawItemTotal !== undefined) delete item.__rawItemTotal;
+    if (item.__adjustPriority !== undefined) delete item.__adjustPriority;
   });
 
   const subtotalFromItems = round2(
@@ -353,21 +424,32 @@ function normalizeBillData(parsed) {
   );
 
   // Totals
-  const cgst = toNumber(parsed.cgst) || 0;
-  const sgst = toNumber(parsed.sgst) || 0;
+  const grandTotal = repairMoneyAmount(toNumber(parsed.grandTotal), undefined, { preferCents: false });
+  const cgst = ocrTotals.cgst ?? repairMoneyAmount(toNumber(parsed.cgst), grandTotal);
+  const sgst = ocrTotals.sgst ?? repairMoneyAmount(toNumber(parsed.sgst), grandTotal);
 
-  let totalGst = toNumber(parsed.totalGst);
+  let totalGst = ocrTotals.totalGst ?? repairMoneyAmount(toNumber(parsed.totalGst), grandTotal);
   if (!totalGst) totalGst = cgst + sgst;
 
-  const discountAmount = toNumber(parsed.discountAmount ?? parsed.discount) || 0;
-  const roundOff = toNumber(parsed.roundOff) || 0;
+  let discountAmount = (ocrTotals.discountAmount ?? repairMoneyAmount(toNumber(parsed.discountAmount ?? parsed.discount), grandTotal)) || 0;
+  let roundOff = repairMoneyAmount(toNumber(parsed.roundOff), grandTotal, { preferCents: false }) || 0;
 
-  // Subtotal: prefer parsed subtotal if present else computed
-  let subtotal = toNumber(parsed.subtotal);
+  // For app calculations, subtotal means gross sum of item amounts.
+  let subtotal = ocrTotals.grossTotal ?? repairMoneyAmount(toNumber(parsed.subtotal), grandTotal) ?? subtotalFromItems;
   if (!subtotal) subtotal = subtotalFromItems;
 
+  if (!discountAmount && ocrTotals.taxableSubtotal && subtotal > ocrTotals.taxableSubtotal) {
+    discountAmount = round2(subtotal - ocrTotals.taxableSubtotal);
+  }
+
   // Grand total computed (fallback)
-  const computedGrand = round2(subtotal + totalGst - discountAmount + roundOff);
+  let computedGrand = round2(subtotal + totalGst - discountAmount + roundOff);
+  const finalGrandTotal = ocrTotals.grandTotal ?? grandTotal ?? computedGrand;
+  const correctedRoundOff = round2(finalGrandTotal - (subtotal + totalGst - discountAmount));
+  if (Math.abs(correctedRoundOff) <= 1) {
+    roundOff = correctedRoundOff;
+    computedGrand = finalGrandTotal;
+  }
 
   return {
     pharmacyName: parsed.pharmacyName || '',
@@ -389,10 +471,7 @@ function normalizeBillData(parsed) {
     sgst: round2(sgst),
     totalGst: round2(totalGst),
     roundOff: round2(roundOff),
-    grandTotal:
-      parsed.grandTotal != null && parsed.grandTotal !== ''
-        ? round2(toNumber(parsed.grandTotal))
-        : computedGrand,
+    grandTotal: round2(finalGrandTotal || computedGrand),
   };
 }
 
@@ -408,6 +487,246 @@ function toNumber(value) {
   if (!cleaned || cleaned === '-' || cleaned === '.') return undefined;
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : undefined;
+}
+
+function normalizePrintedMoney(value) {
+  const numeric = toNumber(value);
+  if (numeric === undefined) return undefined;
+
+  const text = String(value || '').trim();
+  if (text.includes('.')) return round2(numeric);
+
+  const digits = text.replace(/[^\d]/g, '');
+  if (digits.length >= 4) return round2(Number(digits) / 100);
+  return round2(numeric);
+}
+
+function repairMoneyAmount(value, reference, options = {}) {
+  if (value === undefined || value === null) return undefined;
+  let amount = Number(value);
+  if (!Number.isFinite(amount)) return undefined;
+
+  const preferCents = options.preferCents !== false;
+  if (reference && amount > reference * 2) {
+    if (amount / 100 <= reference * 1.25) return round2(amount / 100);
+    if (amount / 10 <= reference * 1.25) return round2(amount / 10);
+  }
+
+  if (preferCents && amount >= 10000) return round2(amount / 100);
+  return round2(amount);
+}
+
+function repairLineAmount(value, rate, quantity, reference) {
+  if (value === undefined || value === null) return 0;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+
+  const candidates = [amount, amount / 10, amount / 100]
+    .filter((candidate) => Number.isFinite(candidate) && candidate > 0)
+    .map(round2);
+
+  if (reference) {
+    const withinReference = candidates.filter((candidate) => candidate <= reference * 1.1);
+    if (withinReference.length > 0 && amount > reference) {
+      return chooseLineAmountCandidate(withinReference, rate, quantity);
+    }
+  }
+
+  if (String(value).replace(/[^\d]/g, '').length >= 4 && !String(value).includes('.')) {
+    return chooseLineAmountCandidate(candidates, rate, quantity);
+  }
+
+  return round2(amount);
+}
+
+function getLineAmountCandidates(item) {
+  const base = item.__rawItemTotal ?? item.itemTotal ?? 0;
+  const amount = Number(base);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return [round2(item.itemTotal || 0)];
+  }
+
+  const candidates = new Set([round2(amount)]);
+  if (String(base).replace(/[^\d]/g, '').length >= 4 && !String(base).includes('.')) {
+    candidates.add(round2(amount / 10));
+    candidates.add(round2(amount / 100));
+  }
+
+  if (item.quantity > 0 && item.rate > 0) {
+    candidates.add(round2(item.quantity * item.rate));
+  }
+
+  return [...candidates].filter((candidate) => candidate > 0).sort((a, b) => b - a);
+}
+
+function reconcileItemTotalsToGross(items, grossTotal) {
+  if (!grossTotal || !Array.isArray(items) || items.length === 0) return;
+  if (items.length > 14) return;
+
+  const candidateSets = items.map(getLineAmountCandidates);
+  let bestChoice = null;
+
+  function walk(index, runningSum, chosen) {
+    if (index === candidateSets.length) {
+      const diff = Math.abs(round2(grossTotal - runningSum));
+      if (!bestChoice || diff < bestChoice.diff) {
+        bestChoice = { diff, chosen: [...chosen] };
+      }
+      return;
+    }
+
+    for (const candidate of candidateSets[index]) {
+      chosen.push(candidate);
+      walk(index + 1, round2(runningSum + candidate), chosen);
+      chosen.pop();
+    }
+  }
+
+  walk(0, 0, []);
+
+  if (!bestChoice || bestChoice.diff > 2) return;
+
+  items.forEach((item, index) => {
+    item.itemTotal = round2(bestChoice.chosen[index]);
+    if (item.quantity > 0 && item.itemTotal > 0) {
+      const impliedRate = item.itemTotal / item.quantity;
+      const rateRatio = item.rate > 0 ? impliedRate / item.rate : 0;
+      if (!item.rate || item.rate <= 5 || Math.abs(rateRatio - 10) < 0.2 || Math.abs(rateRatio - 100) < 0.2) {
+        item.rate = round2(impliedRate);
+      }
+    }
+    if ((!item.quantity || item.quantity === 0) && item.rate > 0 && item.itemTotal > 0) {
+      const qty = item.itemTotal / item.rate;
+      if (isPlausibleQuantity(qty)) item.quantity = Math.round(qty);
+    }
+  });
+}
+
+function normalizeDerivedLineValues(items) {
+  items.forEach((item) => {
+    const qty = Number(item.quantity) || 0;
+    const rate = Number(item.rate) || 0;
+    const itemTotal = Number(item.itemTotal) || 0;
+
+    if (qty >= 100 && rate > 0 && itemTotal > 0) {
+      const mergedQty = qty / 10;
+      if (Number.isInteger(mergedQty) && Math.abs(itemTotal / rate - mergedQty) < 0.1) {
+        item.quantity = mergedQty;
+      }
+    }
+
+    if ((!item.quantity || item.quantity === 0) && rate > 0 && itemTotal > 0) {
+      const inferredQty = itemTotal / rate;
+      if (isPlausibleQuantity(inferredQty)) {
+        item.quantity = Math.round(inferredQty);
+      }
+    }
+
+    if ((Number(item.quantity) || 0) > 0 && rate > 0 && itemTotal > 0) {
+      const expected = round2((Number(item.quantity) || 0) * rate);
+      if (Math.abs(expected - itemTotal) <= 0.5) {
+        item.itemTotal = expected;
+      }
+    }
+  });
+}
+
+function chooseLineAmountCandidate(candidates, rate, quantity) {
+  if (!candidates.length) return 0;
+  if (rate > 0) {
+    const integerQtyCandidates = candidates
+      .map((candidate) => ({
+        candidate,
+        qty: candidate / rate,
+        integerDistance: Math.abs(candidate / rate - Math.round(candidate / rate)),
+      }))
+      .filter(({ qty }) => qty >= 1 && qty <= 500)
+      .sort((a, b) => a.integerDistance - b.integerDistance || b.candidate - a.candidate);
+
+    if (integerQtyCandidates.length > 0 && integerQtyCandidates[0].integerDistance < 0.05) {
+      return integerQtyCandidates[0].candidate;
+    }
+  }
+
+  if (quantity > 0 && rate > 0) {
+    const expected = quantity * rate;
+    return candidates
+      .slice()
+      .sort((a, b) => Math.abs(a - expected) - Math.abs(b - expected))[0];
+  }
+
+  return candidates[0];
+}
+
+function isPlausibleQuantity(value) {
+  return Number.isFinite(value) && value >= 1 && value <= 500 && Math.abs(value - Math.round(value)) < 0.05;
+}
+
+function repairItemTotalRemainder(items, grossTotal) {
+  if (!grossTotal || !items.length) return;
+
+  const sum = round2(items.reduce((total, item) => total + (Number(item.itemTotal) || 0), 0));
+  const difference = round2(grossTotal - sum);
+  if (Math.abs(difference) === 0 || Math.abs(difference) > 1) return;
+
+  const prioritized = items
+    .map((item, index) => ({
+      index,
+      priority: Number(item.__adjustPriority) || 0,
+      mismatch: Math.abs((Number(item.itemTotal) || 0) - ((Number(item.quantity) || 0) * (Number(item.rate) || 0))),
+    }))
+    .sort((a, b) => b.priority - a.priority || b.mismatch - a.mismatch || b.index - a.index);
+
+  const adjustableIndex = items.findIndex((item) => {
+    const total = Number(item.itemTotal) || 0;
+    const qty = Number(item.quantity) || 0;
+    const rate = Number(item.rate) || 0;
+    return total > 0 && (!qty || !rate || Math.abs(total - qty * rate) > 0.01);
+  });
+
+  const index = adjustableIndex >= 0
+    ? adjustableIndex
+    : prioritized.find((entry) => items[entry.index] && (Number(items[entry.index].itemTotal) || 0) > 0)?.index ?? (items.length - 1);
+  items[index].itemTotal = round2((Number(items[index].itemTotal) || 0) + difference);
+}
+
+function extractTotalsFromOcrText(text = '') {
+  const totals = {};
+  if (!text || typeof text !== 'string') return totals;
+
+  const grandMatch = text.match(/GRAND\s*TOTAL[^\d]*(\d+(?:\.\d+)?)/i);
+  if (grandMatch) totals.grandTotal = normalizePrintedMoney(grandMatch[1]);
+
+  const subtotalMatches = [...text.matchAll(/SUB\s*TOTAL[^\d]*(\d+(?:\.\d+)?)/gi)];
+  if (subtotalMatches.length > 0) {
+    totals.taxableSubtotal = normalizePrintedMoney(subtotalMatches[subtotalMatches.length - 1][1]);
+  }
+
+  const sgstMatch = text.match(/SGST\s*PAY\w*[^\d]*(\d+(?:\.\d+)?)/i);
+  if (sgstMatch) totals.sgst = normalizePrintedMoney(sgstMatch[1]);
+
+  const cgstMatch = text.match(/CGST\s*PAY\w*[^\d]*(\d+(?:\.\d+)?)/i);
+  if (cgstMatch) totals.cgst = normalizePrintedMoney(cgstMatch[1]);
+
+  const gst5Line = text.split(/\r?\n/).find((line) => /GST\s*5\s*%/i.test(line));
+  if (gst5Line) {
+    const values = gst5Line.match(/\d+(?:\.\d+)?/g) || [];
+    if (values.length >= 6) {
+      const moneyValues = values.slice(1).map(normalizePrintedMoney);
+      totals.grossTotal = moneyValues[0];
+      totals.schemeAmount = moneyValues[1];
+      totals.discountAmount = moneyValues[2];
+      totals.sgst = moneyValues[3] ?? totals.sgst;
+      totals.cgst = moneyValues[4] ?? totals.cgst;
+      totals.totalGst = moneyValues[5];
+    }
+  }
+
+  if (!totals.totalGst && (totals.sgst || totals.cgst)) {
+    totals.totalGst = round2((totals.sgst || 0) + (totals.cgst || 0));
+  }
+
+  return totals;
 }
 
 function inferGstPercent(item) {
@@ -701,7 +1020,7 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
   const itemResult = parseJsonResponse(itemsText);
   console.log(`[AIService] Gemini Vision item-table fields:\n${truncateForLog(itemResult)}`);
   const parsed = mergeParsedBill(metadata, itemResult);
-  const normalized = normalizeBillData(parsed);
+  const normalized = normalizeBillData(parsed, ocrTextHint);
 
   console.log(`[AIService] ✓ Gemini Vision parsed: ${normalized.items?.length || 0} items`);
   logAiFilledData('Gemini Vision final', normalized);
@@ -729,7 +1048,7 @@ async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', oc
     console.log(`[AIService] Groq Vision item-table fields:\n${truncateForLog(itemPass)}`);
 
     const mergedParsed = mergeParsedBill(metadataPass, itemPass);
-    const normalizedMulti = normalizeBillData(mergedParsed);
+    const normalizedMulti = normalizeBillData(mergedParsed, ocrTextHint);
 
     console.log('[AIService] Vision parsed bill data successfully');
     console.log(`[AIService] Extracted: ${normalizedMulti.items?.length || 0} items`);
@@ -781,7 +1100,7 @@ async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', oc
     }
 
     const parsed = JSON.parse(jsonText);
-    const normalized = normalizeBillData(parsed);
+    const normalized = normalizeBillData(parsed, ocrTextHint);
 
     console.log('[AIService] ✓ Vision parsed bill data successfully');
     console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
