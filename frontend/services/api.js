@@ -173,22 +173,44 @@ export const userApi = {
 
 export const billApi = {
   /**
+   * Parse a bill image on the backend with Vision AI.
+   * Keeps OCR/AI models out of the mobile APK and lets the server choose
+   * the best parser/fallbacks.
+   */
+  parseBillImage: async (imageUri, mimeType = 'image/jpeg') => {
+    const extension = mimeType.includes('png') ? 'png' : 'jpg';
+    const formData = new FormData();
+
+    formData.append('image', {
+      uri: imageUri,
+      name: `bill.${extension}`,
+      type: mimeType,
+    });
+
+    const response = await apiUpload('/ai/parse-image', formData);
+    console.log('[OCR/AI RESPONSE] Backend returned this data:', JSON.stringify(response, null, 2));
+    console.log('[OCR EXTRACTED TEXT]', response.ocrText || 'No OCR text returned');
+    console.log('[AI FILLED DATA]', JSON.stringify(response.data || {}, null, 2));
+    return response;
+  },
+
+  /**
    * Save parsed bill data to backend
-   * Frontend handles OCR (ML Kit) and parsing (Gemini/Groq)
-   * Backend just saves the data
+   * Image parsing happens on the backend; this endpoint persists reviewed data.
    * @param {string} userId - User ID
-   * @param {Object} parsedData - Parsed bill data from Gemini/Groq
-   * @param {string} ocrText - Raw OCR text from ML Kit
+   * @param {Object} parsedData - Parsed bill data from backend Vision/AI
+   * @param {string} ocrText - Optional raw OCR text, when available
    * @param {string} imageUri - Image URI
    * @returns {Promise} Response with saved bill info
    */
-  saveBill: async (userId, parsedData, ocrText, imageUri) => {
+  saveBill: async (userId, parsedData, ocrText, imageUri, ocrEngine = 'vision-ai') => {
     return apiFetch(`/bills/${userId}/save`, {
       method: 'POST',
       body: JSON.stringify({
         parsedData,
         ocrText,
-        imageUri
+        imageUri,
+        ocrEngine,
       }),
     });
   },
@@ -215,10 +237,10 @@ export const billApi = {
   /**
    * Save bill as draft (no product sync)
    */
-  saveDraft: async (userId, parsedData, ocrText, imageUri) => {
+  saveDraft: async (userId, parsedData, ocrText, imageUri, ocrEngine = 'vision-ai') => {
     return apiFetch(`/bills/${userId}/draft`, {
       method: 'POST',
-      body: JSON.stringify({ parsedData, ocrText, imageUri }),
+      body: JSON.stringify({ parsedData, ocrText, imageUri, ocrEngine }),
     });
   },
 

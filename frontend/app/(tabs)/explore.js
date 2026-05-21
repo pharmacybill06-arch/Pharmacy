@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Pressable, View, SafeAreaView, StyleSheet } from 'react-native';
+import { Pressable, SafeAreaView } from 'react-native';
 import BillUploadScreen from '@/components/screens/BillUploadScreen';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
@@ -7,9 +7,9 @@ import LoadingOverlay from '@/components/ui/LoadingOverlay';
 import { billApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { Ionicons } from '@expo/vector-icons';
 import { parseSpreadsheetFile, isSpreadsheetFile } from '@/components/bill-form/spreadsheet-parser';
 
@@ -21,8 +21,6 @@ try {
   console.warn('[ExploreScreen] expo-document-picker not available:', e.message);
 }
 
-const SPREADSHEET_SUPPORT_ENABLED = !!DocumentPicker;
-
 export default function ExploreScreen() {
   const { user } = useAuth();
   const router = useRouter();
@@ -31,6 +29,7 @@ export default function ExploreScreen() {
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rawOcrText, setRawOcrText] = useState('');
+  const [ocrEngine, setOcrEngine] = useState('vision-ai');
   const [photoUri, setPhotoUri] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
   const [parsedFileData, setParsedFileData] = useState(null); // For CSV/Excel pre-parsed data
@@ -47,6 +46,46 @@ export default function ExploreScreen() {
   };
 
   // ===== HANDLERS =====
+  const prepareImageForScanning = async (assetOrUri) => {
+    const uri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
+    const width = typeof assetOrUri === 'string' ? null : assetOrUri?.width;
+    const height = typeof assetOrUri === 'string' ? null : assetOrUri?.height;
+
+    if (!uri) {
+      throw new Error('Image URI is missing');
+    }
+
+    const maxSide = 2000;
+    const longestSide = Math.max(width || 0, height || 0);
+    const resizeAction = longestSide > maxSide
+      ? [{
+          resize: width >= height
+            ? { width: maxSide }
+            : { height: maxSide },
+        }]
+      : [];
+
+    const normalized = await ImageManipulator.manipulateAsync(
+      uri,
+      resizeAction,
+      {
+        compress: 0.9,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+
+    console.log(
+      '[BillScan] Normalized image:',
+      `${width || '?'}x${height || '?'} -> ${normalized.width}x${normalized.height}`,
+      normalized.uri
+    );
+
+    return {
+      uri: normalized.uri,
+      mimeType: 'image/jpeg',
+    };
+  };
+
   const handlePickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -56,7 +95,8 @@ export default function ExploreScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        await processImage(result.assets[0].uri);
+        const preparedImage = await prepareImageForScanning(result.assets[0]);
+        await processImage(preparedImage.uri, preparedImage.mimeType);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -120,6 +160,7 @@ export default function ExploreScreen() {
       setParsedFileData(parsedData);
       setFileOcrText(''); // No OCR text needed for spreadsheets
       setRawOcrText('');  // Clear any previous OCR text
+      setOcrEngine('spreadsheet-import');
       setCurrentScreen('bill-form');
 
       showToast(
@@ -176,9 +217,10 @@ export default function ExploreScreen() {
           skipProcessing: false,
         });
         console.log('[Camera] Photo captured:', photo.uri);
-        setPhotoUri(photo.uri);
+        const preparedImage = await prepareImageForScanning(photo);
+        setPhotoUri(preparedImage.uri);
         setCameraActive(false);
-        await processImage(photo.uri);
+        await processImage(preparedImage.uri, preparedImage.mimeType);
       } catch (error) {
         console.error('[Camera] Error capturing photo:', error);
         showToast('Failed to capture photo. Please try again.', 'error', 'Error');
@@ -189,31 +231,33 @@ export default function ExploreScreen() {
     }
   };
 
-  const processImage = async (imageUri) => {
+  const processImage = async (imageUri, mimeType = 'image/jpeg') => {
     setScanning(true);
     setPhotoUri(imageUri);
     
     try {
-      const result = await TextRecognition.recognize(imageUri);
+      console.log('[BillScan] Sending image to backend Vision parser:', imageUri);
+      const result = await billApi.parseBillImage(imageUri, mimeType);
 
-      if (result && result.text) {
-        console.log('ML Kit Result:', result);
-        console.log('Extracted text length:', result.text.length, 'characters');
-        
-        setRawOcrText(result.text);  
-        
-        // Navigate directly to bill-form screen (parsing will happen there)
-        // The BillFormRedesigned component will handle Gemini parsing with loading UX
+      if (result?.success && result?.data) {
+        console.log('[BillScan] Backend Vision parsed items:', result.data?.items?.length || 0);
+        setParsedFileData(result.data);
+        setRawOcrText(result.ocrText || '');
+        setOcrEngine(result.method || 'vision-ai');
         setCurrentScreen('bill-form');
       } else {
-        console.log('No text found in image');
-        // Even if no text found, navigate to bill form so user can enter manually
-        setRawOcrText('');
-        setCurrentScreen('bill-form');
+        throw new Error(result?.error || 'No bill data extracted from image');
       }
     } catch (error) {
-      console.error('ML Kit OCR Error:', error);
-      showToast('Failed to extract text from image', 'error', 'OCR Error');
+      console.error('[BillScan] Backend OCR/Vision error:', error);
+      setParsedFileData(null);
+      setRawOcrText('');
+      setCurrentScreen('bill-form');
+      showToast(
+        error.message || 'Failed to scan bill. You can still enter it manually.',
+        'error',
+        'Scan Failed'
+      );
     } finally {
       setScanning(false);
     }
@@ -238,7 +282,8 @@ export default function ExploreScreen() {
         user.id,
         formData,
         rawOcrText,
-        photoUri
+        photoUri,
+        ocrEngine
       );
       
       console.log('Bill saved to backend:', response);
@@ -249,6 +294,7 @@ export default function ExploreScreen() {
         setCurrentScreen('upload');
         setRawOcrText('');
         setPhotoUri('');
+        setOcrEngine('vision-ai');
         setParsedFileData(null);
         setFileOcrText('');
       }, 1500);
@@ -264,6 +310,7 @@ export default function ExploreScreen() {
     setCurrentScreen('upload');
     setRawOcrText('');
     setPhotoUri('');
+    setOcrEngine('vision-ai');
     setCameraActive(false);
     setParsedFileData(null);
     setFileOcrText('');
@@ -285,7 +332,8 @@ export default function ExploreScreen() {
         user.id,
         formData,
         rawOcrText,
-        photoUri
+        photoUri,
+        ocrEngine
       );
       
       console.log('Draft saved to backend:', response);
@@ -295,6 +343,7 @@ export default function ExploreScreen() {
         setCurrentScreen('upload');
         setRawOcrText('');
         setPhotoUri('');
+        setOcrEngine('vision-ai');
         setParsedFileData(null);
         setFileOcrText('');
       }, 1500);
@@ -396,6 +445,12 @@ export default function ExploreScreen() {
           title={toast.title}
           onHide={hideToast}
           duration={3000}
+        />
+        <LoadingOverlay
+          visible={scanning}
+          message="Scanning Bill"
+          submessage="Uploading image for AI extraction..."
+          icon="scan"
         />
       </>
     );

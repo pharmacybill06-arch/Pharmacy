@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Modal, StyleSheet } from 'react-native';
+import { View, Modal } from 'react-native';
 import BillFormScreen from '@/components/screens/BillFormScreen';
 import Toast from '@/components/ui/Toast';
 import LoadingOverlay from '@/components/ui/LoadingOverlay';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import ItemRowEditor from './ItemRowEditor';
 import DistributorFormScreen from '@/components/screens/DistributorFormScreen';
-import { distributorApi, gstinApi } from '@/services/api';
+import { distributorApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   calculateParseConfidence,
@@ -113,7 +112,8 @@ export default function BillFormRedesigned({
     items: initialData?.items || [],
     subtotal: initialData?.subtotal || 0,
     discountPercent: initialData?.discountPercent || 0, // Changed from discount to discountPercent
-    discount: initialData?.discount || 0, // Keep calculated discount amount
+    discount: initialData?.discountAmount ?? initialData?.discount ?? 0, // Keep discount amount
+    discountAmount: initialData?.discountAmount ?? initialData?.discount ?? 0,
     cgst: initialData?.cgst || 0,
     cgstPercent: initialData?.cgstPercent || 0,
     sgst: initialData?.sgst || 0,
@@ -127,7 +127,9 @@ export default function BillFormRedesigned({
   const [geminiError, setGeminiError] = useState(null);
   const [geminiConfidence, setGeminiConfidence] = useState(null);
   const [itemsNeedingManualReview, setItemsNeedingManualReview] = useState(0);
-  const [editingItemIndex, setEditingItemIndex] = useState(null);
+  const [preserveParsedTotals, setPreserveParsedTotals] = useState(
+    !!(initialData?.items?.length && initialData?.grandTotal)
+  );
 
   // Distributor state
   const [selectedDistributor, setSelectedDistributor] = useState(initialData?.distributor || null);
@@ -157,7 +159,7 @@ export default function BillFormRedesigned({
   // Calculate totals whenever items or tax fields change
   useEffect(() => {
     calculateTotals();
-  }, [formData.items, formData.discountPercent, formData.cgst, formData.sgst, formData.roundOff]);
+  }, [formData.items, formData.discountPercent, formData.discountAmount, formData.cgst, formData.sgst, formData.roundOff, preserveParsedTotals]);
 
   // Parse OCR text with Gemini when provided
   useEffect(() => {
@@ -237,11 +239,21 @@ export default function BillFormRedesigned({
       return;
     }
 
+    if (preserveParsedTotals) {
+      return;
+    }
+
     // Calculate subtotal as sum of all item totals
     let subtotal = 0;
 
     formData.items.forEach((item) => {
       // Always calculate: Qty × Rate - Discount for consistency
+      const parsedItemTotal = Number(item.itemTotal);
+      if (Number.isFinite(parsedItemTotal) && parsedItemTotal > 0) {
+        subtotal += parsedItemTotal;
+        return;
+      }
+
       const quantity = Number(item.quantity) || 0;
       const rate = Number(item.rate) || 0;
       const itemDiscount = Number(item.discount) || 0;
@@ -253,7 +265,10 @@ export default function BillFormRedesigned({
 
     // Calculate discount amount from percentage
     const discountPercent = Number(formData.discountPercent) || 0;
-    const discountAmount = (subtotal * discountPercent) / 100;
+    const explicitDiscount = Number(formData.discountAmount ?? formData.discount);
+    const discountAmount = Number.isFinite(explicitDiscount) && explicitDiscount > 0
+      ? explicitDiscount
+      : (subtotal * discountPercent) / 100;
 
     // Get user-entered values (editable)
     const cgst = Number(formData.cgst) || 0;
@@ -268,6 +283,7 @@ export default function BillFormRedesigned({
       ...prev,
       subtotal: subtotal,
       discount: Math.round(discountAmount * 100) / 100, // Store calculated discount amount
+      discountAmount: Math.round(discountAmount * 100) / 100,
       totalGst: Math.round(totalGst * 100) / 100,
       grandTotal: Math.round(grandTotal * 100) / 100,
     }));
@@ -278,14 +294,82 @@ export default function BillFormRedesigned({
   };
 
   const updateInvoiceMetadata = (metadata) => {
+    setPreserveParsedTotals(false);
     setFormData((prev) => ({ ...prev, ...metadata }));
   };
 
   const updateItems = (items) => {
+    setPreserveParsedTotals(false);
     setFormData((prev) => ({ ...prev, items }));
   };
 
+  const numericItemFields = new Set([
+    'sn',
+    'quantity',
+    'freeQuantity',
+    'mrp',
+    'rate',
+    'discountPercent',
+    'sgstPercent',
+    'cgstPercent',
+    'itemTotal',
+  ]);
+
+  const formatExpiryDateInput = (value) => {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  };
+
+  const updateItemCell = (index, field, value) => {
+    setPreserveParsedTotals(false);
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+
+        const cellValue = field === 'expiryDate' ? formatExpiryDateInput(value) : value;
+        const numericValue = Number(cellValue);
+        const parsedValue = numericItemFields.has(field)
+          ? cellValue === '' || Number.isNaN(numericValue)
+            ? ''
+            : numericValue
+          : cellValue;
+
+        const updatedItem = {
+          ...item,
+          [field]: parsedValue,
+          humanVerified: false,
+          needsReview: true,
+        };
+
+        if (['quantity', 'rate', 'discountPercent'].includes(field)) {
+          const quantity = Number(updatedItem.quantity) || 0;
+          const rate = Number(updatedItem.rate) || 0;
+          const discountPercent = Number(updatedItem.discountPercent) || 0;
+          const discountAmount = Math.round((quantity * rate * discountPercent / 100) * 100) / 100;
+          updatedItem.discount = discountAmount;
+          updatedItem.itemTotal = Math.round((quantity * rate - discountAmount) * 100) / 100;
+        }
+
+        return updatedItem;
+      }),
+    }));
+  };
+
+  const markItemVerified = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, humanVerified: true, needsReview: false, reviewReason: [] }
+          : item
+      ),
+    }));
+  };
+
   const updateRoundOff = (roundOff) => {
+    setPreserveParsedTotals(false);
     setFormData((prev) => ({ ...prev, roundOff }));
   };
 
@@ -367,6 +451,9 @@ export default function BillFormRedesigned({
       discount: 0,
       gstPercent: 0,
       itemTotal: 0,
+      humanVerified: false,
+      needsReview: true,
+      reviewReason: ['New row needs human verification'],
     };
     updateItems([...formData.items, newItem]);
   };
@@ -439,27 +526,8 @@ export default function BillFormRedesigned({
     setDistributorMode(mode);
   };
 
-  const handleEditItem = (index) => {
-    // Set the item to be edited (inline editing mode)
-    setEditingItemIndex(index);
-  };
-
-  const handleUpdateEditingItem = (updatedFields) => {
-    if (editingItemIndex === null) return;
-    
-    const updatedItems = [...formData.items];
-    updatedItems[editingItemIndex] = {
-      ...updatedItems[editingItemIndex],
-      ...updatedFields,
-    };
-    
-    updateItems(updatedItems);
-  };
-
-  const handleRemoveEditingItem = () => {
-    if (editingItemIndex === null) return;
-    // Show confirm dialog instead of directly removing
-    setRemoveDialog({ visible: true, itemIndex: editingItemIndex });
+  const handleRemoveItem = (index) => {
+    setRemoveDialog({ visible: true, itemIndex: index });
   };
 
   const confirmRemoveItem = () => {
@@ -467,7 +535,6 @@ export default function BillFormRedesigned({
     
     const updatedItems = formData.items.filter((_, index) => index !== removeDialog.itemIndex);
     updateItems(updatedItems);
-    setEditingItemIndex(null);
     setRemoveDialog({ visible: false, itemIndex: null });
     
     // Show success toast
@@ -478,10 +545,6 @@ export default function BillFormRedesigned({
     setRemoveDialog({ visible: false, itemIndex: null });
   };
 
-  const handleSaveEditingItem = () => {
-    setEditingItemIndex(null);
-  };
-
   const handleSaveDraft = () => {
     if (onSaveDraft) {
       onSaveDraft(formData);
@@ -489,6 +552,19 @@ export default function BillFormRedesigned({
   };
 
   const handleSubmit = () => {
+    const pendingReviewCount = formData.items.filter(
+      (item) => item.needsReview || item.humanVerified !== true
+    ).length;
+
+    if (pendingReviewCount > 0) {
+      showToast(
+        `Please verify ${pendingReviewCount} item row${pendingReviewCount === 1 ? '' : 's'} before saving.`,
+        'warning',
+        'Review Required'
+      );
+      return;
+    }
+
     // Validation
     // if (!formData.pharmacyName.trim()) {
     //   Alert.alert('Validation Error', 'Pharmacy name is required');
@@ -539,17 +615,15 @@ export default function BillFormRedesigned({
         onUpdateItems={updateItems}
         onUpdateRoundOff={updateRoundOff}
         onAddItem={handleAddItem}
-        onEditItem={handleEditItem}
+        onUpdateItemCell={updateItemCell}
+        onRemoveItem={handleRemoveItem}
+        onVerifyItem={markItemVerified}
         onSubmit={handleSubmit}
         onSaveDraft={onSaveDraft ? handleSaveDraft : undefined}
         onCancel={onCancel}
         geminiLoading={geminiLoading}
         geminiConfidence={geminiConfidence}
         itemsNeedingManualReview={itemsNeedingManualReview}
-        editingItemIndex={editingItemIndex}
-        onUpdateEditingItem={handleUpdateEditingItem}
-        onRemoveEditingItem={handleRemoveEditingItem}
-        onSaveEditingItem={handleSaveEditingItem}
         // Distributor props
         selectedDistributor={selectedDistributor}
         distributorSearchQuery={distributorSearchQuery}

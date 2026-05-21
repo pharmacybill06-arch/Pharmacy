@@ -19,9 +19,9 @@
     "android": {
       "package": "com.yourcompany.pharmacybillapp",
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -54,7 +54,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

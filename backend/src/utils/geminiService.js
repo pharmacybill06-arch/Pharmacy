@@ -5,7 +5,9 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 let groqClient = null;
 // Initialize Gemini AI
 let geminiModel = null;
+let geminiTextModel = null;
 const MAX_AI_LOG_CHARS = Number(process.env.AI_LOG_MAX_CHARS || 20000);
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 function truncateForLog(value, maxChars = MAX_AI_LOG_CHARS) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -59,6 +61,23 @@ function logAiRawResponse(source, text) {
   console.log(`[AIService] ${source} raw response:\n${truncateForLog(text)}`);
 }
 
+function extractJsonObject(text) {
+  let jsonText = String(text || '').trim();
+  if (jsonText.startsWith('```json')) {
+    jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
+  } else if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
+  }
+
+  const start = jsonText.indexOf('{');
+  const end = jsonText.lastIndexOf('}');
+  if (start !== -1 && end !== -1) {
+    jsonText = jsonText.slice(start, end + 1);
+  }
+
+  return JSON.parse(jsonText);
+}
+
 function initializeGemini() {
   const apiKey = process.env.GROQ_API_KEY;
   
@@ -86,17 +105,42 @@ function initializeGeminiVision() {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     geminiModel = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: GEMINI_MODEL,
       generationConfig: {
         temperature: 0,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
     });
-    console.log('[AIService] ✓ Gemini Vision (gemini-2.0-flash) initialized');
+    console.log(`[AIService] Gemini Vision (${GEMINI_MODEL}) initialized`);
     return true;
   } catch (error) {
     console.error('[AIService] ✗ Failed to initialize Gemini Vision:', error.message);
+    return false;
+  }
+}
+
+function initializeGeminiText() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('[AIService] GEMINI_API_KEY not found - Gemini text parser disabled');
+    return false;
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    geminiTextModel = genAI.getGenerativeModel({
+      model: GEMINI_MODEL,
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      },
+    });
+    console.log(`[AIService] Gemini text parser (${GEMINI_MODEL}) initialized`);
+    return true;
+  } catch (error) {
+    console.error('[AIService] Failed to initialize Gemini text parser:', error.message);
     return false;
   }
 }
@@ -107,14 +151,6 @@ function initializeGeminiVision() {
  * @returns {Promise<Object>} Parsed bill data
  */
 async function parseOcrWithGemini(ocrText) {
-  // Initialize if not already done
-  if (!groqClient) {
-    const initialized = initializeGemini();
-    if (!initialized) {
-      throw new Error('Groq AI is not configured. Please set GROQ_API_KEY in .env');
-    }
-  }
-
   const prompt = `
 You are an expert Indian pharmacy invoice parser. Parse the OCR text below into structured JSON.
 
@@ -229,6 +265,39 @@ OCR TEXT:
 ${ocrText}
 `;
 
+  if (!geminiTextModel) {
+    initializeGeminiText();
+  }
+
+  if (geminiTextModel) {
+    try {
+      console.log(`[AIService] Sending request to Gemini text parser (${GEMINI_MODEL})...`);
+      const result = await geminiTextModel.generateContent(prompt);
+      const text = result.response.text();
+      console.log('[AIService] Received response from Gemini text parser');
+      logAiRawResponse('Gemini text parser', text);
+
+      const parsed = extractJsonObject(text);
+      const normalized = normalizeBillData(parsed, ocrText);
+
+      console.log('[AIService] Successfully parsed bill data with Gemini text parser');
+      console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
+      logAiFilledData('Gemini text parser', normalized);
+
+      return normalized;
+    } catch (error) {
+      console.warn('[AIService] Gemini text parser failed, trying Groq fallback:', error.message);
+    }
+  }
+
+  // Initialize Groq fallback if not already done
+  if (!groqClient) {
+    const initialized = initializeGemini();
+    if (!initialized) {
+      throw new Error('Gemini and Groq AI are not configured. Please set GEMINI_API_KEY or GROQ_API_KEY in .env');
+    }
+  }
+
   try {
     console.log('[AIService] Sending request to Groq AI (llama-3.3-70b-versatile)...');
     const chatCompletion = await groqClient.chat.completions.create({
@@ -251,23 +320,7 @@ ${ocrText}
     const text = chatCompletion.choices[0]?.message?.content || '';
     console.log('[AIService] ✓ Received response from Groq');
     logAiRawResponse('Groq text parser', text);
-    
-    // Extract JSON from response (remove markdown if present)
-    let jsonText = text.trim();
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
-    } else if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
-    }
-
-    // Find JSON object
-    const start = jsonText.indexOf('{');
-    const end = jsonText.lastIndexOf('}');
-    if (start !== -1 && end !== -1) {
-      jsonText = jsonText.slice(start, end + 1);
-    }
-
-    const parsed = JSON.parse(jsonText);
+    const parsed = extractJsonObject(text);
     
     // Normalize the data
     const normalized = normalizeBillData(parsed, ocrText);

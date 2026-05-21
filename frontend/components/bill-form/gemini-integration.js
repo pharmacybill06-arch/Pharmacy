@@ -257,13 +257,10 @@ async function generateViaGroqFallback(apiKey, prompt) {
 
 async function callBackendParser(ocrText, backendUrl) {
   try {
-    // ✅ FIX: backendUrl already contains "/api", so don't append it again
     const base = backendUrl.replace(/\/$/, '');
-    // If base already ends with /api, just append /parse-ocr
-    // Otherwise append /parse-ocr directly
     const url = base.endsWith('/api')
-      ? `${base}/parse-ocr`
-      : `${base}/api/parse-ocr`;
+      ? `${base}/ai/parse-ocr`
+      : `${base}/api/ai/parse-ocr`;
 
     const res = await fetch(url, {
       method: 'POST',
@@ -1055,6 +1052,7 @@ function formatItems(items) {
     cgstPercent: item.cgstPercent ? Number(item.cgstPercent) : undefined,
     gstPercent: Number(item.gstPercent) || 0,
     itemTotal: item.itemTotal ? Number(item.itemTotal) : undefined,
+    humanVerified: item.humanVerified === true,
     needsReview: item.needsReview === true,
     reviewReason: item.reviewReason || [],
   }));

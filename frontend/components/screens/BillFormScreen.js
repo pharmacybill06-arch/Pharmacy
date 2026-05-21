@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   Platform,
+  TextInput,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -15,19 +16,39 @@ import CollapsibleSection from '@/components/ui/CollapsibleSection';
 import FormInput from '@/components/ui/FormInput';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import PrimaryButton from '@/components/ui/PrimaryButton';
-import Card from '@/components/ui/Card';
-import Chip from '@/components/ui/Chip';
-import ItemRowEditor from '@/components/bill-form/ItemRowEditor';
 import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
 import GSTLookup from '@/components/ui/GSTLookup';
 import { useAuth } from '@/contexts/AuthContext';
 
+const REVIEW_COLUMNS = [
+  { key: 'sn', label: 'SN', width: 48, align: 'center', keyboardType: 'number-pad' },
+  { key: 'quantity', label: 'QTY', width: 64, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'freeQuantity', label: 'FREE', width: 64, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'name', label: 'ITEM NAME & PACKING', width: 230 },
+  { key: 'manufacturer', label: 'MFR', width: 96 },
+  { key: 'batchNumber', label: 'BATCH', width: 104 },
+  { key: 'expiryDate', label: 'EXP', width: 78, keyboardType: 'number-pad', placeholder: 'MM/YY' },
+  { key: 'hsnCode', label: 'HSN', width: 82, keyboardType: 'number-pad' },
+  { key: 'mrp', label: 'MRP', width: 82, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'rate', label: 'RATE', width: 82, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'discountPercent', label: 'DIS %', width: 72, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'sgstPercent', label: 'SGST', width: 72, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'cgstPercent', label: 'CGST', width: 72, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'itemTotal', label: 'AMOUNT', width: 92, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'status', label: 'CHECK', width: 132, align: 'center' },
+];
+
+const REVIEW_TABLE_WIDTH = REVIEW_COLUMNS.reduce((sum, column) => sum + column.width, 0);
+
 /**
- * Item Row Component for table-like display
+ * Item Row Component for column-based human review
  */
-const ItemRow = ({ item, index, onPress }) => {
-  // Always calculate total from the source fields for consistency
+const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
   const getItemTotal = () => {
+    if (item.itemTotal !== undefined && item.itemTotal !== null && item.itemTotal !== '') {
+      return Math.round((parseFloat(item.itemTotal) || 0) * 100) / 100;
+    }
+
     const qty = parseFloat(item.quantity) || 0;
     const rate = parseFloat(item.rate) || 0;
     const discount = parseFloat(item.discount) || 0;
@@ -36,28 +57,95 @@ const ItemRow = ({ item, index, onPress }) => {
   };
 
   const totalValue = getItemTotal();
+  const isVerified = item.humanVerified === true;
+  const needsReview = item.needsReview || !isVerified;
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.itemRow,
-        pressed && styles.itemRowPressed,
+    <View
+      style={[
+        styles.reviewRow,
+        needsReview && styles.reviewRowNeedsCheck,
       ]}
-      onPress={() => onPress(index)}
     >
-      <View style={styles.itemRowLeft}>
-        <ThemedText style={styles.itemName} numberOfLines={1}>
-          {item.name || item.itemName || `Item ${index + 1}`}
-        </ThemedText>
-        <ThemedText style={styles.itemMeta}>
-          Qty: {item.quantity} {item.unit}
-        </ThemedText>
-      </View>
-      <View style={styles.itemRowRight}>
-        <ThemedText style={styles.itemTotal}>₹{totalValue.toFixed(2)}</ThemedText>
-        <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-      </View>
-    </Pressable>
+      {REVIEW_COLUMNS.map((column) => {
+        const rawValue =
+          column.key === 'sn'
+            ? item.sn || index + 1
+            : column.key === 'itemTotal'
+              ? totalValue
+              : item[column.key] === undefined || item[column.key] === null || item[column.key] === ''
+                ? '-'
+                : item[column.key];
+
+        if (column.key === 'status') {
+          return (
+            <View key={column.key} style={[styles.reviewCell, { width: column.width }]}>
+              <View style={styles.rowActions}>
+                <Pressable
+                  style={[
+                    styles.verifyButton,
+                    isVerified ? styles.verifyButtonDone : styles.verifyButtonPending,
+                  ]}
+                  onPress={() => onVerify(index)}
+                >
+                  <Ionicons
+                    name={isVerified ? 'checkmark-circle' : 'alert-circle-outline'}
+                    size={14}
+                    color={isVerified ? '#047857' : '#B45309'}
+                  />
+                  <ThemedText
+                    style={[
+                      styles.verifyButtonText,
+                      isVerified ? styles.verifyTextDone : styles.verifyTextPending,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {isVerified ? 'Done' : 'Check'}
+                  </ThemedText>
+                </Pressable>
+                <Pressable style={styles.removeIconButton} onPress={() => onRemove(index)}>
+                  <Ionicons name="trash-outline" size={15} color="#DC2626" />
+                </Pressable>
+              </View>
+            </View>
+          );
+        }
+
+        const cellText = rawValue === '-'
+          ? rawValue
+          : column.type === 'money' && Number.isFinite(Number(rawValue))
+            ? Number(rawValue).toFixed(2)
+            : String(rawValue);
+
+        return (
+          <View
+            key={column.key}
+            style={[
+              styles.reviewCell,
+              { width: column.width },
+              column.align === 'right' && styles.reviewCellRight,
+              column.align === 'center' && styles.reviewCellCenter,
+            ]}
+          >
+            <TextInput
+              style={[
+                styles.reviewCellInput,
+                column.key === 'name' && styles.reviewItemName,
+                column.align === 'right' && styles.reviewInputRight,
+                column.align === 'center' && styles.reviewInputCenter,
+                rawValue === '-' && styles.reviewCellEmpty,
+              ]}
+              value={rawValue === '-' ? '' : cellText}
+              onChangeText={(text) => onUpdateCell(index, column.key, text)}
+              placeholder={column.placeholder || '-'}
+              placeholderTextColor="#94A3B8"
+              keyboardType={column.keyboardType || 'default'}
+              selectTextOnFocus
+            />
+          </View>
+        );
+      })}
+    </View>
   );
 };
 
@@ -73,17 +161,15 @@ export default function BillFormScreen({
   onUpdateItems,
   onUpdateRoundOff,
   onAddItem,
-  onEditItem,
   onSubmit,
   onSaveDraft,
   onCancel,
   geminiLoading = false,
   geminiConfidence = null,
   itemsNeedingManualReview = 0,
-  editingItemIndex = null,
-  onUpdateEditingItem,
-  onRemoveEditingItem,
-  onSaveEditingItem,
+  onUpdateItemCell,
+  onRemoveItem,
+  onVerifyItem,
   // Distributor-related props
   selectedDistributor = null,
   distributorSearchQuery = '',
@@ -100,9 +186,14 @@ export default function BillFormScreen({
   const { user } = useAuth();
   const userId = user?.id;
 
-  // Calculate discount amount from percentage
-  const discountAmount = ((formData.subtotal || 0) * ((formData.discountPercent || 0) / 100));
+  // Prefer explicit parsed discount amount; calculate from percent after edits.
+  const discountAmount = formData.discountAmount ?? formData.discount ?? ((formData.subtotal || 0) * ((formData.discountPercent || 0) / 100));
   const taxableAmount = (formData.subtotal || 0) - discountAmount;
+  const itemCount = formData.items?.length || 0;
+  const pendingReviewCount = (formData.items || []).filter(
+    (item) => item.needsReview || item.humanVerified !== true
+  ).length;
+  const canSubmit = itemCount === 0 || pendingReviewCount === 0;
 
   // Local string state for Tax & Totals fields to allow decimal input (e.g. "1." while typing)
   const [localTaxFields, setLocalTaxFields] = useState({
@@ -366,36 +457,59 @@ export default function BillFormScreen({
             icon="list-outline"
             defaultExpanded={true}
           >
+            <View style={styles.reviewSummary}>
+              <View style={styles.reviewSummaryItem}>
+                <ThemedText style={styles.reviewSummaryValue}>{itemCount}</ThemedText>
+                <ThemedText style={styles.reviewSummaryLabel}>Rows</ThemedText>
+              </View>
+              <View style={styles.reviewSummaryDivider} />
+              <View style={styles.reviewSummaryItem}>
+                <ThemedText
+                  style={[
+                    styles.reviewSummaryValue,
+                    pendingReviewCount > 0 ? styles.pendingValue : styles.verifiedValue,
+                  ]}
+                >
+                  {pendingReviewCount}
+                </ThemedText>
+                <ThemedText style={styles.reviewSummaryLabel}>Need check</ThemedText>
+              </View>
+            </View>
+
             <View style={styles.itemsContainer}>
               {formData.items && formData.items.length > 0 ? (
-                formData.items.map((item, index) => (
-                  <View key={index}>
-                    {editingItemIndex === index ? (
-                      // Show inline editor when item is being edited
-                      <View style={styles.editorContainer}>
-                        <ItemRowEditor
-                          item={item}
-                          onUpdate={onUpdateEditingItem}
-                          onRemove={onRemoveEditingItem}
-                          userId={userId}
-                          enableProductSuggestions={!!userId}
-                        />
-                        <PrimaryButton
-                          title="Done Editing"
-                          onPress={onSaveEditingItem}
-                          style={styles.doneButton}
-                        />
-                      </View>
-                    ) : (
-                      // Show item row when not editing
-                      <ItemRow
+                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+                  <View style={[styles.reviewTable, { width: REVIEW_TABLE_WIDTH }]}>
+                    <View style={styles.reviewHeader}>
+                      {REVIEW_COLUMNS.map((column) => (
+                        <View
+                          key={column.key}
+                          style={[
+                            styles.reviewHeaderCell,
+                            { width: column.width },
+                            column.align === 'right' && styles.reviewCellRight,
+                            column.align === 'center' && styles.reviewCellCenter,
+                          ]}
+                        >
+                          <ThemedText style={styles.reviewHeaderText} numberOfLines={1}>
+                            {column.label}
+                          </ThemedText>
+                        </View>
+                      ))}
+                    </View>
+
+                    {formData.items.map((item, index) => (
+                      <ItemReviewRow
+                        key={item.id || index}
                         item={item}
                         index={index}
-                        onPress={onEditItem}
+                        onUpdateCell={onUpdateItemCell}
+                        onVerify={onVerifyItem}
+                        onRemove={onRemoveItem}
                       />
-                    )}
+                    ))}
                   </View>
-                ))
+                </ScrollView>
               ) : (
                 <ThemedText style={styles.emptyText}>
                   No items added yet
@@ -438,7 +552,7 @@ export default function BillFormScreen({
                         setLocalTaxFields(prev => ({ ...prev, discountPercent: text }));
                         const pct = parseFloat(text);
                         if (!isNaN(pct)) {
-                          onUpdateInvoiceMetadata({ discountPercent: pct });
+                          onUpdateInvoiceMetadata({ discountPercent: pct, discountAmount: undefined, discount: undefined });
                         }
                       }}
                       onFocus={() => startEditTaxField('discountPercent', formData.discountPercent)}
@@ -457,7 +571,7 @@ export default function BillFormScreen({
                         if (!isNaN(amt)) {
                           const sub = formData.subtotal || 0;
                           const pct = sub > 0 ? Math.round((amt / sub * 100) * 100) / 100 : 0;
-                          onUpdateInvoiceMetadata({ discountPercent: pct });
+                          onUpdateInvoiceMetadata({ discountPercent: pct, discountAmount: amt, discount: amt });
                         }
                       }}
                       onFocus={() => startEditTaxField('discountAmount', discountAmount)}
@@ -593,9 +707,10 @@ export default function BillFormScreen({
         {/* Sticky Bottom Actions */}
         <View style={styles.stickyActions}>
           <PrimaryButton
-            title="Confirm & Save Bill"
-            icon="checkmark-circle-outline"
+            title={canSubmit ? 'Confirm & Save Bill' : `Verify ${pendingReviewCount} Row${pendingReviewCount === 1 ? '' : 's'} First`}
+            icon={canSubmit ? 'checkmark-circle-outline' : 'alert-circle-outline'}
             onPress={onSubmit}
+            disabled={!canSubmit}
           />
           
           {onSaveDraft && (
@@ -661,6 +776,136 @@ const styles = StyleSheet.create({
   },
   itemsContainer: {
     marginBottom: 12,
+  },
+  reviewSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  reviewSummaryItem: {
+    minWidth: 78,
+  },
+  reviewSummaryValue: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  reviewSummaryLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+  },
+  reviewSummaryDivider: {
+    width: 1,
+    height: 34,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 12,
+  },
+  pendingValue: {
+    color: '#B45309',
+  },
+  verifiedValue: {
+    color: '#047857',
+  },
+  reviewTable: {
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderBottomWidth: 1,
+    borderBottomColor: '#CBD5E1',
+  },
+  reviewHeaderCell: {
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#CBD5E1',
+  },
+  reviewHeaderText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#334155',
+    letterSpacing: 0,
+  },
+  reviewRow: {
+    flexDirection: 'row',
+    minHeight: 48,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+  },
+  reviewRowNeedsCheck: {
+    backgroundColor: '#FFFBEB',
+  },
+  reviewRowPressed: {
+    backgroundColor: '#EEF2FF',
+  },
+  reviewCell: {
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#E2E8F0',
+  },
+  reviewCellRight: {
+    alignItems: 'flex-end',
+  },
+  reviewCellCenter: {
+    alignItems: 'center',
+  },
+  reviewCellText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+    lineHeight: 16,
+  },
+  reviewItemName: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reviewCellEmpty: {
+    color: '#94A3B8',
+  },
+  verifyButton: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderWidth: 1,
+  },
+  verifyButtonPending: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FCD34D',
+  },
+  verifyButtonDone: {
+    backgroundColor: '#D1FAE5',
+    borderColor: '#86EFAC',
+  },
+  verifyButtonText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  verifyTextPending: {
+    color: '#B45309',
+  },
+  verifyTextDone: {
+    color: '#047857',
   },
   itemRow: {
     flexDirection: 'row',

@@ -9,9 +9,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       # Set these in Render dashboard → Environment:
       # DATABASE_URL  → your Neon PostgreSQL connection string
       # GEMINI_API_KEY
+      # GEMINI_MODEL   -> gemini-2.5-flash
       # GROQ_API_KEY
       # JWT_SECRET    → any random 64-char string
       - key: PORT
