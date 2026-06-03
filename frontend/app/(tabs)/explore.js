@@ -7,7 +7,6 @@ import LoadingOverlay from '@/components/ui/LoadingOverlay';
 import { billApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +18,13 @@ try {
   DocumentPicker = require('expo-document-picker');
 } catch (e) {
   console.warn('[ExploreScreen] expo-document-picker not available:', e.message);
+}
+
+let ImageManipulator = null;
+try {
+  ImageManipulator = require('expo-image-manipulator');
+} catch (e) {
+  console.warn('[ExploreScreen] expo-image-manipulator not available:', e.message);
 }
 
 export default function ExploreScreen() {
@@ -55,6 +61,14 @@ export default function ExploreScreen() {
       throw new Error('Image URI is missing');
     }
 
+    if (!ImageManipulator?.manipulateAsync) {
+      console.warn('[BillScan] Image manipulator unavailable; using original image');
+      return {
+        uri,
+        mimeType: typeof assetOrUri === 'string' ? 'image/jpeg' : (assetOrUri?.mimeType || 'image/jpeg'),
+      };
+    }
+
     const maxSide = 2000;
     const longestSide = Math.max(width || 0, height || 0);
     const resizeAction = longestSide > maxSide
@@ -70,7 +84,7 @@ export default function ExploreScreen() {
       resizeAction,
       {
         compress: 0.9,
-        format: ImageManipulator.SaveFormat.JPEG,
+        format: ImageManipulator.SaveFormat?.JPEG || 'jpeg',
       }
     );
 

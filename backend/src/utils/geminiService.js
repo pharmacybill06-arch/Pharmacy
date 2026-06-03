@@ -529,7 +529,6 @@ function normalizeBillData(parsed, sourceText = '') {
     invoiceDate: parsed.invoiceDate || '',
     dueDate: parsed.dueDate || undefined,
     paymentType,
-    
     items: expiryItems,
   };
 }
@@ -945,15 +944,16 @@ Extract EVERY printed item row from the table, from top to bottom. Return ONLY v
 }
 
 Rules:
+- Read the table row-by-row visually from top to bottom. Ensure the items in the output array are in the EXACT SAME ORDER as they are printed in the table.
 - First read the table header row and map each value by visual column position.
-- Extract only item name, batch number, expiry date, and quantity. Ignore MRP, Rate, Discount, GST, HSN, and Amount columns.
-- Expiry date is critical. Read Exp/Expiry/Exp Dt/Exp. columns carefully and preserve the printed value if the full date is unclear.
-- Quantity must come only from the QTY column. Do not use pack-size text inside the item name, such as 10TAB, 30x10, 100+100, as quantity.
+- Extract ONLY item serial number (sn), name, batch number, expiry date, and quantity. Ignore MRP, Rate, Discount, GST, HSN, and Amount columns.
+- Expiry date is critical. Read Exp/Expiry/Exp Dt/Exp. columns carefully and format as MM/YY or MM/YYYY (or preserve the printed value if the full date is unclear).
+- Quantity must come only from the QTY column. Do not use pack-size text inside the item name (e.g., 10TAB, 30x10) as quantity.
 - Keep pack-size text inside the medicine name/unit. Example: "GPM SR 2 TAB 10TAB" can have quantity 20 if the QTY column says 20.
 - Preserve the exact number of item rows visible in the table. Do not summarize or skip rows.
 - If the table spans many rows, continue until the totals/class section begins.
 - If a field is blank or not readable, use null rather than borrowing from a neighboring column.
-${ocrTextHint ? `\nOCR hint, may contain mistakes:\n${ocrTextHint}\n` : ''}`;
+${ocrTextHint ? `\nHINT - OCR text extracted from this image (may contain errors/be out of order, use image layout as primary source of truth for ordering and missing items):\n${ocrTextHint}\n` : ''}`;
 }
 
 function parseJsonResponse(text) {

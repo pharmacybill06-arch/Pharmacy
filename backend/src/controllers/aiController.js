@@ -181,43 +181,33 @@ exports.parseImage = async (req, res) => {
       }
     }
 
-    if (ocrTextHint && ocrTextHint.trim().length > 50) {
-      try {
-        console.log('[AIController] Parsing Tesseract OCR text with AI...');
-        const parsedData = await parseOcrWithGemini(ocrTextHint);
-        if (parsedData?.items?.length > 0) {
-          logAiResponse('tesseract+ai', parsedData);
-          const responseBody = {
-            success: true,
-            data: parsedData,
-            ocrText: ocrTextHint,
-            confidence: 0.9,
-            method: 'tesseract+ai'
-          };
-          logTerminalResponse('OCR + AI', responseBody);
-          return res.json(responseBody);
-        }
-      } catch (ocrParseErr) {
-        console.warn('[AIController] OCR text parse failed, falling back to Vision AI:', ocrParseErr.message);
+    let parsedData;
+    let methodUsed = 'vision';
+
+    try {
+      console.log('[AIController] Parsing bill image with Gemini Vision...');
+      parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
+      logAiResponse('vision', parsedData);
+    } catch (visionErr) {
+      console.warn('[AIController] Vision AI parsing failed, falling back to OCR text parsing:', visionErr.message);
+      if (ocrTextHint && ocrTextHint.trim().length > 50) {
+        console.log('[AIController] Falling back: Parsing OCR text with AI...');
+        parsedData = await parseOcrWithGemini(ocrTextHint);
+        methodUsed = 'ocr+ai';
+        logAiResponse('ocr+ai', parsedData);
+      } else {
+        throw visionErr;
       }
     }
-
-    const parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
-    logAiResponse('vision', parsedData);
-
-    // If you have raw Google Vision output, normalize it here
-    // Example: const visionTokens = normalizeVision(visionAnnotations);
-    // For now, just return parsedData as before
 
     const responseBody = {
       success: true,
       data: parsedData,
       ocrText: ocrTextHint,
-      // tokens: visionTokens, // Uncomment if you have raw tokens
-      confidence: 0.95,
-      method: 'vision'
+      confidence: methodUsed === 'vision' ? 0.95 : 0.90,
+      method: methodUsed
     };
-    logTerminalResponse('VISION OCR + AI', responseBody);
+    logTerminalResponse(methodUsed === 'vision' ? 'VISION OCR + AI' : 'OCR + AI (FALLBACK)', responseBody);
     res.json(responseBody);
   } catch (error) {
     console.error('[AIController] Vision parse error:', error.message);
