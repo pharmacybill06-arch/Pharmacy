@@ -468,11 +468,7 @@ async function syncProductsFromBillItems(userId, items) {
         name: item.name,
         batchNumber: item.batchNumber,
         expiryDate: item.expiryDate,
-        manufacturer: item.manufacturer,
-        mrp: item.mrp,
-        rate: item.rate,
-        hsnCode: item.hsnCode,
-        gstPercent: item.gstPercent
+        quantity: item.quantity
       });
       
       const nameNormalized = normalizeProductName(item.name);
@@ -495,15 +491,9 @@ async function syncProductsFromBillItems(userId, items) {
         console.log('[PRODUCT SYNC] Found existing product:', product.id);
         
         const updateData = {
-          // Update rate/mrp if provided and different
-          ...(item.mrp && { defaultMrp: parseFloat(item.mrp) }),
-          ...(item.rate && { defaultRate: parseFloat(item.rate) }),
-          ...(item.gstPercent && { gstPercent: parseFloat(item.gstPercent) }),
-          ...(item.manufacturer && { manufacturer: item.manufacturer }),
-          ...(item.hsnCode && { hsnCode: item.hsnCode }),
+          ...(item.quantity && { quantity: parseFloat(item.quantity), stock: parseFloat(item.quantity) }),
           ...(item.batchNumber && { batchNumber: item.batchNumber }),
           ...(item.expiryDate && { expiryDate: item.expiryDate }),
-          // Increment usage count and update last used
           usageCount: { increment: 1 },
           lastUsedAt: new Date()
         };
@@ -525,13 +515,10 @@ async function syncProductsFromBillItems(userId, items) {
           userId,
           name: item.name.trim(),
           nameNormalized,
-          manufacturer: item.manufacturer || null,
-          hsnCode: item.hsnCode || null,
           batchNumber: item.batchNumber || null,
           expiryDate: item.expiryDate || null,
-          defaultMrp: item.mrp ? parseFloat(item.mrp) : null,
-          defaultRate: item.rate ? parseFloat(item.rate) : null,
-          gstPercent: item.gstPercent ? parseFloat(item.gstPercent) : null,
+          quantity: item.quantity ? parseFloat(item.quantity) : null,
+          stock: item.quantity ? parseFloat(item.quantity) : 0,
           usageCount: 1,
           lastUsedAt: new Date(),
           isActive: true

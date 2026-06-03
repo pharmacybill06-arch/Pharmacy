@@ -15,6 +15,19 @@ function parseDateString(dateStr) {
   }
 }
 
+function normalizeExpiryItem(item = {}, index = 0) {
+  return {
+    serialNumber: item.sn || item.serialNumber ? parseInt(item.sn || item.serialNumber) : index + 1,
+    name: item.name || item.itemName || '',
+    batchNumber: item.batchNumber || item.batch || null,
+    expiryDate: item.expiryDate || item.exp || null,
+    quantity: item.quantity ? parseFloat(item.quantity) : 0,
+    rate: 0,
+    itemTotal: 0,
+    confidence: item.confidence || 1.0
+  };
+}
+
 // Save bill - accept already-reviewed parsed data from the mobile app.
 exports.uploadBill = async (req, res) => {
   try {
@@ -88,20 +101,6 @@ exports.uploadBill = async (req, res) => {
         customerAddress: parsedData?.customerAddress || null,
         doctorName: parsedData?.doctorName || null,
         
-        // ========== FINANCIAL TOTALS ==========
-        subtotal: parsedData?.subtotal ? parseFloat(parsedData.subtotal) : null,
-        cgst: parsedData?.cgst ? parseFloat(parsedData.cgst) : null,
-        sgst: parsedData?.sgst ? parseFloat(parsedData.sgst) : null,
-        totalGst: parsedData?.totalGst ? parseFloat(parsedData.totalGst) : null,
-        discountAmount: parsedData?.discountAmount ? parseFloat(parsedData.discountAmount) : null,
-        roundOff: parsedData?.roundOff ? parseFloat(parsedData.roundOff) : null,
-        grandTotal: parsedData?.grandTotal ? parseFloat(parsedData.grandTotal) : null,
-        
-        // ========== PAYMENT DETAILS ==========
-        paymentType: parsedData?.paymentType || null,
-        amountPaid: parsedData?.amountPaid ? parseFloat(parsedData.amountPaid) : null,
-        balanceAmount: parsedData?.balanceAmount ? parseFloat(parsedData.balanceAmount) : null,
-        
         // ========== ADDITIONAL INFO ==========
         remarks: parsedData?.remarks || null,
         
@@ -114,40 +113,7 @@ exports.uploadBill = async (req, res) => {
         
         // Create items if they exist
         items: parsedData?.items ? {
-          create: parsedData.items.map(item => ({
-            // Item identification
-            serialNumber: item.sn ? parseInt(item.sn) : null,
-            name: item.name || '',
-            manufacturer: item.manufacturer || null,
-            
-            // Batch & Expiry
-            batchNumber: item.batchNumber || null,
-            expiryDate: item.expiryDate || null,
-            hsnCode: item.hsnCode || null,
-            
-            // Quantity
-            quantity: item.quantity ? parseFloat(item.quantity) : 0,
-            freeQuantity: item.freeQuantity ? parseFloat(item.freeQuantity) : null,
-            unit: item.unit || 'units',
-            
-            // Pricing
-            mrp: item.mrp ? parseFloat(item.mrp) : null,
-            rate: item.rate ? parseFloat(item.rate) : 0,
-            
-            // Taxes
-            gstPercent: item.gstPercent ? parseFloat(item.gstPercent) : null,
-            cgstPercent: item.cgstPercent ? parseFloat(item.cgstPercent) : null,
-            sgstPercent: item.sgstPercent ? parseFloat(item.sgstPercent) : null,
-            
-            // Discount
-            discount: item.discount ? parseFloat(item.discount) : null,
-            
-            // Total
-            itemTotal: item.itemTotal ? parseFloat(item.itemTotal) : 0,
-            
-            // Metadata
-            confidence: item.confidence || 1.0
-          }))
+          create: parsedData.items.map(normalizeExpiryItem)
         } : undefined
       },
       include: {
@@ -219,20 +185,9 @@ exports.getUserBills = async (req, res) => {
             id: true,
             serialNumber: true,
             name: true,
-            manufacturer: true,
             batchNumber: true,
             expiryDate: true,
-            hsnCode: true,
             quantity: true,
-            freeQuantity: true,
-            unit: true,
-            mrp: true,
-            rate: true,
-            gstPercent: true,
-            cgstPercent: true,
-            sgstPercent: true,
-            discount: true,
-            itemTotal: true,
             confidence: true
           }
         }
@@ -334,20 +289,6 @@ exports.updateBill = async (req, res) => {
     if (updateData.customerAddress !== undefined) data.customerAddress = updateData.customerAddress;
     if (updateData.doctorName !== undefined) data.doctorName = updateData.doctorName;
     
-    // Financial totals
-    if (updateData.subtotal !== undefined) data.subtotal = parseFloat(updateData.subtotal);
-    if (updateData.cgst !== undefined) data.cgst = parseFloat(updateData.cgst);
-    if (updateData.sgst !== undefined) data.sgst = parseFloat(updateData.sgst);
-    if (updateData.totalGst !== undefined) data.totalGst = parseFloat(updateData.totalGst);
-    if (updateData.discountAmount !== undefined) data.discountAmount = parseFloat(updateData.discountAmount);
-    if (updateData.roundOff !== undefined) data.roundOff = parseFloat(updateData.roundOff);
-    if (updateData.grandTotal !== undefined) data.grandTotal = parseFloat(updateData.grandTotal);
-    
-    // Payment details
-    if (updateData.paymentType !== undefined) data.paymentType = updateData.paymentType;
-    if (updateData.amountPaid !== undefined) data.amountPaid = parseFloat(updateData.amountPaid);
-    if (updateData.balanceAmount !== undefined) data.balanceAmount = parseFloat(updateData.balanceAmount);
-    
     // Additional info
     if (updateData.remarks !== undefined) data.remarks = updateData.remarks;
 
@@ -423,42 +364,7 @@ exports.addBillItem = async (req, res) => {
 
     // Create bill item with normalized fields
     const billItem = await prisma.billItem.create({
-      data: {
-        billId,
-        
-        // Item identification
-        serialNumber: itemData.serialNumber ? parseInt(itemData.serialNumber) : null,
-        name: itemData.name || 'Unnamed Item',
-        manufacturer: itemData.manufacturer || null,
-        
-        // Batch & Expiry
-        batchNumber: itemData.batchNumber || null,
-        expiryDate: itemData.expiryDate || null,
-        hsnCode: itemData.hsnCode || null,
-        
-        // Quantity
-        quantity: itemData.quantity ? parseFloat(itemData.quantity) : 0,
-        freeQuantity: itemData.freeQuantity ? parseFloat(itemData.freeQuantity) : null,
-        unit: itemData.unit || 'units',
-        
-        // Pricing
-        mrp: itemData.mrp ? parseFloat(itemData.mrp) : null,
-        rate: itemData.rate ? parseFloat(itemData.rate) : 0,
-        
-        // Taxes
-        gstPercent: itemData.gstPercent ? parseFloat(itemData.gstPercent) : null,
-        cgstPercent: itemData.cgstPercent ? parseFloat(itemData.cgstPercent) : null,
-        sgstPercent: itemData.sgstPercent ? parseFloat(itemData.sgstPercent) : null,
-        
-        // Discount
-        discount: itemData.discount ? parseFloat(itemData.discount) : null,
-        
-        // Total
-        itemTotal: itemData.itemTotal ? parseFloat(itemData.itemTotal) : 0,
-        
-        // Metadata
-        confidence: itemData.confidence || 1.0
-      }
+      data: { billId, ...normalizeExpiryItem(itemData) }
     });
 
     res.status(201).json({
@@ -550,20 +456,6 @@ exports.saveDraft = async (req, res) => {
         customerAddress: parsedData?.customerAddress || null,
         doctorName: parsedData?.doctorName || null,
 
-        // Financial totals
-        subtotal: parsedData?.subtotal ? parseFloat(parsedData.subtotal) : null,
-        cgst: parsedData?.cgst ? parseFloat(parsedData.cgst) : null,
-        sgst: parsedData?.sgst ? parseFloat(parsedData.sgst) : null,
-        totalGst: parsedData?.totalGst ? parseFloat(parsedData.totalGst) : null,
-        discountAmount: parsedData?.discountAmount ? parseFloat(parsedData.discountAmount) : null,
-        roundOff: parsedData?.roundOff ? parseFloat(parsedData.roundOff) : null,
-        grandTotal: parsedData?.grandTotal ? parseFloat(parsedData.grandTotal) : null,
-
-        // Payment details
-        paymentType: parsedData?.paymentType || null,
-        amountPaid: parsedData?.amountPaid ? parseFloat(parsedData.amountPaid) : null,
-        balanceAmount: parsedData?.balanceAmount ? parseFloat(parsedData.balanceAmount) : null,
-
         // Additional info
         remarks: parsedData?.remarks || null,
 
@@ -574,25 +466,7 @@ exports.saveDraft = async (req, res) => {
 
         // Items
         items: parsedData?.items ? {
-          create: parsedData.items.map(item => ({
-            serialNumber: item.sn ? parseInt(item.sn) : null,
-            name: item.name || '',
-            manufacturer: item.manufacturer || null,
-            batchNumber: item.batchNumber || null,
-            expiryDate: item.expiryDate || null,
-            hsnCode: item.hsnCode || null,
-            quantity: item.quantity ? parseFloat(item.quantity) : 0,
-            freeQuantity: item.freeQuantity ? parseFloat(item.freeQuantity) : null,
-            unit: item.unit || 'units',
-            mrp: item.mrp ? parseFloat(item.mrp) : null,
-            rate: item.rate ? parseFloat(item.rate) : 0,
-            gstPercent: item.gstPercent ? parseFloat(item.gstPercent) : null,
-            cgstPercent: item.cgstPercent ? parseFloat(item.cgstPercent) : null,
-            sgstPercent: item.sgstPercent ? parseFloat(item.sgstPercent) : null,
-            discount: item.discount ? parseFloat(item.discount) : null,
-            itemTotal: item.itemTotal ? parseFloat(item.itemTotal) : 0,
-            confidence: item.confidence || 1.0
-          }))
+          create: parsedData.items.map(normalizeExpiryItem)
         } : undefined
       },
       include: { items: true }
@@ -633,11 +507,9 @@ exports.getUserDrafts = async (req, res) => {
         },
         items: {
           select: {
-            id: true, serialNumber: true, name: true, manufacturer: true,
-            batchNumber: true, expiryDate: true, hsnCode: true,
-            quantity: true, freeQuantity: true, unit: true,
-            mrp: true, rate: true, gstPercent: true, cgstPercent: true, sgstPercent: true,
-            discount: true, itemTotal: true, confidence: true
+            id: true, serialNumber: true, name: true,
+            batchNumber: true, expiryDate: true,
+            quantity: true, confidence: true
           }
         }
       },
@@ -700,25 +572,9 @@ exports.convertDraft = async (req, res) => {
 
       // Create new items
       await prisma.billItem.createMany({
-        data: parsedData.items.map(item => ({
+        data: parsedData.items.map((item, index) => ({
           billId,
-          serialNumber: item.sn ? parseInt(item.sn) : null,
-          name: item.name || '',
-          manufacturer: item.manufacturer || null,
-          batchNumber: item.batchNumber || null,
-          expiryDate: item.expiryDate || null,
-          hsnCode: item.hsnCode || null,
-          quantity: item.quantity ? parseFloat(item.quantity) : 0,
-          freeQuantity: item.freeQuantity ? parseFloat(item.freeQuantity) : null,
-          unit: item.unit || 'units',
-          mrp: item.mrp ? parseFloat(item.mrp) : null,
-          rate: item.rate ? parseFloat(item.rate) : 0,
-          gstPercent: item.gstPercent ? parseFloat(item.gstPercent) : null,
-          cgstPercent: item.cgstPercent ? parseFloat(item.cgstPercent) : null,
-          sgstPercent: item.sgstPercent ? parseFloat(item.sgstPercent) : null,
-          discount: item.discount ? parseFloat(item.discount) : null,
-          itemTotal: item.itemTotal ? parseFloat(item.itemTotal) : 0,
-          confidence: item.confidence || 1.0
+          ...normalizeExpiryItem(item, index)
         }))
       });
     }
@@ -735,14 +591,6 @@ exports.convertDraft = async (req, res) => {
         ...(parsedData?.shopAddress && { shopAddress: parsedData.shopAddress }),
         ...(parsedData?.invoiceNumber && { invoiceNumber: parsedData.invoiceNumber }),
         ...(parsedData?.invoiceDate && { invoiceDate: parseDateString(parsedData.invoiceDate) }),
-        ...(parsedData?.subtotal && { subtotal: parseFloat(parsedData.subtotal) }),
-        ...(parsedData?.cgst && { cgst: parseFloat(parsedData.cgst) }),
-        ...(parsedData?.sgst && { sgst: parseFloat(parsedData.sgst) }),
-        ...(parsedData?.totalGst && { totalGst: parseFloat(parsedData.totalGst) }),
-        ...(parsedData?.discountAmount && { discountAmount: parseFloat(parsedData.discountAmount) }),
-        ...(parsedData?.roundOff && { roundOff: parseFloat(parsedData.roundOff) }),
-        ...(parsedData?.grandTotal && { grandTotal: parseFloat(parsedData.grandTotal) }),
-        ...(parsedData?.paymentType && { paymentType: parsedData.paymentType }),
       },
       include: { items: true }
     });

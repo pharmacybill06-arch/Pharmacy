@@ -326,7 +326,7 @@ model BillItem {
   
   // ========== PRICING ==========
   mrp             Float?                            // Maximum Retail Price per unit
-  rate            Float                             // Selling price per unit
+  rate            Float      @default(0)            // Legacy price field; expiry management does not use it
   
   // ========== TAXES ==========
   gstPercent      Float?                            // Overall GST percentage
@@ -337,7 +337,7 @@ model BillItem {
   discount        Float?                            // Discount on this item
   
   // ========== TOTALS ==========
-  itemTotal       Float                             // Total for this line item
+  itemTotal       Float      @default(0)            // Legacy total field; expiry management does not use it
   
   // ========== METADATA ==========
   confidence      Float?     @default(1.0)          // OCR confidence (0-1)

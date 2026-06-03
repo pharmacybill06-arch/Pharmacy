@@ -504,6 +504,21 @@ function normalizeBillData(parsed, sourceText = '') {
     computedGrand = finalGrandTotal;
   }
 
+  const expiryItems = normalizedItems.map((item, index) => ({
+    sn: item.sn || index + 1,
+    name: item.name || '',
+    batchNumber: item.batchNumber || undefined,
+    expiryDate: item.expiryDate || undefined,
+    quantity: item.quantity || 0,
+    needsReview: !item.name || !item.batchNumber || !item.expiryDate || !item.quantity,
+    reviewReason: [
+      ...(!item.name ? ['Missing item name'] : []),
+      ...(!item.batchNumber ? ['Missing batch number'] : []),
+      ...(!item.expiryDate ? ['Missing expiry date'] : []),
+      ...(!item.quantity ? ['Missing quantity'] : []),
+    ],
+  }));
+
   return {
     pharmacyName: parsed.pharmacyName || '',
     shopAddress: parsed.shopAddress || '',
@@ -515,16 +530,7 @@ function normalizeBillData(parsed, sourceText = '') {
     dueDate: parsed.dueDate || undefined,
     paymentType,
     
-    items: normalizedItems,
-    
-    subtotal: round2(subtotal),
-    discountPercent: toNumber(parsed.discountPercent),
-    discountAmount: round2(discountAmount),
-    cgst: round2(cgst),
-    sgst: round2(sgst),
-    totalGst: round2(totalGst),
-    roundOff: round2(roundOff),
-    grandTotal: round2(finalGrandTotal || computedGrand),
+    items: expiryItems,
   };
 }
 
@@ -931,28 +937,17 @@ Extract EVERY printed item row from the table, from top to bottom. Return ONLY v
     {
       "sn": number|null,
       "quantity": number|null,
-      "freeQuantity": number|null,
       "name": string|null,
-      "manufacturer": string|null,
       "batchNumber": string|null,
-      "expiryDate": string|null,
-      "hsnCode": string|null,
-      "mrp": number|null,
-      "rate": number|null,
-      "discount": number|null,
-      "discountPercent": number|null,
-      "sgstPercent": number|null,
-      "cgstPercent": number|null,
-      "gstPercent": number|null,
-      "itemTotal": number|null
+      "expiryDate": string|null
     }
   ]
 }
 
 Rules:
 - First read the table header row and map each value by visual column position.
-- Do not calculate or infer printed values. Copy the printed itemTotal/Amount exactly.
-- MRP, Rate, Discount, SGST, CGST, and Amount are separate columns. Never move values between them.
+- Extract only item name, batch number, expiry date, and quantity. Ignore MRP, Rate, Discount, GST, HSN, and Amount columns.
+- Expiry date is critical. Read Exp/Expiry/Exp Dt/Exp. columns carefully and preserve the printed value if the full date is unclear.
 - Quantity must come only from the QTY column. Do not use pack-size text inside the item name, such as 10TAB, 30x10, 100+100, as quantity.
 - Keep pack-size text inside the medicine name/unit. Example: "GPM SR 2 TAB 10TAB" can have quantity 20 if the QTY column says 20.
 - Preserve the exact number of item rows visible in the table. Do not summarize or skip rows.

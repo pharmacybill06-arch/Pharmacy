@@ -287,7 +287,7 @@ export default function ExploreScreen() {
       );
       
       console.log('Bill saved to backend:', response);
-      showToast('Your bill has been saved successfully!', 'success', 'Bill Saved');
+      showToast('Expiry items saved successfully!', 'success', 'Expiry Saved');
       
       // Navigate back after a short delay to show the toast
       setTimeout(() => {
@@ -468,7 +468,7 @@ export default function ExploreScreen() {
         />
         <LoadingOverlay
           visible={saving}
-          message="Saving Bill"
+          message="Saving Expiry Items"
           submessage="Uploading to server..."
           icon="cloud-upload"
         />

@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   ScrollView,
   StyleSheet,
   Pressable,
   Platform,
-  Image,
   SafeAreaView,
   ActivityIndicator,
   TouchableOpacity,
@@ -21,81 +20,97 @@ import { billApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 /**
- * Memoized Recent Bill Row Component
+ * Memoized Expiry Row Component
  * Optimized for list rendering performance
  */
-const RecentBillRow = React.memo(({ item, onPress }) => {
-  // Format the date
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-  };
-
-  // Format amount
-  const formatAmount = (amount) => {
-    if (!amount) return '₹0.00';
-    return `₹${parseFloat(amount).toFixed(2)}`;
-  };
-
-  // Get distributor name (prefer distributor relation, fallback to pharmacyName)
+const ExpiryItemRow = React.memo(({ item, onPress }) => {
   const getDistributorName = () => {
-    if (item.distributor?.name) return item.distributor.name;
-    if (item.pharmacyName) return item.pharmacyName;
+    if (item.bill?.distributor?.name) return item.bill.distributor.name;
+    if (item.bill?.pharmacyName) return item.bill.pharmacyName;
     return 'Unknown Distributor';
   };
 
-  // Get initials for avatar
-  const getInitials = () => {
-    const name = getDistributorName();
-    return name.charAt(0).toUpperCase();
+  const formatExpiry = () => {
+    if (!item.expiryDate) return 'No expiry';
+    if (!item.expiryDateParsed) return item.expiryDate;
+    return item.expiryDateParsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  // Get a color based on the name
-  const getAvatarColor = () => {
-    const colors = ['#4F46E5', '#7C3AED', '#2563EB', '#0891B2', '#059669', '#D97706'];
-    const name = getDistributorName();
-    const index = name.charCodeAt(0) % colors.length;
-    return colors[index];
+  const getStatusColor = () => {
+    if (item.daysUntilExpiry == null) return '#64748B';
+    if (item.daysUntilExpiry < 0) return '#DC2626';
+    if (item.daysUntilExpiry <= 30) return '#D97706';
+    return '#059669';
+  };
+
+  const getStatusText = () => {
+    if (item.daysUntilExpiry == null) return 'Check date';
+    if (item.daysUntilExpiry < 0) return `${Math.abs(item.daysUntilExpiry)}d expired`;
+    if (item.daysUntilExpiry === 0) return 'Expires today';
+    return `${item.daysUntilExpiry}d left`;
   };
 
   return (
     <Pressable
       style={({ pressed }) => [
-        styles.billRow,
-        pressed && styles.billRowPressed,
+        styles.expiryRow,
+        pressed && styles.expiryRowPressed,
       ]}
-      onPress={() => onPress?.(item)}
+      onPress={() => onPress?.(item.bill)}
     >
-      <View style={[styles.billRowAvatar, { backgroundColor: getAvatarColor() + '15' }]}>
-        <ThemedText style={[styles.billRowAvatarText, { color: getAvatarColor() }]}>
-          {getInitials()}
+      <View style={[styles.expiryStatusIcon, { backgroundColor: getStatusColor() + '15' }]}>
+        <MaterialIcons name="event-busy" size={22} color={getStatusColor()} />
+      </View>
+      <View style={styles.expiryRowLeft}>
+        <ThemedText style={styles.expiryItemName} numberOfLines={1}>
+          {item.name || 'Unnamed item'}
+        </ThemedText>
+        <ThemedText style={styles.expiryItemMeta} numberOfLines={1}>
+          Batch {item.batchNumber || 'N/A'} - Qty {item.quantity || 0} - {getDistributorName()}
         </ThemedText>
       </View>
-      <View style={styles.billRowLeft}>
-        <ThemedText style={styles.billRowPharmacy} numberOfLines={1}>
-          {getDistributorName()}
+      <View style={styles.expiryRowRight}>
+        <ThemedText style={styles.expiryDateText}>{formatExpiry()}</ThemedText>
+        <ThemedText style={[styles.expiryStatusText, { color: getStatusColor() }]}>
+          {getStatusText()}
         </ThemedText>
-        <ThemedText style={styles.billRowDate}>
-          {item.invoiceNumber || ''} {item.invoiceDate ? '• ' + formatDate(item.invoiceDate) : ''}
-        </ThemedText>
-      </View>
-      <View style={styles.billRowRight}>
-        <ThemedText style={styles.billRowAmount}>
-          {formatAmount(item.grandTotal)}
-        </ThemedText>
-        <MaterialIcons name="chevron-right" size={16} color="#94A3B8" />
       </View>
     </Pressable>
   );
 });
 
-RecentBillRow.displayName = 'RecentBillRow';
+ExpiryItemRow.displayName = 'ExpiryItemRow';
+
+function parseExpiryDate(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  let match = text.match(/^(\d{1,2})[\/-](\d{2,4})$/);
+  if (match) {
+    const month = Number(match[1]);
+    const year = Number(match[2].length === 2 ? `20${match[2]}` : match[2]);
+    if (month >= 1 && month <= 12) return new Date(year, month, 0);
+  }
+
+  match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (match) {
+    const first = Number(match[1]);
+    const second = Number(match[2]);
+    const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]);
+    const day = first > 12 ? first : second;
+    const month = first > 12 ? second : first;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(year, month - 1, day);
+    }
+  }
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 export default function BillsHomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [recentBills, setRecentBills] = useState([]);
+  const [bills, setBills] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
@@ -104,15 +119,13 @@ export default function BillsHomeScreen() {
   // Only use authenticated user ID; do not fetch with placeholder
   const userId = user?.id;
 
-  const fetchRecentBills = useCallback(async () => {
+  const fetchBills = useCallback(async () => {
     if (!userId) return;
     try {
       setIsLoading(true);
       setError(null);
       const response = await billApi.getUserBills(userId);
-      // Get the latest 3 bills
-      const bills = response.bills || [];
-      setRecentBills(bills.slice(0, 3));
+      setBills(response.bills || []);
     } catch (err) {
       console.error('Error fetching bills:', err);
       setError(err.message);
@@ -121,13 +134,42 @@ export default function BillsHomeScreen() {
     }
   }, [userId]);
 
+  const expiringItems = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return bills
+      .flatMap((bill) =>
+        (bill.items || []).map((item) => {
+          const expiryDateParsed = parseExpiryDate(item.expiryDate);
+          const daysUntilExpiry = expiryDateParsed
+            ? Math.ceil((expiryDateParsed.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+            : null;
+
+          return {
+            ...item,
+            bill,
+            expiryDateParsed,
+            daysUntilExpiry,
+          };
+        })
+      )
+      .filter((item) => item.expiryDate || item.expiryDateParsed)
+      .sort((a, b) => {
+        if (a.daysUntilExpiry == null) return 1;
+        if (b.daysUntilExpiry == null) return -1;
+        return a.daysUntilExpiry - b.daysUntilExpiry;
+      })
+      .slice(0, 8);
+  }, [bills]);
+
   // Refresh bills whenever the screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (userId) {
-        fetchRecentBills();
+        fetchBills();
       }
-    }, [userId, fetchRecentBills])
+    }, [userId, fetchBills])
   );
 
   const showToast = (message, type = 'info', title = '') => {
@@ -157,7 +199,7 @@ export default function BillsHomeScreen() {
       await billApi.updateBill(editingBill.id, formData);
       
       // Update the local state
-      setRecentBills(prevBills =>
+      setBills(prevBills =>
         prevBills.map(bill =>
           bill.id === editingBill.id ? { ...bill, ...formData } : bill
         )
@@ -165,7 +207,7 @@ export default function BillsHomeScreen() {
       
       // Close edit mode and show success
       setEditingBill(null);
-      showToast('Bill has been updated successfully.', 'success', 'Bill Updated');
+      showToast('Expiry items have been updated successfully.', 'success', 'Items Updated');
     } catch (err) {
       console.error('Error saving bill:', err);
       showToast('Failed to save bill. Please try again.', 'error', 'Error');
@@ -178,8 +220,8 @@ export default function BillsHomeScreen() {
 
   const handleViewAll = useCallback(() => {
     // TODO: Navigate to all bills screen when implemented
-    console.log('View all bills');
-  }, []);
+    router.push('/explore');
+  }, [router]);
 
   // If editing a bill, show the bill form
   if (editingBill) {
@@ -218,8 +260,8 @@ export default function BillsHomeScreen() {
                 <MaterialIcons name="local-pharmacy" size={24} color="#FFFFFF" />
               </View>
               <View style={styles.logoText}>
-                <ThemedText style={styles.appBarTitle}>Pharma Bills</ThemedText>
-                <ThemedText style={styles.appBarSubtitle}>Smart Bill Manager</ThemedText>
+                <ThemedText style={styles.appBarTitle}>Expiry Manager</ThemedText>
+                <ThemedText style={styles.appBarSubtitle}>Pharmacy Stock Alerts</ThemedText>
               </View>
             </View>
             <TouchableOpacity
@@ -255,10 +297,10 @@ export default function BillsHomeScreen() {
                 <ThemedText style={styles.heroBadgeText}>AI-Powered</ThemedText>
               </View>
               <ThemedText style={styles.heroTitle}>
-                Simplify Bill{'\n'}Management
+                Track Expiry{'\n'}Before It Hits
               </ThemedText>
               <ThemedText style={styles.heroDescription}>
-                Scan, extract & organize your pharmacy bills in seconds with AI
+                Scan distributor bills and catch batch expiry dates before stock becomes risky.
               </ThemedText>
 
               {/* Scan Bill Button */}
@@ -271,7 +313,7 @@ export default function BillsHomeScreen() {
               >
                 <View style={styles.scanButtonInner}>
                   <MaterialIcons name="document-scanner" size={22} color="#FFFFFF" />
-                  <ThemedText style={styles.scanButtonText}>Scan Bill Now</ThemedText>
+                  <ThemedText style={styles.scanButtonText}>Scan For Expiry</ThemedText>
                 </View>
                 <View style={styles.scanButtonArrow}>
                   <MaterialIcons name="arrow-forward" size={18} color="#4F46E5" />
@@ -280,42 +322,42 @@ export default function BillsHomeScreen() {
             </View>
           </View>
 
-          {/* Recent Bills Section */}
+          {/* Expiring Items Section */}
           <View style={styles.recentBillsSection}>
             {/* Section Header */}
             <View style={styles.sectionHeader}>
-              <ThemedText style={styles.sectionTitle}>Recent Bills</ThemedText>
+              <ThemedText style={styles.sectionTitle}>Expiring Soon</ThemedText>
               <Pressable onPress={handleViewAll}>
-                <ThemedText style={styles.viewAllButton}>View all</ThemedText>
+                <ThemedText style={styles.viewAllButton}>Add stock</ThemedText>
               </Pressable>
             </View>
 
-            {/* Bills List */}
+            {/* Expiry List */}
             {isLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#007AFF" />
-                <ThemedText style={styles.loadingText}>Loading bills...</ThemedText>
+                <ThemedText style={styles.loadingText}>Loading expiry items...</ThemedText>
               </View>
             ) : error ? (
               <View style={styles.errorContainer}>
                 <MaterialIcons name="error-outline" size={48} color="#FF3B30" />
                 <ThemedText style={styles.errorText}>{error}</ThemedText>
-                <Pressable style={styles.retryButton} onPress={fetchRecentBills}>
+                <Pressable style={styles.retryButton} onPress={fetchBills}>
                   <ThemedText style={styles.retryButtonText}>Retry</ThemedText>
                 </Pressable>
               </View>
-            ) : recentBills.length === 0 ? (
+            ) : expiringItems.length === 0 ? (
               <View style={styles.emptyContainer}>
-                <MaterialIcons name="receipt-long" size={64} color="#C7C7CC" />
-                <ThemedText style={styles.emptyText}>No bills yet</ThemedText>
-                <ThemedText style={styles.emptySubtext}>Scan your first bill to get started</ThemedText>
+                <MaterialIcons name="event-available" size={64} color="#C7C7CC" />
+                <ThemedText style={styles.emptyText}>No expiry items yet</ThemedText>
+                <ThemedText style={styles.emptySubtext}>Scan a distributor bill to start tracking stock expiry</ThemedText>
               </View>
             ) : (
               <View style={styles.billsList}>
-                {recentBills.map((bill) => (
-                  <RecentBillRow
-                    key={bill.id}
-                    item={bill}
+                {expiringItems.map((item) => (
+                  <ExpiryItemRow
+                    key={item.id || `${item.bill.id}-${item.name}-${item.batchNumber}`}
+                    item={item}
                     onPress={handleBillPress}
                   />
                 ))}
@@ -353,8 +395,8 @@ export default function BillsHomeScreen() {
                 <View style={[styles.quickActionIcon, { backgroundColor: '#ECFDF5' }]}>
                   <MaterialIcons name="qr-code-scanner" size={22} color="#059669" />
                 </View>
-                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Scan Bill</ThemedText>
-                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Add new bill</ThemedText>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Scan Expiry</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Add stock</ThemedText>
               </Pressable>
 
               {/* Distributors Button */}
@@ -641,7 +683,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Recent Bills Section Styles
+  // Expiring Items Section Styles
   recentBillsSection: {
     marginBottom: 24,
   },
@@ -664,11 +706,11 @@ const styles = StyleSheet.create({
     color: '#4F46E5',
   },
 
-  // Bills List Styles
+  // Expiry List Styles
   billsList: {
     gap: 10,
   },
-  billRow: {
+  expiryRow: {
     minHeight: 72,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -690,12 +732,12 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  billRowPressed: {
+  expiryRowPressed: {
     opacity: 0.8,
     backgroundColor: '#F8FAFC',
     transform: [{ scale: 0.99 }],
   },
-  billRowAvatar: {
+  expiryStatusIcon: {
     width: 44,
     height: 44,
     borderRadius: 13,
@@ -703,33 +745,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  billRowAvatarText: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  billRowLeft: {
+  expiryRowLeft: {
     flex: 1,
     gap: 3,
   },
-  billRowPharmacy: {
+  expiryItemName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#0F172A',
   },
-  billRowDate: {
+  expiryItemMeta: {
     fontSize: 12,
     fontWeight: '400',
     color: '#94A3B8',
   },
-  billRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  expiryRowRight: {
+    alignItems: 'flex-end',
+    gap: 3,
   },
-  billRowAmount: {
-    fontSize: 15,
-    fontWeight: '700',
+  expiryDateText: {
+    fontSize: 13,
+    fontWeight: '800',
     color: '#0F172A',
+  },
+  expiryStatusText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   // Loading, Error, and Empty States

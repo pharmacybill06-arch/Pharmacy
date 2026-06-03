@@ -1022,14 +1022,7 @@ export function formatParsedDataForForm(parsedData) {
     invoiceDate: sanitizeText(parsedData.invoiceDate || ''),
     dueDate: parsedData.dueDate ? sanitizeText(parsedData.dueDate) : undefined,
     paymentType: (parsedData.paymentType || 'cash').toLowerCase(),
-    currentBalance: parsedData.currentBalance || 0,
     items: formatItems(parsedData.items || []),
-    subtotal: Number(parsedData.subtotal) || 0,
-    cgst: Number(parsedData.cgst) || 0,
-    sgst: Number(parsedData.sgst) || 0,
-    totalGst: Number(parsedData.totalGst) || 0,
-    roundOff: Number(parsedData.roundOff) || 0,
-    grandTotal: Number(parsedData.grandTotal) || 0,
   };
 }
 
@@ -1037,24 +1030,17 @@ function formatItems(items) {
   return items.map((item, index) => ({
     id: item.id || `item-${Date.now()}-${index}`,
     name: sanitizeText(item.name || ''),
-    manufacturer: sanitizeText(item.manufacturer || undefined),
     batchNumber: sanitizeText(item.batchNumber || undefined),
     expiryDate: sanitizeText(item.expiryDate || undefined),
-    hsnCode: sanitizeText(item.hsnCode || undefined),
     quantity: Number(item.quantity) || 0,
-    freeQuantity: item.freeQuantity ? Number(item.freeQuantity) : undefined,
-    unit: sanitizeText(item.unit || ''),
-    mrp: item.mrp ? Number(item.mrp) : undefined,
-    rate: Number(item.rate) || 0,
-    discount: item.discount ? Number(item.discount) : undefined,
-    discountPercent: item.discountPercent ? Number(item.discountPercent) : undefined,
-    sgstPercent: item.sgstPercent ? Number(item.sgstPercent) : undefined,
-    cgstPercent: item.cgstPercent ? Number(item.cgstPercent) : undefined,
-    gstPercent: Number(item.gstPercent) || 0,
-    itemTotal: item.itemTotal ? Number(item.itemTotal) : undefined,
     humanVerified: item.humanVerified === true,
-    needsReview: item.needsReview === true,
-    reviewReason: item.reviewReason || [],
+    needsReview: item.needsReview === true || !item.name || !item.batchNumber || !item.expiryDate || !item.quantity,
+    reviewReason: item.reviewReason || [
+      ...(!item.name ? ['Missing item name'] : []),
+      ...(!item.batchNumber ? ['Missing batch number'] : []),
+      ...(!item.expiryDate ? ['Missing expiry date'] : []),
+      ...(!item.quantity ? ['Missing quantity'] : []),
+    ],
   }));
 }
 
@@ -1078,7 +1064,7 @@ export function calculateParseConfidence(data) {
   }
 
   const itemsWithMissingDetails = items.filter(
-    (item) => !item.quantity || !item.rate || !item.unit
+    (item) => !item.name || !item.batchNumber || !item.expiryDate || !item.quantity
   ).length;
   if (items.length > 0) {
     score -= (itemsWithMissingDetails / items.length) * 0.15;

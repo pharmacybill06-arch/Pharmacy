@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import {
   View,
   StyleSheet,
@@ -21,20 +21,10 @@ import GSTLookup from '@/components/ui/GSTLookup';
 import { useAuth } from '@/contexts/AuthContext';
 
 const REVIEW_COLUMNS = [
-  { key: 'sn', label: 'SN', width: 48, align: 'center', keyboardType: 'number-pad' },
-  { key: 'quantity', label: 'QTY', width: 64, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'freeQuantity', label: 'FREE', width: 64, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'name', label: 'ITEM NAME & PACKING', width: 230 },
-  { key: 'manufacturer', label: 'MFR', width: 96 },
-  { key: 'batchNumber', label: 'BATCH', width: 104 },
-  { key: 'expiryDate', label: 'EXP', width: 78, keyboardType: 'number-pad', placeholder: 'MM/YY' },
-  { key: 'hsnCode', label: 'HSN', width: 82, keyboardType: 'number-pad' },
-  { key: 'mrp', label: 'MRP', width: 82, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'rate', label: 'RATE', width: 82, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'discountPercent', label: 'DIS %', width: 72, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'sgstPercent', label: 'SGST', width: 72, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'cgstPercent', label: 'CGST', width: 72, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'itemTotal', label: 'AMOUNT', width: 92, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'name', label: 'ITEM NAME', width: 230 },
+  { key: 'batchNumber', label: 'BATCH', width: 118 },
+  { key: 'expiryDate', label: 'EXPIRY', width: 104, keyboardType: 'number-pad', placeholder: 'MM/YY' },
+  { key: 'quantity', label: 'QTY', width: 72, align: 'right', keyboardType: 'decimal-pad' },
   { key: 'status', label: 'CHECK', width: 132, align: 'center' },
 ];
 
@@ -44,19 +34,6 @@ const REVIEW_TABLE_WIDTH = REVIEW_COLUMNS.reduce((sum, column) => sum + column.w
  * Item Row Component for column-based human review
  */
 const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
-  const getItemTotal = () => {
-    if (item.itemTotal !== undefined && item.itemTotal !== null && item.itemTotal !== '') {
-      return Math.round((parseFloat(item.itemTotal) || 0) * 100) / 100;
-    }
-
-    const qty = parseFloat(item.quantity) || 0;
-    const rate = parseFloat(item.rate) || 0;
-    const discount = parseFloat(item.discount) || 0;
-    const calculatedTotal = qty * rate - discount;
-    return Math.round(calculatedTotal * 100) / 100;
-  };
-
-  const totalValue = getItemTotal();
   const isVerified = item.humanVerified === true;
   const needsReview = item.needsReview || !isVerified;
 
@@ -69,13 +46,9 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
     >
       {REVIEW_COLUMNS.map((column) => {
         const rawValue =
-          column.key === 'sn'
-            ? item.sn || index + 1
-            : column.key === 'itemTotal'
-              ? totalValue
-              : item[column.key] === undefined || item[column.key] === null || item[column.key] === ''
-                ? '-'
-                : item[column.key];
+          item[column.key] === undefined || item[column.key] === null || item[column.key] === ''
+            ? '-'
+            : item[column.key];
 
         if (column.key === 'status') {
           return (
@@ -159,7 +132,6 @@ export default function BillFormScreen({
   onUpdatePharmacyDetails,
   onUpdateInvoiceMetadata,
   onUpdateItems,
-  onUpdateRoundOff,
   onAddItem,
   onSubmit,
   onSaveDraft,
@@ -186,46 +158,11 @@ export default function BillFormScreen({
   const { user } = useAuth();
   const userId = user?.id;
 
-  // Prefer explicit parsed discount amount; calculate from percent after edits.
-  const discountAmount = formData.discountAmount ?? formData.discount ?? ((formData.subtotal || 0) * ((formData.discountPercent || 0) / 100));
-  const taxableAmount = (formData.subtotal || 0) - discountAmount;
   const itemCount = formData.items?.length || 0;
   const pendingReviewCount = (formData.items || []).filter(
     (item) => item.needsReview || item.humanVerified !== true
   ).length;
   const canSubmit = itemCount === 0 || pendingReviewCount === 0;
-
-  // Local string state for Tax & Totals fields to allow decimal input (e.g. "1." while typing)
-  const [localTaxFields, setLocalTaxFields] = useState({
-    discountPercent: '',
-    discountAmount: '',
-    cgstPercent: '',
-    cgst: '',
-    sgstPercent: '',
-    sgst: '',
-    roundOff: '',
-  });
-  // Track which field is currently being edited
-  const [activeTaxField, setActiveTaxField] = useState(null);
-
-  // Helper: get display value - use local string while editing, formData otherwise
-  const getTaxFieldValue = useCallback((fieldName, formValue) => {
-    if (activeTaxField === fieldName) {
-      return localTaxFields[fieldName];
-    }
-    return formValue?.toString() || '0';
-  }, [activeTaxField, localTaxFields]);
-
-  // Helper: start editing a tax field
-  const startEditTaxField = useCallback((fieldName, currentValue) => {
-    setActiveTaxField(fieldName);
-    setLocalTaxFields(prev => ({ ...prev, [fieldName]: currentValue?.toString() || '0' }));
-  }, []);
-
-  // Helper: finish editing (blur)
-  const finishEditTaxField = useCallback(() => {
-    setActiveTaxField(null);
-  }, []);
 
   return (
     <ThemedView style={styles.container}>
@@ -241,7 +178,7 @@ export default function BillFormScreen({
             <View style={styles.statusPill}>
               <Ionicons name="sync-outline" size={16} color="#4F46E5" />
               <ThemedText style={styles.statusText}>
-                Gemini AI is parsing your invoice...
+                AI is reading expiry dates from your bill...
               </ThemedText>
             </View>
           )}
@@ -250,7 +187,7 @@ export default function BillFormScreen({
             <View style={styles.statusPill}>
               <Ionicons name="sparkles-outline" size={16} color="#4F46E5" />
               <ThemedText style={styles.statusText}>
-                Gemini Parse • {(geminiConfidence * 100).toFixed(1)}% confidence
+                Expiry Parse • {(geminiConfidence * 100).toFixed(1)}% confidence
                 {itemsNeedingManualReview > 0 &&
                   ` • ${itemsNeedingManualReview} items need review`}
               </ThemedText>
@@ -526,180 +463,6 @@ export default function BillFormScreen({
             />
           </CollapsibleSection>
 
-          {/* Tax & Totals Section */}
-          <CollapsibleSection
-            title="Tax & Totals"
-            icon="calculator-outline"
-            defaultExpanded={true}
-          >
-            <View style={styles.totalsContainer}>
-              {/* Subtotal - Auto-calculated, Read-only */}
-              <View style={styles.totalRow}>
-                <ThemedText style={styles.totalLabel}>Subtotal (Sum of Items)</ThemedText>
-                <ThemedText style={[styles.totalValue, styles.autoValue]}>
-                  ₹{(formData.subtotal || 0).toFixed(2)}
-                </ThemedText>
-              </View>
-
-              {/* Discount - Dual Input (% and ₹) */}
-              <View style={styles.editableRow}>
-                <View style={styles.dualInputRow}>
-                  <View style={styles.dualInputHalf}>
-                    <FormInput
-                      label="Discount (%)"
-                      value={getTaxFieldValue('discountPercent', formData.discountPercent)}
-                      onChangeText={(text) => {
-                        setLocalTaxFields(prev => ({ ...prev, discountPercent: text }));
-                        const pct = parseFloat(text);
-                        if (!isNaN(pct)) {
-                          onUpdateInvoiceMetadata({ discountPercent: pct, discountAmount: undefined, discount: undefined });
-                        }
-                      }}
-                      onFocus={() => startEditTaxField('discountPercent', formData.discountPercent)}
-                      onBlur={finishEditTaxField}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                  <View style={styles.dualInputHalf}>
-                    <FormInput
-                      label="Discount (₹)"
-                      value={getTaxFieldValue('discountAmount', discountAmount)}
-                      onChangeText={(text) => {
-                        setLocalTaxFields(prev => ({ ...prev, discountAmount: text }));
-                        const amt = parseFloat(text);
-                        if (!isNaN(amt)) {
-                          const sub = formData.subtotal || 0;
-                          const pct = sub > 0 ? Math.round((amt / sub * 100) * 100) / 100 : 0;
-                          onUpdateInvoiceMetadata({ discountPercent: pct, discountAmount: amt, discount: amt });
-                        }
-                      }}
-                      onFocus={() => startEditTaxField('discountAmount', discountAmount)}
-                      onBlur={finishEditTaxField}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* CGST - Dual Input (% and ₹) */}
-              <View style={styles.editableRow}>
-                <View style={styles.dualInputRow}>
-                  <View style={styles.dualInputHalf}>
-                    <FormInput
-                      label="CGST (%)"
-                      value={getTaxFieldValue('cgstPercent', formData.cgstPercent)}
-                      onChangeText={(text) => {
-                        setLocalTaxFields(prev => ({ ...prev, cgstPercent: text }));
-                        const pct = parseFloat(text);
-                        if (!isNaN(pct)) {
-                          const amt = taxableAmount > 0 ? Math.round((taxableAmount * pct / 100) * 100) / 100 : 0;
-                          onUpdateInvoiceMetadata({ cgstPercent: pct, cgst: amt });
-                        }
-                      }}
-                      onFocus={() => startEditTaxField('cgstPercent', formData.cgstPercent)}
-                      onBlur={finishEditTaxField}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                  <View style={styles.dualInputHalf}>
-                    <FormInput
-                      label="CGST (₹)"
-                      value={getTaxFieldValue('cgst', formData.cgst)}
-                      onChangeText={(text) => {
-                        setLocalTaxFields(prev => ({ ...prev, cgst: text }));
-                        const amt = parseFloat(text);
-                        if (!isNaN(amt)) {
-                          const pct = taxableAmount > 0 ? Math.round((amt / taxableAmount * 100) * 100) / 100 : 0;
-                          onUpdateInvoiceMetadata({ cgst: amt, cgstPercent: pct });
-                        }
-                      }}
-                      onFocus={() => startEditTaxField('cgst', formData.cgst)}
-                      onBlur={finishEditTaxField}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* SGST - Dual Input (% and ₹) */}
-              <View style={styles.editableRow}>
-                <View style={styles.dualInputRow}>
-                  <View style={styles.dualInputHalf}>
-                    <FormInput
-                      label="SGST (%)"
-                      value={getTaxFieldValue('sgstPercent', formData.sgstPercent)}
-                      onChangeText={(text) => {
-                        setLocalTaxFields(prev => ({ ...prev, sgstPercent: text }));
-                        const pct = parseFloat(text);
-                        if (!isNaN(pct)) {
-                          const amt = taxableAmount > 0 ? Math.round((taxableAmount * pct / 100) * 100) / 100 : 0;
-                          onUpdateInvoiceMetadata({ sgstPercent: pct, sgst: amt });
-                        }
-                      }}
-                      onFocus={() => startEditTaxField('sgstPercent', formData.sgstPercent)}
-                      onBlur={finishEditTaxField}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                  <View style={styles.dualInputHalf}>
-                    <FormInput
-                      label="SGST (₹)"
-                      value={getTaxFieldValue('sgst', formData.sgst)}
-                      onChangeText={(text) => {
-                        setLocalTaxFields(prev => ({ ...prev, sgst: text }));
-                        const amt = parseFloat(text);
-                        if (!isNaN(amt)) {
-                          const pct = taxableAmount > 0 ? Math.round((amt / taxableAmount * 100) * 100) / 100 : 0;
-                          onUpdateInvoiceMetadata({ sgst: amt, sgstPercent: pct });
-                        }
-                      }}
-                      onFocus={() => startEditTaxField('sgst', formData.sgst)}
-                      onBlur={finishEditTaxField}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* Round Off - Editable */}
-              <View style={styles.editableRow}>
-                <FormInput
-                  label="Round Off"
-                  value={getTaxFieldValue('roundOff', formData.roundOff)}
-                  onChangeText={(text) => {
-                    setLocalTaxFields(prev => ({ ...prev, roundOff: text }));
-                    const val = parseFloat(text);
-                    if (!isNaN(val)) {
-                      onUpdateRoundOff(val);
-                    }
-                  }}
-                  onFocus={() => startEditTaxField('roundOff', formData.roundOff)}
-                  onBlur={finishEditTaxField}
-                  placeholder="0.00"
-                  keyboardType="decimal-pad"
-                />
-              </View>
-
-              <View style={styles.divider} />
-              
-              {/* Grand Total - Auto-calculated, Read-only */}
-              <View style={styles.totalRow}>
-                <ThemedText style={styles.grandTotalLabel}>
-                  Grand Total
-                </ThemedText>
-                <ThemedText style={styles.grandTotalValue}>
-                  ₹{(formData.grandTotal || 0).toFixed(2)}
-                </ThemedText>
-              </View>
-            </View>
-          </CollapsibleSection>
-
           {/* Bottom Spacer for Sticky Actions */}
           <View style={styles.bottomSpacer} />
         </ScrollView>
@@ -707,7 +470,7 @@ export default function BillFormScreen({
         {/* Sticky Bottom Actions */}
         <View style={styles.stickyActions}>
           <PrimaryButton
-            title={canSubmit ? 'Confirm & Save Bill' : `Verify ${pendingReviewCount} Row${pendingReviewCount === 1 ? '' : 's'} First`}
+            title={canSubmit ? 'Save Expiry Items' : `Verify ${pendingReviewCount} Row${pendingReviewCount === 1 ? '' : 's'} First`}
             icon={canSubmit ? 'checkmark-circle-outline' : 'alert-circle-outline'}
             onPress={onSubmit}
             disabled={!canSubmit}

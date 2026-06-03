@@ -4,8 +4,6 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
-import PrimaryButton from '@/components/ui/PrimaryButton';
-import SecondaryButton from '@/components/ui/SecondaryButton';
 
 /**
  * BillUploadScreen
@@ -22,7 +20,7 @@ export default function BillUploadScreen({
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <AppBar
-          title="Upload Bill"
+          title="Scan Expiry"
           onBack={onBack}
         />
 
@@ -36,10 +34,10 @@ export default function BillUploadScreen({
               <Ionicons name="document-text" size={48} color="#4F46E5" />
             </View>
             <ThemedText style={styles.headerTitle}>
-              Upload Pharmacy Bill
+              Upload Distributor Bill
             </ThemedText>
             <ThemedText style={styles.headerSubtitle}>
-              Choose from gallery, take a photo, or import a file
+              Extract medicine names, batches, quantities, and expiry dates
             </ThemedText>
           </View>
 

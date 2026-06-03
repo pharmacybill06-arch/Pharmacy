@@ -107,29 +107,13 @@ export default function BillFormRedesigned({
     invoiceNumber: initialData?.invoiceNumber || '',
     invoiceDate: initialData?.invoiceDate || '',
     dueDate: initialData?.dueDate || '',
-    paymentType: initialData?.paymentType || 'cash',
-    currentBalance: initialData?.currentBalance || 0,
     items: initialData?.items || [],
-    subtotal: initialData?.subtotal || 0,
-    discountPercent: initialData?.discountPercent || 0, // Changed from discount to discountPercent
-    discount: initialData?.discountAmount ?? initialData?.discount ?? 0, // Keep discount amount
-    discountAmount: initialData?.discountAmount ?? initialData?.discount ?? 0,
-    cgst: initialData?.cgst || 0,
-    cgstPercent: initialData?.cgstPercent || 0,
-    sgst: initialData?.sgst || 0,
-    sgstPercent: initialData?.sgstPercent || 0,
-    totalGst: initialData?.totalGst || 0,
-    roundOff: initialData?.roundOff || 0,
-    grandTotal: initialData?.grandTotal || 0,
   });
 
   const [geminiLoading, setGeminiLoading] = useState(false);
-  const [geminiError, setGeminiError] = useState(null);
+  const [, setGeminiError] = useState(null);
   const [geminiConfidence, setGeminiConfidence] = useState(null);
   const [itemsNeedingManualReview, setItemsNeedingManualReview] = useState(0);
-  const [preserveParsedTotals, setPreserveParsedTotals] = useState(
-    !!(initialData?.items?.length && initialData?.grandTotal)
-  );
 
   // Distributor state
   const [selectedDistributor, setSelectedDistributor] = useState(initialData?.distributor || null);
@@ -155,11 +139,6 @@ export default function BillFormRedesigned({
   const hideToast = () => {
     setToast({ ...toast, visible: false });
   };
-
-  // Calculate totals whenever items or tax fields change
-  useEffect(() => {
-    calculateTotals();
-  }, [formData.items, formData.discountPercent, formData.discountAmount, formData.cgst, formData.sgst, formData.roundOff, preserveParsedTotals]);
 
   // Parse OCR text with Gemini when provided
   useEffect(() => {
@@ -233,86 +212,20 @@ export default function BillFormRedesigned({
     parseOcrWithGeminiIntegration();
   }, [ocrText]);
 
-  const calculateTotals = () => {
-    // Skip calculation if we have no items
-    if (!formData.items || formData.items.length === 0) {
-      return;
-    }
-
-    if (preserveParsedTotals) {
-      return;
-    }
-
-    // Calculate subtotal as sum of all item totals
-    let subtotal = 0;
-
-    formData.items.forEach((item) => {
-      // Always calculate: Qty × Rate - Discount for consistency
-      const parsedItemTotal = Number(item.itemTotal);
-      if (Number.isFinite(parsedItemTotal) && parsedItemTotal > 0) {
-        subtotal += parsedItemTotal;
-        return;
-      }
-
-      const quantity = Number(item.quantity) || 0;
-      const rate = Number(item.rate) || 0;
-      const itemDiscount = Number(item.discount) || 0;
-      const itemTotal = quantity * rate - itemDiscount;
-      subtotal += itemTotal;
-    });
-
-    subtotal = Math.round(subtotal * 100) / 100;
-
-    // Calculate discount amount from percentage
-    const discountPercent = Number(formData.discountPercent) || 0;
-    const explicitDiscount = Number(formData.discountAmount ?? formData.discount);
-    const discountAmount = Number.isFinite(explicitDiscount) && explicitDiscount > 0
-      ? explicitDiscount
-      : (subtotal * discountPercent) / 100;
-
-    // Get user-entered values (editable)
-    const cgst = Number(formData.cgst) || 0;
-    const sgst = Number(formData.sgst) || 0;
-    const roundOff = Number(formData.roundOff) || 0;
-
-    // Calculate grand total: Subtotal - Discount + CGST + SGST + RoundOff
-    const totalGst = cgst + sgst;
-    const grandTotal = subtotal - discountAmount + cgst + sgst + roundOff;
-
-    setFormData((prev) => ({
-      ...prev,
-      subtotal: subtotal,
-      discount: Math.round(discountAmount * 100) / 100, // Store calculated discount amount
-      discountAmount: Math.round(discountAmount * 100) / 100,
-      totalGst: Math.round(totalGst * 100) / 100,
-      grandTotal: Math.round(grandTotal * 100) / 100,
-    }));
-  };
-
   const updatePharmacyDetails = (details) => {
     setFormData((prev) => ({ ...prev, ...details }));
   };
 
   const updateInvoiceMetadata = (metadata) => {
-    setPreserveParsedTotals(false);
     setFormData((prev) => ({ ...prev, ...metadata }));
   };
 
   const updateItems = (items) => {
-    setPreserveParsedTotals(false);
     setFormData((prev) => ({ ...prev, items }));
   };
 
   const numericItemFields = new Set([
-    'sn',
     'quantity',
-    'freeQuantity',
-    'mrp',
-    'rate',
-    'discountPercent',
-    'sgstPercent',
-    'cgstPercent',
-    'itemTotal',
   ]);
 
   const formatExpiryDateInput = (value) => {
@@ -322,7 +235,6 @@ export default function BillFormRedesigned({
   };
 
   const updateItemCell = (index, field, value) => {
-    setPreserveParsedTotals(false);
     setFormData((prev) => ({
       ...prev,
       items: prev.items.map((item, itemIndex) => {
@@ -343,15 +255,6 @@ export default function BillFormRedesigned({
           needsReview: true,
         };
 
-        if (['quantity', 'rate', 'discountPercent'].includes(field)) {
-          const quantity = Number(updatedItem.quantity) || 0;
-          const rate = Number(updatedItem.rate) || 0;
-          const discountPercent = Number(updatedItem.discountPercent) || 0;
-          const discountAmount = Math.round((quantity * rate * discountPercent / 100) * 100) / 100;
-          updatedItem.discount = discountAmount;
-          updatedItem.itemTotal = Math.round((quantity * rate - discountAmount) * 100) / 100;
-        }
-
         return updatedItem;
       }),
     }));
@@ -366,11 +269,6 @@ export default function BillFormRedesigned({
           : item
       ),
     }));
-  };
-
-  const updateRoundOff = (roundOff) => {
-    setPreserveParsedTotals(false);
-    setFormData((prev) => ({ ...prev, roundOff }));
   };
 
   // Distributor handlers
@@ -446,11 +344,8 @@ export default function BillFormRedesigned({
     const newItem = {
       name: '',
       quantity: 1,
-      unit: 'pcs',
-      rate: 0,
-      discount: 0,
-      gstPercent: 0,
-      itemTotal: 0,
+      batchNumber: '',
+      expiryDate: '',
       humanVerified: false,
       needsReview: true,
       reviewReason: ['New row needs human verification'],
@@ -586,23 +481,6 @@ export default function BillFormRedesigned({
     //   return;
     // }
 
-    const invalidItem = formData.items.find(
-      (item) =>
-        !item.name.trim() ||
-        item.quantity <= 0 ||
-        !item.unit.trim() ||
-        item.rate <= 0 ||
-        item.gstPercent < 0
-    );
-
-    // if (invalidItem) {
-    //   Alert.alert(
-    //     'Validation Error',
-    //     'All items must have name, quantity, unit, rate, and GST %'
-    //   );
-    //   return;
-    // }
-
     onSubmit(formData);
   };
 
@@ -613,7 +491,6 @@ export default function BillFormRedesigned({
         onUpdatePharmacyDetails={updatePharmacyDetails}
         onUpdateInvoiceMetadata={updateInvoiceMetadata}
         onUpdateItems={updateItems}
-        onUpdateRoundOff={updateRoundOff}
         onAddItem={handleAddItem}
         onUpdateItemCell={updateItemCell}
         onRemoveItem={handleRemoveItem}
