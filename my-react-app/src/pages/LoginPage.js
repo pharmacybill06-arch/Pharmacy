@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [shopName, setShopName] = useState('');
   const [loading, setLoading] = useState(false);
   const [devOtp, setDevOtp] = useState(null);
+  const [verifiedUser, setVerifiedUser] = useState(null);
   const otpRefs = useRef([]);
 
   const handleSendOtp = async (e) => {
@@ -23,6 +24,7 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
+      setVerifiedUser(null);
       const res = await authApi.sendOtp(phone);
       setDevOtp(res.devOtp || null);
       toast.success('OTP sent successfully!');
@@ -61,6 +63,7 @@ export default function LoginPage() {
     try {
       const result = await authApi.verifyOtp(phone, otpStr, name || null, shopName || null);
       if (result.isNewUser && !name) {
+        setVerifiedUser(result.user);
         setStep('signup');
         setLoading(false);
         return;
@@ -82,8 +85,9 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      const otpStr = otp.join('');
-      const result = await authApi.verifyOtp(phone, otpStr, name, shopName);
+      const result = verifiedUser?.id
+        ? await authApi.updateProfile(verifiedUser.id, { name, shopName })
+        : await authApi.verifyOtp(phone, otp.join(''), name, shopName);
       toast.success('Account created successfully!');
       login(result.user);
     } catch (err) {
@@ -95,6 +99,7 @@ export default function LoginPage() {
 
   const handleResendOtp = async () => {
     try {
+      setVerifiedUser(null);
       const res = await authApi.resendOtp(phone);
       setDevOtp(res.devOtp || null);
       toast.success('OTP resent!');
@@ -181,7 +186,7 @@ export default function LoginPage() {
               <button type="button" className="btn btn-ghost" onClick={handleResendOtp}>
                 Resend OTP
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => { setStep('phone'); setOtp(['','','','','','']); }}>
+              <button type="button" className="btn btn-ghost" onClick={() => { setStep('phone'); setOtp(['','','','','','']); setVerifiedUser(null); }}>
                 Change Number
               </button>
             </div>
