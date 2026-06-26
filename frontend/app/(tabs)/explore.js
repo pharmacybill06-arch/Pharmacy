@@ -280,6 +280,31 @@ export default function ExploreScreen() {
             results.push(result.data);
             combinedOcrText += (result.ocrText || '') + '\n';
             lastEngine = result.method || 'vision-ai';
+
+            // ── LOG: raw OCR text from this page ──
+            console.log(`\n========== [BillScan] IMAGE ${i + 1} — RAW OCR TEXT ==========`);
+            console.log(result.ocrText || '(no OCR text returned)');
+            console.log(`========== END OCR TEXT ==========\n`);
+
+            // ── LOG: parsed data AI put into table ──
+            console.log(`\n========== [BillScan] IMAGE ${i + 1} — AI PARSED DATA ==========`);
+            console.log('Method:', result.method);
+            console.log('Invoice:', result.data?.invoiceNumber, '|', result.data?.invoiceDate);
+            console.log('Distributor:', result.data?.pharmacyName);
+            console.log('Items count:', result.data?.items?.length ?? 0);
+            (result.data?.items || []).forEach((item, idx) => {
+              console.log(
+                `  [${idx + 1}] ${item.name || '(no name)'}` +
+                ` | Batch: ${item.batchNumber || '-'}` +
+                ` | Exp: ${item.expiryDate || '-'}` +
+                ` | Qty: ${item.quantity ?? '-'}` +
+                ` | Rate: ${item.rate ?? '-'}` +
+                ` | MRP: ${item.mrp ?? '-'}`
+              );
+            });
+            console.log(`========== END AI PARSED DATA ==========\n`);
+          } else {
+            console.warn(`[BillScan] Image ${i + 1} returned no data:`, result?.error);
           }
         } catch (err) {
           console.warn(`[BillScan] Image ${i + 1} failed:`, err.message);
@@ -302,6 +327,20 @@ export default function ExploreScreen() {
         ).map((item, idx) => ({ ...item, sn: idx + 1 }));
         merged.items = allItems;
       }
+
+      // ── LOG: final merged data going into the review table ──
+      console.log(`\n========== [BillScan] FINAL DATA → TABLE ==========`);
+      console.log('Total items:', merged.items?.length ?? 0);
+      (merged.items || []).forEach((item, idx) => {
+        console.log(
+          `  [${idx + 1}] ${item.name || '(no name)'}` +
+          ` | Batch: ${item.batchNumber || '-'}` +
+          ` | Exp: ${item.expiryDate || '-'}` +
+          ` | Qty: ${item.quantity ?? '-'}` +
+          ` | NeedsReview: ${item.needsReview ? 'YES' : 'no'}`
+        );
+      });
+      console.log(`========== END TABLE DATA ==========\n`);
 
       setPhotoUri(assets[0]?.uri || '');
       setParsedFileData(merged);
@@ -341,7 +380,30 @@ export default function ExploreScreen() {
       const result = await billApi.parseBillImage(imageUri, mimeType);
 
       if (result?.success && result?.data) {
-        console.log('[BillScan] Backend Vision parsed items:', result.data?.items?.length || 0);
+        // ── LOG: raw OCR text ──
+        console.log(`\n========== [BillScan] RAW OCR TEXT ==========`);
+        console.log(result.ocrText || '(no OCR text returned)');
+        console.log(`========== END OCR TEXT ==========\n`);
+
+        // ── LOG: AI parsed data going into table ──
+        console.log(`\n========== [BillScan] AI PARSED DATA → TABLE ==========`);
+        console.log('Method:', result.method);
+        console.log('Invoice:', result.data?.invoiceNumber, '|', result.data?.invoiceDate);
+        console.log('Distributor:', result.data?.pharmacyName);
+        console.log('Items count:', result.data?.items?.length ?? 0);
+        (result.data?.items || []).forEach((item, idx) => {
+          console.log(
+            `  [${idx + 1}] ${item.name || '(no name)'}` +
+            ` | Batch: ${item.batchNumber || '-'}` +
+            ` | Exp: ${item.expiryDate || '-'}` +
+            ` | Qty: ${item.quantity ?? '-'}` +
+            ` | Rate: ${item.rate ?? '-'}` +
+            ` | MRP: ${item.mrp ?? '-'}` +
+            ` | NeedsReview: ${item.needsReview ? 'YES' : 'no'}`
+          );
+        });
+        console.log(`========== END AI PARSED DATA ==========\n`);
+
         setParsedFileData(result.data);
         setRawOcrText(result.ocrText || '');
         setOcrEngine(result.method || 'vision-ai');

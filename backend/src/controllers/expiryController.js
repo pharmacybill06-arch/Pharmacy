@@ -1,10 +1,11 @@
 /**
  * Expiry Action Window Controller
- * Surfaces only batches needing action, handles qty updates and archiving.
+ * Uses $queryRaw / $executeRaw for the new expiry-action columns so this
+ * works even before `prisma generate` has been re-run with the updated schema.
  *
- * Configurable thresholds (per tenant — stored in User or env defaults):
- *   ACTION_WINDOW_DAYS  = 90   (items expiring within this many days appear)
- *   RETURN_WINDOW_DAYS  = 90   (days before expiry during which return is allowed)
+ * Configurable thresholds (env defaults, per-tenant support ready):
+ *   ACTION_WINDOW_DAYS  = 90
+ *   RETURN_WINDOW_DAYS  = 90
  */
 
 const prisma = require('../models/prisma');
@@ -12,21 +13,19 @@ const prisma = require('../models/prisma');
 const ACTION_WINDOW_DAYS = parseInt(process.env.ACTION_WINDOW_DAYS || '90', 10);
 const RETURN_WINDOW_DAYS = parseInt(process.env.RETURN_WINDOW_DAYS || '90', 10);
 
-// ─── Date helpers ────────────────────────────────────────────────────────────
+// ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function parseExpiryDate(value) {
   if (!value) return null;
   const text = String(value).trim();
 
-  // MM/YY or MM-YY
   let m = text.match(/^(\d{1,2})[\/-](\d{2,4})$/);
   if (m) {
     const month = Number(m[1]);
     const year = Number(m[2].length === 2 ? `20${m[2]}` : m[2]);
-    if (month >= 1 && month <= 12) return new Date(year, month, 0); // last day of month
+    if (month >= 1 && month <= 12) return new Date(year, month, 0);
   }
 
-  // DD/MM/YYYY or DD-MM-YYYY
   m = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
   if (m) {
     const first = Number(m[1]);
@@ -48,36 +47,66 @@ function daysUntil(date) {
   return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
 }
 
+// ─── Ensure columns exist (idempotent) ───────────────────────────────────────
+// Called once at startup; safe to run multiple times.
+async function ensureColumns() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "BillItem"
+        ADD COLUMN IF NOT EXISTS "remainingQty"          DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS "expiryStatus"          TEXT NOT NULL DEFAULT 'active',
+        ADD COLUMN IF NOT EXISTS "archiveReason"         TEXT,
+        ADD COLUMN IF NOT EXISTS "archivedAt"            TIMESTAMP(3),
+        ADD COLUMN IF NOT EXISTS "firstEnteredWindowAt"  TIMESTAMP(3)
+    `);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "BillItem_expiryStatus_idx"
+        ON "BillItem"("expiryStatus")
+    `);
+
+    console.log('[ExpiryController] Columns ensured');
+  } catch (err) {
+    // Non-fatal — columns may already exist or DB may not support IF NOT EXISTS
+    console.warn('[ExpiryController] ensureColumns warning:', err.message);
+  }
+}
+
+// Run once when the module is first loaded
+ensureColumns();
+
 // ─── GET /api/expiry/user/:userId/window ─────────────────────────────────────
-/**
- * Returns all active BillItems whose expiry falls within the action window.
- * Computes value-at-risk and return-eligible summaries.
- */
+
 exports.getExpiryWindow = async (req, res) => {
   try {
     const { userId } = req.params;
     const windowDays = parseInt(req.query.windowDays || ACTION_WINDOW_DAYS, 10);
     const returnDays = parseInt(req.query.returnDays || RETURN_WINDOW_DAYS, 10);
 
-    // Fetch all active bill items with bill + distributor info
-    const items = await prisma.billItem.findMany({
-      where: {
-        bill: { userId },
-        expiryStatus: 'active',
-        expiryDate: { not: null },
-      },
-      include: {
-        bill: {
-          select: {
-            id: true,
-            pharmacyName: true,
-            invoiceDate: true,
-            distributor: { select: { id: true, name: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    // Raw query to avoid stale Prisma client issues with new columns
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        bi.id,
+        bi."billId",
+        bi.name,
+        bi."batchNumber",
+        bi."expiryDate",
+        bi.quantity,
+        bi.rate,
+        bi."itemTotal",
+        bi."remainingQty",
+        bi."expiryStatus",
+        bi."firstEnteredWindowAt",
+        b."pharmacyName",
+        b."invoiceDate",
+        d.name AS "distributorName"
+      FROM "BillItem" bi
+      JOIN "Bill" b ON b.id = bi."billId"
+      LEFT JOIN "Distributor" d ON d.id = b."distributorId"
+      WHERE b."userId" = $1
+        AND bi."expiryDate" IS NOT NULL
+        AND (bi."expiryStatus" = 'active' OR bi."expiryStatus" IS NULL)
+    `, userId);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -86,96 +115,91 @@ exports.getExpiryWindow = async (req, res) => {
     windowCutoff.setDate(windowCutoff.getDate() + windowDays);
 
     const result = [];
-    const toMarkEntered = [];
+    const autoArchive = [];
+    const markEntered = [];
 
-    for (const item of items) {
-      const expiry = parseExpiryDate(item.expiryDate);
+    for (const row of rows) {
+      const expiry = parseExpiryDate(row.expiryDate);
       if (!expiry) continue;
 
       const days = daysUntil(expiry);
 
-      // Auto-archive items that have passed expiry with no action
-      if (days < 0 && item.expiryStatus === 'active') {
-        toMarkEntered.push(
-          prisma.billItem.update({
-            where: { id: item.id },
-            data: {
-              expiryStatus: 'archived',
-              archiveReason: 'expired',
-              archivedAt: new Date(),
-            },
-          })
+      // Auto-archive passed-expiry items with no action
+      if (days < 0) {
+        autoArchive.push(
+          prisma.$executeRawUnsafe(`
+            UPDATE "BillItem"
+            SET "expiryStatus" = 'archived',
+                "archiveReason" = 'expired',
+                "archivedAt"    = NOW(),
+                "updatedAt"     = NOW()
+            WHERE id = $1
+          `, row.id)
         );
         continue;
       }
 
-      // Only surface items inside the action window
+      // Skip if outside action window
       if (expiry > windowCutoff) continue;
 
-      // Determine return eligibility: return window opens now if expiry - today <= returnDays
+      // Return window: opens when (expiry - today) <= returnDays
       const returnOpenDate = new Date(expiry);
       returnOpenDate.setDate(returnOpenDate.getDate() - returnDays);
       const returnEligible = today >= returnOpenDate;
 
-      // Mark firstEnteredWindowAt if not already set
-      if (!item.firstEnteredWindowAt) {
-        toMarkEntered.push(
-          prisma.billItem.update({
-            where: { id: item.id },
-            data: { firstEnteredWindowAt: new Date() },
-          })
+      // Mark firstEnteredWindowAt if not set
+      if (!row.firstEnteredWindowAt) {
+        markEntered.push(
+          prisma.$executeRawUnsafe(`
+            UPDATE "BillItem"
+            SET "firstEnteredWindowAt" = NOW(), "updatedAt" = NOW()
+            WHERE id = $1
+          `, row.id)
         );
       }
 
-      const remainingQty = item.remainingQty ?? item.quantity ?? 0;
-      // Cost: use rate from bill item; itemTotal / quantity as fallback
+      const remainingQty = row.remainingQty != null ? Number(row.remainingQty) : null;
+      const qty = remainingQty != null ? remainingQty : Number(row.quantity || 0);
       const unitCost =
-        item.rate > 0
-          ? item.rate
-          : item.itemTotal > 0 && item.quantity > 0
-          ? item.itemTotal / item.quantity
+        Number(row.rate) > 0
+          ? Number(row.rate)
+          : Number(row.itemTotal) > 0 && Number(row.quantity) > 0
+          ? Number(row.itemTotal) / Number(row.quantity)
           : 0;
-      const valueAtRisk = remainingQty * unitCost;
-      const returnValue = returnEligible ? remainingQty * unitCost : 0;
+      const valueAtRisk = qty * unitCost;
+      const returnValue = returnEligible ? qty * unitCost : 0;
 
       result.push({
-        id: item.id,
-        billId: item.billId,
-        name: item.name,
-        batchNumber: item.batchNumber,
-        expiryDate: item.expiryDate,
+        id: row.id,
+        billId: row.billId,
+        name: row.name,
+        batchNumber: row.batchNumber,
+        expiryDate: row.expiryDate,
         expiryDateParsed: expiry.toISOString(),
         daysUntilExpiry: days,
-        quantity: item.quantity,
+        quantity: Number(row.quantity || 0),
         remainingQty,
-        unitCost,
-        valueAtRisk,
+        unitCost: Math.round(unitCost * 100) / 100,
+        valueAtRisk: Math.round(valueAtRisk * 100) / 100,
         returnEligible,
         returnOpenDate: returnOpenDate.toISOString(),
-        returnValue,
-        distributor: item.bill?.distributor?.name || item.bill?.pharmacyName || null,
-        firstEnteredWindowAt: item.firstEnteredWindowAt,
+        returnValue: Math.round(returnValue * 100) / 100,
+        distributor: row.distributorName || row.pharmacyName || null,
+        firstEnteredWindowAt: row.firstEnteredWindowAt,
       });
     }
 
     // Fire-and-forget side effects
-    if (toMarkEntered.length > 0) {
-      Promise.all(toMarkEntered).catch((e) =>
-        console.warn('[ExpiryController] Side-effect update failed:', e.message)
-      );
-    }
+    if (autoArchive.length > 0) Promise.all(autoArchive).catch(() => {});
+    if (markEntered.length > 0) Promise.all(markEntered).catch(() => {});
 
-    // Sort: expired first, then by days ascending
     result.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
 
-    // Summary
     const totalValueAtRisk = result.reduce((s, i) => s + i.valueAtRisk, 0);
     const totalReturnable = result.reduce((s, i) => s + i.returnValue, 0);
     const newThisReview = result.filter((i) => {
       if (!i.firstEnteredWindowAt) return true;
-      const enteredMs = new Date(i.firstEnteredWindowAt).getTime();
-      const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
-      return enteredMs >= thirtyDaysAgo;
+      return Date.now() - new Date(i.firstEnteredWindowAt).getTime() <= 30 * 86_400_000;
     }).length;
 
     res.json({
@@ -197,19 +221,18 @@ exports.getExpiryWindow = async (req, res) => {
 };
 
 // ─── PATCH /api/expiry/items/:itemId/action ───────────────────────────────────
-/**
- * Update remaining quantity or archive a batch with a reason.
- * Body: { remainingQty?, action: 'update_qty'|'sold'|'returned'|'writeoff' }
- */
+
 exports.applyExpiryAction = async (req, res) => {
   try {
     const { itemId } = req.params;
     const { action, remainingQty } = req.body;
 
-    const item = await prisma.billItem.findUnique({ where: { id: itemId } });
+    // Verify item exists via standard Prisma (uses known fields only)
+    const item = await prisma.billItem.findUnique({
+      where: { id: itemId },
+      select: { id: true, quantity: true },
+    });
     if (!item) return res.status(404).json({ success: false, error: 'Item not found' });
-
-    let updateData = {};
 
     if (action === 'update_qty') {
       const qty = parseFloat(remainingQty);
@@ -217,33 +240,50 @@ exports.applyExpiryAction = async (req, res) => {
         return res.status(400).json({ success: false, error: 'Invalid quantity' });
 
       if (qty === 0) {
-        // Auto-archive as sold/finished
-        updateData = {
-          remainingQty: 0,
-          expiryStatus: 'archived',
-          archiveReason: 'sold',
-          archivedAt: new Date(),
-        };
+        await prisma.$executeRawUnsafe(`
+          UPDATE "BillItem"
+          SET "remainingQty" = 0,
+              "expiryStatus" = 'archived',
+              "archiveReason" = 'sold',
+              "archivedAt"    = NOW(),
+              "updatedAt"     = NOW()
+          WHERE id = $1
+        `, itemId);
       } else {
-        updateData = { remainingQty: qty };
+        await prisma.$executeRawUnsafe(`
+          UPDATE "BillItem"
+          SET "remainingQty" = $2,
+              "updatedAt"    = NOW()
+          WHERE id = $1
+        `, itemId, qty);
       }
     } else if (['sold', 'returned', 'writeoff'].includes(action)) {
-      updateData = {
-        expiryStatus: 'archived',
-        archiveReason: action,
-        archivedAt: new Date(),
-        ...(remainingQty !== undefined ? { remainingQty: parseFloat(remainingQty) || 0 } : {}),
-      };
+      const rqty = remainingQty !== undefined ? parseFloat(remainingQty) : null;
+      if (rqty !== null && !isNaN(rqty)) {
+        await prisma.$executeRawUnsafe(`
+          UPDATE "BillItem"
+          SET "expiryStatus"  = 'archived',
+              "archiveReason" = $2,
+              "archivedAt"    = NOW(),
+              "remainingQty"  = $3,
+              "updatedAt"     = NOW()
+          WHERE id = $1
+        `, itemId, action, rqty);
+      } else {
+        await prisma.$executeRawUnsafe(`
+          UPDATE "BillItem"
+          SET "expiryStatus"  = 'archived',
+              "archiveReason" = $2,
+              "archivedAt"    = NOW(),
+              "updatedAt"     = NOW()
+          WHERE id = $1
+        `, itemId, action);
+      }
     } else {
       return res.status(400).json({ success: false, error: 'Invalid action' });
     }
 
-    const updated = await prisma.billItem.update({
-      where: { id: itemId },
-      data: updateData,
-    });
-
-    res.json({ success: true, item: updated });
+    res.json({ success: true });
   } catch (err) {
     console.error('[ExpiryController] applyExpiryAction error:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -251,21 +291,33 @@ exports.applyExpiryAction = async (req, res) => {
 };
 
 // ─── GET /api/expiry/user/:userId/archive ─────────────────────────────────────
-/**
- * Archived items — never deleted, always queryable.
- */
+
 exports.getArchive = async (req, res) => {
   try {
     const { userId } = req.params;
-    const items = await prisma.billItem.findMany({
-      where: { bill: { userId }, expiryStatus: 'archived' },
-      include: {
-        bill: { select: { pharmacyName: true, distributor: { select: { name: true } } } },
-      },
-      orderBy: { archivedAt: 'desc' },
-      take: 100,
-    });
-    res.json({ success: true, items });
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        bi.id,
+        bi.name,
+        bi."batchNumber",
+        bi."expiryDate",
+        bi.quantity,
+        bi."remainingQty",
+        bi."expiryStatus",
+        bi."archiveReason",
+        bi."archivedAt",
+        d.name AS "distributorName",
+        b."pharmacyName"
+      FROM "BillItem" bi
+      JOIN "Bill" b ON b.id = bi."billId"
+      LEFT JOIN "Distributor" d ON d.id = b."distributorId"
+      WHERE b."userId" = $1
+        AND bi."expiryStatus" = 'archived'
+      ORDER BY bi."archivedAt" DESC NULLS LAST
+      LIMIT 100
+    `, userId);
+
+    res.json({ success: true, items: rows });
   } catch (err) {
     console.error('[ExpiryController] getArchive error:', err.message);
     res.status(500).json({ success: false, error: err.message });
