@@ -114,6 +114,8 @@ export default function BillFormRedesigned({
   const [, setGeminiError] = useState(null);
   const [geminiConfidence, setGeminiConfidence] = useState(null);
   const [itemsNeedingManualReview, setItemsNeedingManualReview] = useState(0);
+  const [imageQualityWarning, setImageQualityWarning] = useState(null);
+  const [headerUncertainFields, setHeaderUncertainFields] = useState([]);
 
   // Distributor state
   const [selectedDistributor, setSelectedDistributor] = useState(initialData?.distributor || null);
@@ -175,6 +177,16 @@ export default function BillFormRedesigned({
         setGeminiConfidence(confidence);
         setItemsNeedingManualReview(reviewItems.length);
 
+        // Surface validation signals from parsed response
+        if (parsedData.headerUncertainFields && parsedData.headerUncertainFields.length > 0) {
+          setHeaderUncertainFields(parsedData.headerUncertainFields);
+        }
+        if (parsedData.imageQuality && parsedData.imageQuality.isBlurry) {
+          setImageQualityWarning(
+            parsedData.imageQuality.suggestion || 'Image appears blurry. Consider retaking the photo.'
+          );
+        }
+
         // Update distributor search query with filtered name
         setDistributorSearchQuery(filteredData.pharmacyName || '');
 
@@ -190,9 +202,12 @@ export default function BillFormRedesigned({
         
         // Show success toast
         showToast(
-          `${(confidence * 100).toFixed(0)}% confidence • ${formattedData.items.length} items found${reviewItems.length > 0 ? ` • ${reviewItems.length} need review` : ''}`,
-          'success',
-          'AI Parse Complete'
+          (() => {
+            const uncertainCount = (parsedData.headerUncertainFields || []).length + reviewItems.length;
+            return `${(confidence * 100).toFixed(0)}% confidence • ${formattedData.items.length} items found${uncertainCount > 0 ? ` • ${uncertainCount} field(s) need review` : ''}`;
+          })(),
+          parsedData.imageQuality && parsedData.imageQuality.isBlurry ? 'warning' : 'success',
+          parsedData.imageQuality && parsedData.imageQuality.isBlurry ? 'Low Image Quality' : 'AI Parse Complete'
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -501,6 +516,8 @@ export default function BillFormRedesigned({
         geminiLoading={geminiLoading}
         geminiConfidence={geminiConfidence}
         itemsNeedingManualReview={itemsNeedingManualReview}
+        imageQualityWarning={imageQualityWarning}
+        headerUncertainFields={headerUncertainFields}
         // Distributor props
         selectedDistributor={selectedDistributor}
         distributorSearchQuery={distributorSearchQuery}

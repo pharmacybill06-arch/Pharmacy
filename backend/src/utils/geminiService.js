@@ -504,32 +504,111 @@ function normalizeBillData(parsed, sourceText = '') {
     computedGrand = finalGrandTotal;
   }
 
-  const expiryItems = normalizedItems.map((item, index) => ({
-    sn: item.sn || index + 1,
-    name: item.name || '',
-    batchNumber: item.batchNumber || undefined,
-    expiryDate: item.expiryDate || undefined,
-    quantity: item.quantity || 0,
-    needsReview: !item.name || !item.batchNumber || !item.expiryDate || !item.quantity,
-    reviewReason: [
-      ...(!item.name ? ['Missing item name'] : []),
-      ...(!item.batchNumber ? ['Missing batch number'] : []),
-      ...(!item.expiryDate ? ['Missing expiry date'] : []),
-      ...(!item.quantity ? ['Missing quantity'] : []),
-    ],
-  }));
+  // ── Deterministic format validation ────────────────────────────────────────
+  const GSTIN_REGEX = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  const rawGstin = parsed.gstin || '';
+  const gstinValid = !rawGstin || GSTIN_REGEX.test(rawGstin.toUpperCase().trim());
+
+  // Date sanity: reject future dates and nonsense dates
+  function isValidBillDate(dateStr) {
+    if (!dateStr) return true; // missing is handled elsewhere
+    const parts = String(dateStr).split(/[-/]/);
+    if (parts.length !== 3) return false;
+    const [d, m, y] = parts.map(Number);
+    if (!d || !m || !y) return false;
+    const date = new Date(y < 100 ? 2000 + y : y, m - 1, d);
+    if (isNaN(date.getTime())) return false;
+    const now = new Date();
+    if (date > now) return false; // invoice date in the future
+    return true;
+  }
+  const invoiceDateValid = isValidBillDate(parsed.invoiceDate);
+
+  // Per-item cross-validation
+  const expiryItems = normalizedItems.map((item, index) => {
+    const reasons = [];
+
+    // Missing field checks
+    if (!item.name) reasons.push('Missing item name');
+    if (!item.batchNumber) reasons.push('Missing batch number');
+    if (!item.expiryDate) reasons.push('Missing expiry date');
+    if (!item.quantity) reasons.push('Missing quantity');
+
+    // qty × rate ≈ itemTotal cross-check (within 5% tolerance)
+    const qty = Number(item.quantity) || 0;
+    const rate = Number(item.rate) || 0;
+    const total = Number(item.itemTotal) || 0;
+    if (qty > 0 && rate > 0 && total > 0) {
+      const expected = round2(qty * rate);
+      const diff = Math.abs(expected - total);
+      const tolerance = Math.max(expected * 0.05, 1); // 5% or ₹1 whichever is larger
+      if (diff > tolerance) {
+        reasons.push(`qty×rate (${expected}) does not match amount (${total})`);
+      }
+    }
+
+    // Expiry date format: must be MM/YY, MM-YY, MM/YYYY, or DD-MM-YYYY
+    const expRaw = item.expiryDate || '';
+    const expValid = !expRaw || /^\d{2}[\/\-]\d{2,4}$/.test(expRaw) || /^\d{2}-\d{2}-\d{4}$/.test(expRaw);
+    if (expRaw && !expValid) reasons.push('Expiry date format unrecognised');
+
+    // Uncertainty flags from AI response (if model returned them)
+    const uncertainFields = [];
+    if (item._uncertain_batchNumber) { uncertainFields.push('batchNumber'); reasons.push('Batch number uncertain — verify in image'); }
+    if (item._uncertain_expiryDate)  { uncertainFields.push('expiryDate');  reasons.push('Expiry date uncertain — verify in image'); }
+    if (item._uncertain_quantity)    { uncertainFields.push('quantity');     reasons.push('Quantity uncertain — verify in image'); }
+    if (item._uncertain_rate)        { uncertainFields.push('rate');         reasons.push('Rate uncertain — verify in image'); }
+
+    return {
+      sn: item.sn || index + 1,
+      name: item.name || '',
+      batchNumber: item.batchNumber || undefined,
+      expiryDate: item.expiryDate || undefined,
+      quantity: item.quantity || 0,
+      rate: item.rate || undefined,
+      mrp: item.mrp || undefined,
+      itemTotal: item.itemTotal || undefined,
+      uncertainFields,
+      needsReview: reasons.length > 0,
+      reviewReason: reasons,
+    };
+  });
+
+  // Totals cross-check: sum of item totals vs grand total
+  const computedItemsSum = round2(expiryItems.reduce((s, it) => s + (Number(it.itemTotal) || 0), 0));
+  const totalsMismatch =
+    finalGrandTotal &&
+    computedItemsSum > 0 &&
+    Math.abs(computedItemsSum - finalGrandTotal) > Math.max(finalGrandTotal * 0.05, 2);
+
+  // Header-level uncertain fields from AI (if returned)
+  const headerUncertainFields = [];
+  if (parsed._uncertain_invoiceNumber) headerUncertainFields.push('invoiceNumber');
+  if (parsed._uncertain_gstin)         headerUncertainFields.push('gstin');
+  if (parsed._uncertain_dlNumber)      headerUncertainFields.push('dlNumber');
+  if (parsed._uncertain_pharmacyName)  headerUncertainFields.push('pharmacyName');
+
+  // Force flag fields that fail deterministic checks
+  if (!gstinValid && rawGstin) headerUncertainFields.push('gstin');
+  if (!invoiceDateValid && parsed.invoiceDate) headerUncertainFields.push('invoiceDate');
 
   return {
     pharmacyName: parsed.pharmacyName || '',
     shopAddress: parsed.shopAddress || '',
     phoneNumbers,
-    gstin: parsed.gstin || '',
+    gstin: rawGstin,
     dlNumber: parsed.dlNumber || '',
     invoiceNumber: parsed.invoiceNumber || '',
     invoiceDate: parsed.invoiceDate || '',
     dueDate: parsed.dueDate || undefined,
     paymentType,
     items: expiryItems,
+    // Validation signals
+    headerUncertainFields,
+    gstinValid,
+    invoiceDateValid,
+    totalsMismatch: totalsMismatch || false,
+    computedItemsSum,
   };
 }
 
@@ -916,13 +995,23 @@ Return ONLY valid JSON with this schema:
   "sgst": number|null,
   "totalGst": number|null,
   "roundOff": number|null,
-  "grandTotal": number|null
+  "grandTotal": number|null,
+  "_uncertain_invoiceNumber": boolean,
+  "_uncertain_gstin": boolean,
+  "_uncertain_dlNumber": boolean,
+  "_uncertain_pharmacyName": boolean
 }
 
 Rules:
 - pharmacyName is the SELLER/SUPPLIER printed at top-left, not the buyer/customer.
 - Totals must be copied from the printed totals section. Do not calculate.
 - If a value is not visible, use null.
+- CRITICAL UNCERTAINTY RULE: For invoiceNumber, gstin, dlNumber, and pharmacyName — if the image is
+  blurry, the text is partially obscured, or you are guessing any digit/character, set the corresponding
+  _uncertain_* field to true. Do NOT invent plausible-looking values; mark uncertain: true instead.
+  Example: if invoice number digits are unclear → _uncertain_invoiceNumber: true.
+  GSTIN must be exactly 15 characters matching pattern: 2 digits + 5 letters + 4 digits + 1 letter + 1 digit + Z + 1 alphanumeric.
+  If extracted GSTIN doesn't match this pattern, set _uncertain_gstin: true.
 ${ocrTextHint ? `\nOCR hint, may contain mistakes:\n${ocrTextHint}\n` : ''}`;
 }
 
@@ -938,7 +1027,11 @@ Extract EVERY printed item row from the table, from top to bottom. Return ONLY v
       "quantity": number|null,
       "name": string|null,
       "batchNumber": string|null,
-      "expiryDate": string|null
+      "expiryDate": string|null,
+      "_uncertain_batchNumber": boolean,
+      "_uncertain_expiryDate": boolean,
+      "_uncertain_quantity": boolean,
+      "_uncertain_rate": boolean
     }
   ]
 }
@@ -953,6 +1046,10 @@ Rules:
 - Preserve the exact number of item rows visible in the table. Do not summarize or skip rows.
 - If the table spans many rows, continue until the totals/class section begins.
 - If a field is blank or not readable, use null rather than borrowing from a neighboring column.
+- UNCERTAINTY RULE: For each item, if batchNumber, expiryDate, quantity, or rate text is
+  blurry/partially obscured/ambiguous in the image, set the corresponding _uncertain_* field to true.
+  Do NOT guess a plausible value for an uncertain field — set null and mark uncertain.
+  If digits could be two different numbers (e.g. 0 vs 6, 1 vs 7), set _uncertain_* true.
 ${ocrTextHint ? `\nHINT - OCR text extracted from this image (may contain errors/be out of order, use image layout as primary source of truth for ordering and missing items):\n${ocrTextHint}\n` : ''}`;
 }
 

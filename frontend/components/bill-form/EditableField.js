@@ -4,6 +4,7 @@ import {
     View,
     Text,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function EditableField({
   label,
@@ -14,17 +15,24 @@ export default function EditableField({
   numberOfLines = 1,
   keyboardType = 'default',
   small = false,
+  uncertain = false,  // flag: AI wasn't confident about this field
 }) {
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, small && styles.labelSmall]}>
-        {label}
-      </Text>
+      <View style={styles.labelRow}>
+        <Text style={[styles.label, small && styles.labelSmall]}>
+          {label}
+        </Text>
+        {uncertain && (
+          <Ionicons name="alert-circle" size={12} color="#D97706" style={styles.uncertainIcon} />
+        )}
+      </View>
       <TextInput
         style={[
           styles.input,
           multiline && styles.multilineInput,
           small && styles.inputSmall,
+          uncertain && styles.inputUncertain,
         ]}
         value={value}
         onChangeText={onChangeText}
@@ -42,6 +50,11 @@ const styles = StyleSheet.create({
   container: {
     gap: 6,
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   label: {
     fontSize: 14,
     fontWeight: '600',
@@ -50,6 +63,9 @@ const styles = StyleSheet.create({
   labelSmall: {
     fontSize: 13,
     fontWeight: '500',
+  },
+  uncertainIcon: {
+    marginTop: 1,
   },
   input: {
     borderWidth: 1,
@@ -67,5 +83,10 @@ const styles = StyleSheet.create({
   multilineInput: {
     textAlignVertical: 'top',
     minHeight: 80,
+  },
+  inputUncertain: {
+    borderColor: '#D97706',
+    borderWidth: 2,
+    backgroundColor: '#FFFBEB',
   },
 });

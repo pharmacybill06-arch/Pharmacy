@@ -41,7 +41,81 @@ function logTerminalResponse(label, responseBody) {
   console.log(`\n========== ${label} RESPONSE ==========\n${truncateForLog(responseBody)}\n========== END ${label} RESPONSE ==========\n`);
 }
 
-async function extractTesseractHint(imageBuffer) {
+/**
+ * Compute Laplacian variance to measure image sharpness.
+ * Returns a score — lower means blurrier. Threshold ~80 flags bad scans.
+ */
+async function measureBlur(imageBuffer) {
+  try {
+    const sharp = require('sharp');
+    // Convert to greyscale, apply a simple 3×3 Laplacian kernel, get stats
+    const { data, info } = await sharp(imageBuffer)
+      .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const pixels = new Uint8Array(data);
+    const w = info.width;
+    const h = info.height;
+    let sum = 0;
+    let count = 0;
+
+    // Laplacian: 4*center - top - bottom - left - right
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const c = pixels[y * w + x];
+        const lap =
+          4 * c -
+          pixels[(y - 1) * w + x] -
+          pixels[(y + 1) * w + x] -
+          pixels[y * w + (x - 1)] -
+          pixels[y * w + (x + 1)];
+        sum += lap * lap;
+        count++;
+      }
+    }
+    return count > 0 ? sum / count : 0;
+  } catch {
+    return 999; // can't check — assume ok
+  }
+}
+
+const BLUR_THRESHOLD = Number(process.env.BLUR_THRESHOLD || 80);
+
+/**
+ * Enhance image for OCR: auto-contrast, deskew via sharp, sharpen.
+ * Returns { base64, mimeType, blurScore, isBlurry }.
+ */
+async function preprocessForOcr(imageBuffer) {
+  const sharp = require('sharp');
+  const blurScore = await measureBlur(imageBuffer);
+  const isBlurry = blurScore < BLUR_THRESHOLD;
+
+  if (isBlurry) {
+    console.warn(`[AIController] Blur score ${blurScore.toFixed(1)} < ${BLUR_THRESHOLD} — image may be too blurry`);
+  } else {
+    console.log(`[AIController] Blur score ${blurScore.toFixed(1)} — image quality ok`);
+  }
+
+  // Apply preprocessing: upscale, boost contrast, sharpen
+  const enhanced = await sharp(imageBuffer)
+    .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: false, kernel: 'lanczos3' })
+    .greyscale()
+    .normalize()   // auto-contrast stretch
+    .sharpen({ sigma: 1.2 })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+
+  return {
+    base64: enhanced.toString('base64'),
+    mimeType: 'image/jpeg',
+    blurScore,
+    isBlurry,
+  };
+}
+
+
   try {
     const { createWorker } = require('tesseract.js');
     const worker = await createWorker('eng');
@@ -156,29 +230,35 @@ exports.parseImage = async (req, res) => {
 
     console.log(`[AIController] Parsing bill image with vision AI (${mimeType}, ${Math.round(base64Image.length / 1024)}KB base64)...`);
 
-    // Compress image for better accuracy and faster processing
+    // ── Image preprocessing: enhance + blur detection ──────────────────────
+    let blurScore = null;
+    let isBlurry = false;
     try {
-      const sharp = require('sharp');
       const imgBuffer = Buffer.from(base64Image, 'base64');
-      const originalSize = imgBuffer.length;
-      const compressed = await sharp(imgBuffer)
-        .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toBuffer();
-      base64Image = compressed.toString('base64');
-      sourceBuffer = compressed;
-      mimeType = 'image/jpeg';
-      console.log(`[AIController] Vision image compressed: ${Math.round(originalSize/1024)}KB → ${Math.round(compressed.length/1024)}KB`);
-    } catch (compressErr) {
-      console.warn('[AIController] Image compression failed, using original:', compressErr.message);
+      const preprocessed = await preprocessForOcr(imgBuffer);
+      base64Image = preprocessed.base64;
+      sourceBuffer = Buffer.from(base64Image, 'base64');
+      mimeType = preprocessed.mimeType;
+      blurScore = preprocessed.blurScore;
+      isBlurry = preprocessed.isBlurry;
+      console.log(`[AIController] Image preprocessed. Blur score: ${blurScore?.toFixed(1)}, isBlurry: ${isBlurry}`);
+    } catch (prepErr) {
+      console.warn('[AIController] Preprocessing failed, using original:', prepErr.message);
     }
 
-    if (!ocrTextHint || ocrTextHint.trim().length < 20) {
+    // ── OCR hint: only run if image is blurry OR no hint was provided ────────
+    // On clear images Gemini Vision reads the image directly (hint not needed).
+    // On blurry/low-confidence images the hint helps ground the model.
+    const needsOcrHint = isBlurry || (!ocrTextHint || ocrTextHint.trim().length < 20);
+    if (needsOcrHint && (!ocrTextHint || ocrTextHint.trim().length < 20)) {
       const ocrBuffer = ocrSourceBuffer || sourceBuffer || Buffer.from(base64Image, 'base64');
       ocrTextHint = await extractGoogleVisionHint(ocrBuffer);
       if (!ocrTextHint || ocrTextHint.trim().length < 20) {
+        // Only fall back to Tesseract when Google Vision also fails
         ocrTextHint = await extractTesseractHint(ocrBuffer);
       }
+    } else if (!isBlurry && ocrTextHint && ocrTextHint.trim().length >= 20) {
+      console.log('[AIController] Clear image with existing hint — skipping extra OCR pass');
     }
 
     let parsedData;
@@ -205,7 +285,20 @@ exports.parseImage = async (req, res) => {
       data: parsedData,
       ocrText: ocrTextHint,
       confidence: methodUsed === 'vision' ? 0.95 : 0.90,
-      method: methodUsed
+      method: methodUsed,
+      imageQuality: {
+        blurScore: blurScore !== null ? Math.round(blurScore * 10) / 10 : null,
+        isBlurry,
+        suggestion: isBlurry ? 'Image appears blurry. For best results, retake the photo in better lighting with the camera held steady.' : null,
+      },
+      // Surface validation signals so the frontend can act on them
+      validation: {
+        gstinValid: parsedData.gstinValid,
+        invoiceDateValid: parsedData.invoiceDateValid,
+        totalsMismatch: parsedData.totalsMismatch,
+        headerUncertainFields: parsedData.headerUncertainFields || [],
+        itemsNeedingReview: (parsedData.items || []).filter(it => it.needsReview).length,
+      },
     };
     logTerminalResponse(methodUsed === 'vision' ? 'VISION OCR + AI' : 'OCR + AI (FALLBACK)', responseBody);
     res.json(responseBody);

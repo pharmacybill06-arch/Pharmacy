@@ -25,7 +25,7 @@ const REVIEW_COLUMNS = [
   { key: 'batchNumber', label: 'BATCH', width: 118 },
   { key: 'expiryDate', label: 'EXPIRY', width: 104, keyboardType: 'number-pad', placeholder: 'MM/YY' },
   { key: 'quantity', label: 'QTY', width: 72, align: 'right', keyboardType: 'decimal-pad' },
-  { key: 'status', label: 'CHECK', width: 132, align: 'center' },
+  { key: 'status', label: 'CHECK', width: 152, align: 'center' },
 ];
 
 const REVIEW_TABLE_WIDTH = REVIEW_COLUMNS.reduce((sum, column) => sum + column.width, 0);
@@ -110,6 +110,27 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
               ]}
               value={rawValue === '-' ? '' : cellText}
               onChangeText={(text) => onUpdateCell(index, column.key, text)}
+              onBlur={() => {
+                // Validate and normalise expiry date on blur
+                if (column.key === 'expiryDate' && rawValue !== '-' && rawValue !== '') {
+                  const raw = String(rawValue).trim();
+                  // Handle MM/YY or MM-YY
+                  const mmyy = raw.match(/^(\d{1,2})[\/\-](\d{2,4})$/);
+                  if (mmyy) {
+                    let month = parseInt(mmyy[1], 10);
+                    let year = parseInt(mmyy[2], 10);
+                    // Clamp month to 1-12
+                    if (month < 1) month = 1;
+                    if (month > 12) month = 12;
+                    // Expand 2-digit year
+                    if (year < 100) year = 2000 + year;
+                    const normalised = `${String(month).padStart(2, '0')}/${String(year).slice(-2)}`;
+                    if (normalised !== raw) {
+                      onUpdateCell(index, column.key, normalised);
+                    }
+                  }
+                }
+              }}
               placeholder={column.placeholder || '-'}
               placeholderTextColor="#94A3B8"
               keyboardType={column.keyboardType || 'default'}
@@ -139,6 +160,8 @@ export default function BillFormScreen({
   geminiLoading = false,
   geminiConfidence = null,
   itemsNeedingManualReview = 0,
+  imageQualityWarning = null,
+  headerUncertainFields = [],
   onUpdateItemCell,
   onRemoveItem,
   onVerifyItem,
@@ -190,6 +213,24 @@ export default function BillFormScreen({
                 Expiry Parse • {(geminiConfidence * 100).toFixed(1)}% confidence
                 {itemsNeedingManualReview > 0 &&
                   ` • ${itemsNeedingManualReview} items need review`}
+              </ThemedText>
+            </View>
+          )}
+
+          {/* Blur warning banner */}
+          {imageQualityWarning && !geminiLoading && (
+            <View style={styles.warnBanner}>
+              <Ionicons name="warning-outline" size={16} color="#92400E" />
+              <ThemedText style={styles.warnBannerText}>{imageQualityWarning}</ThemedText>
+            </View>
+          )}
+
+          {/* Uncertain header fields banner */}
+          {headerUncertainFields.length > 0 && !geminiLoading && (
+            <View style={styles.warnBanner}>
+              <Ionicons name="alert-circle-outline" size={16} color="#92400E" />
+              <ThemedText style={styles.warnBannerText}>
+                Fields need verification: {headerUncertainFields.join(', ')}
               </ThemedText>
             </View>
           )}
@@ -351,6 +392,7 @@ export default function BillFormScreen({
                     onUpdateInvoiceMetadata({ invoiceNumber: text })
                   }
                   placeholder="INV-001"
+                  uncertain={headerUncertainFields.includes('invoiceNumber')}
                 />
               </View>
               <View style={styles.halfWidth}>
@@ -361,6 +403,7 @@ export default function BillFormScreen({
                     onUpdateInvoiceMetadata({ invoiceDate: text })
                   }
                   placeholder="DD/MM/YYYY"
+                  uncertain={headerUncertainFields.includes('invoiceDate')}
                 />
               </View>
             </View>
@@ -530,6 +573,25 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     flex: 1,
   },
+  warnBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  warnBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#92400E',
+    flex: 1,
+    lineHeight: 18,
+  },
   row: {
     flexDirection: 'row',
     gap: 12,
@@ -669,6 +731,22 @@ const styles = StyleSheet.create({
   },
   verifyTextDone: {
     color: '#047857',
+  },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  removeIconButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    flexShrink: 0,
   },
   itemRow: {
     flexDirection: 'row',

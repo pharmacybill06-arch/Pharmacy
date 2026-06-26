@@ -179,6 +179,10 @@ export default function ItemRowEditor({
     return Math.round(afterDiscount * 100) / 100;
   };
 
+  // Fields the AI flagged as uncertain (may be from a blurry scan)
+  const uncertainFields = item.uncertainFields || [];
+  const isUncertain = (field) => uncertainFields.includes(field);
+
   return (
     <View style={styles.expandedContent}>
       {/* Product Match Badge */}
@@ -202,9 +206,9 @@ export default function ItemRowEditor({
           <View style={styles.reviewBadgeContent}>
             <Text style={styles.reviewBadgeTitle}>Needs Review</Text>
             {item.reviewReason && item.reviewReason.length > 0 && (
-              <Text style={styles.reviewBadgeReason}>
-                {item.reviewReason[0]}
-              </Text>
+              item.reviewReason.map((reason, i) => (
+                <Text key={i} style={styles.reviewBadgeReason}>• {reason}</Text>
+              ))
             )}
           </View>
         </View>
@@ -274,6 +278,7 @@ export default function ItemRowEditor({
               onChangeText={(value) => handleChange('batchNumber', value)}
               placeholder="Batch"
               small
+              uncertain={isUncertain('batchNumber')}
             />
           </View>
           <View style={styles.column}>
@@ -283,6 +288,7 @@ export default function ItemRowEditor({
               onChangeText={(value) => handleChange('expiryDate', value)}
               placeholder="MM/YY"
               small
+              uncertain={isUncertain('expiryDate')}
             />
           </View>
           <View style={styles.column}>
@@ -305,6 +311,7 @@ export default function ItemRowEditor({
               placeholder="0"
               keyboardType="number-pad"
               small
+              uncertain={isUncertain('quantity')}
             />
           </View>
           <View style={[styles.column, {flex: 1}]}>
@@ -347,6 +354,7 @@ export default function ItemRowEditor({
               placeholder="0.00"
               keyboardType="decimal-pad"
               small
+              uncertain={isUncertain('rate')}
             />
           </View>
           <View style={[styles.column, {flex: 0.8}]}>

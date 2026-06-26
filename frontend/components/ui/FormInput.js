@@ -1,6 +1,7 @@
 import React from 'react';
 import { TextInput, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
+import { Ionicons } from '@expo/vector-icons';
 
 /**
  * FormInput Component
@@ -17,15 +18,24 @@ export default function FormInput({
   editable = true,
   onFocus,
   onBlur,
+  uncertain = false,
 }) {
   return (
     <View style={styles.container}>
-      {label && <ThemedText style={styles.label}>{label}</ThemedText>}
+      {label && (
+        <View style={styles.labelRow}>
+          <ThemedText style={styles.label}>{label}</ThemedText>
+          {uncertain && (
+            <Ionicons name="alert-circle" size={12} color="#D97706" style={styles.uncertainIcon} />
+          )}
+        </View>
+      )}
       <TextInput
         style={[
           styles.input,
           multiline && styles.multilineInput,
           !editable && styles.disabledInput,
+          uncertain && styles.inputUncertain,
         ]}
         value={value}
         onChangeText={onChangeText}
@@ -46,13 +56,21 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 14,
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 6,
+  },
   label: {
     fontSize: 12,
     fontWeight: '600',
     color: '#64748B',
-    marginBottom: 6,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
+  },
+  uncertainIcon: {
+    marginTop: 1,
   },
   input: {
     backgroundColor: '#F8FAFC',
@@ -72,5 +90,10 @@ const styles = StyleSheet.create({
   disabledInput: {
     backgroundColor: '#F9FAFB',
     color: '#94A3B8',
+  },
+  inputUncertain: {
+    borderColor: '#D97706',
+    borderWidth: 2,
+    backgroundColor: '#FFFBEB',
   },
 });
