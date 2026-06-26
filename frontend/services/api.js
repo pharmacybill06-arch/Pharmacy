@@ -700,3 +700,39 @@ export default {
   payment: paymentApi,
   baseUrl: API_BASE_URL,
 };
+
+// ============================================================================
+// EXPIRY ACTION WINDOW API
+// ============================================================================
+
+export const expiryApi = {
+  /**
+   * Get batches inside the action window (expiring within windowDays)
+   * @param {string} userId
+   * @param {number} windowDays - configurable, default 90
+   */
+  getWindow: async (userId, windowDays = 90) => {
+    return apiFetch(`/expiry/user/${userId}/window?windowDays=${windowDays}`);
+  },
+
+  /**
+   * Apply an action to a batch
+   * @param {string} itemId
+   * @param {'update_qty'|'sold'|'returned'|'writeoff'} action
+   * @param {number} [remainingQty]
+   */
+  applyAction: async (itemId, action, remainingQty) => {
+    return apiFetch(`/expiry/items/${itemId}/action`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action, remainingQty }),
+    });
+  },
+
+  /**
+   * Get archived items
+   * @param {string} userId
+   */
+  getArchive: async (userId) => {
+    return apiFetch(`/expiry/user/${userId}/archive`);
+  },
+};

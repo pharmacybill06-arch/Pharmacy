@@ -18,6 +18,7 @@ import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
 import { billApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import ExpiryActionPanel from '@/components/expiry/ExpiryActionPanel';
 
 /**
  * Memoized Expiry Row Component
@@ -322,11 +323,17 @@ export default function BillsHomeScreen() {
             </View>
           </View>
 
-          {/* Expiring Items Section */}
+          {/* Expiry Action Panel — surfaces only batches needing action */}
+          <ExpiryActionPanel
+            userId={userId}
+            onScanPress={handleScanBill}
+          />
+
+          {/* Expiring Items Section — full raw list below */}
           <View style={styles.recentBillsSection}>
             {/* Section Header */}
             <View style={styles.sectionHeader}>
-              <ThemedText style={styles.sectionTitle}>Expiring Soon</ThemedText>
+              <ThemedText style={styles.sectionTitle}>All Tracked Stock</ThemedText>
               <Pressable onPress={handleViewAll}>
                 <ThemedText style={styles.viewAllButton}>Add stock</ThemedText>
               </Pressable>

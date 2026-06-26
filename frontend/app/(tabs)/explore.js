@@ -4,6 +4,7 @@ import BillUploadScreen from '@/components/screens/BillUploadScreen';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
 import LoadingOverlay from '@/components/ui/LoadingOverlay';
+import { ThemedText } from '@/components/themed-text';
 import { billApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -38,8 +39,10 @@ export default function ExploreScreen() {
   const [ocrEngine, setOcrEngine] = useState('vision-ai');
   const [photoUri, setPhotoUri] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
+  const [capturedPhotos, setCapturedPhotos] = useState([]); // Multiple camera photos
   const [parsedFileData, setParsedFileData] = useState(null); // For CSV/Excel pre-parsed data
   const [fileOcrText, setFileOcrText] = useState(''); // CSV text for Gemini fallback
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
   const cameraRef = useRef(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
 
@@ -106,11 +109,12 @@ export default function ExploreScreen() {
         mediaTypes: ['images'],
         quality: 1,
         allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        const preparedImage = await prepareImageForScanning(result.assets[0]);
-        await processImage(preparedImage.uri, preparedImage.mimeType);
+      if (!result.canceled && result.assets?.length > 0) {
+        await processMultipleImages(result.assets);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -233,8 +237,8 @@ export default function ExploreScreen() {
         console.log('[Camera] Photo captured:', photo.uri);
         const preparedImage = await prepareImageForScanning(photo);
         setPhotoUri(preparedImage.uri);
-        setCameraActive(false);
-        await processImage(preparedImage.uri, preparedImage.mimeType);
+        setCapturedPhotos(prev => [...prev, preparedImage]);
+        // Don't close camera — let user take more or press Done
       } catch (error) {
         console.error('[Camera] Error capturing photo:', error);
         showToast('Failed to capture photo. Please try again.', 'error', 'Error');
@@ -242,6 +246,89 @@ export default function ExploreScreen() {
     } else {
       console.error('[Camera] Camera ref is null!');
       showToast('Camera not ready. Please try again.', 'error', 'Error');
+    }
+  };
+
+  const handleCameraPhotoDone = async () => {
+    const photos = capturedPhotos;
+    setCameraActive(false);
+    setCapturedPhotos([]);
+    if (photos.length === 0) return;
+    await processMultipleImages(photos);
+  };
+
+  const processMultipleImages = async (assets) => {
+    setScanning(true);
+    setScanProgress({ current: 0, total: assets.length });
+
+    try {
+      const results = [];
+      let combinedOcrText = '';
+      let lastEngine = 'vision-ai';
+
+      for (let i = 0; i < assets.length; i++) {
+        setScanProgress({ current: i + 1, total: assets.length });
+        const asset = assets[i];
+        const prepared = asset.uri && !asset.width
+          ? asset // already prepared (camera path sends {uri, mimeType})
+          : await prepareImageForScanning(asset);
+
+        console.log(`[BillScan] Scanning image ${i + 1}/${assets.length}:`, prepared.uri);
+        try {
+          const result = await billApi.parseBillImage(prepared.uri, prepared.mimeType || 'image/jpeg');
+          if (result?.success && result?.data) {
+            results.push(result.data);
+            combinedOcrText += (result.ocrText || '') + '\n';
+            lastEngine = result.method || 'vision-ai';
+          }
+        } catch (err) {
+          console.warn(`[BillScan] Image ${i + 1} failed:`, err.message);
+        }
+      }
+
+      if (results.length === 0) {
+        throw new Error('No bill data could be extracted from the selected images');
+      }
+
+      // Merge: use metadata from first result, combine all items
+      const merged = { ...results[0] };
+      if (results.length > 1) {
+        const allItems = results.flatMap((r, idx) =>
+          (r.items || []).map((item, j) => ({
+            ...item,
+            sn: undefined, // will be re-numbered
+            _page: idx + 1,
+          }))
+        ).map((item, idx) => ({ ...item, sn: idx + 1 }));
+        merged.items = allItems;
+      }
+
+      setPhotoUri(assets[0]?.uri || '');
+      setParsedFileData(merged);
+      setRawOcrText(combinedOcrText.trim());
+      setOcrEngine(lastEngine);
+      setCurrentScreen('bill-form');
+
+      if (assets.length > 1) {
+        showToast(
+          `Scanned ${assets.length} pages — ${merged.items?.length || 0} items found`,
+          'success',
+          'Scan Complete'
+        );
+      }
+    } catch (error) {
+      console.error('[BillScan] Multi-image error:', error);
+      setParsedFileData(null);
+      setRawOcrText('');
+      setCurrentScreen('bill-form');
+      showToast(
+        error.message || 'Failed to scan bill. You can still enter it manually.',
+        'error',
+        'Scan Failed'
+      );
+    } finally {
+      setScanning(false);
+      setScanProgress({ current: 0, total: 0 });
     }
   };
 
@@ -311,6 +398,7 @@ export default function ExploreScreen() {
         setOcrEngine('vision-ai');
         setParsedFileData(null);
         setFileOcrText('');
+        setCapturedPhotos([]);
       }, 1500);
     } catch (error) {
       console.error('Error saving bill:', error);
@@ -328,6 +416,7 @@ export default function ExploreScreen() {
     setCameraActive(false);
     setParsedFileData(null);
     setFileOcrText('');
+    setCapturedPhotos([]);
     router.back();
   };
 
@@ -360,6 +449,7 @@ export default function ExploreScreen() {
         setOcrEngine('vision-ai');
         setParsedFileData(null);
         setFileOcrText('');
+        setCapturedPhotos([]);
       }, 1500);
     } catch (error) {
       console.error('Error saving draft:', error);
@@ -381,15 +471,14 @@ export default function ExploreScreen() {
           ref={cameraRef}
           style={{ flex: 1 }}
           facing="back"
-          onCameraReady={() => {
-            console.log('[Camera] Camera is ready!');
-          }}
+          onCameraReady={() => console.log('[Camera] Camera is ready!')}
           onMountError={(error) => {
             console.error('[Camera] Mount error:', error);
             showToast('Camera failed to start', 'error', 'Camera Error');
             setCameraActive(false);
           }}
         >
+          {/* Shutter button */}
           <Pressable
             style={{
               position: 'absolute',
@@ -411,6 +500,33 @@ export default function ExploreScreen() {
           >
             <Ionicons name="camera" size={36} color="#4F46E5" />
           </Pressable>
+
+          {/* Done button with photo count — shown after at least 1 photo */}
+          {capturedPhotos.length > 0 && (
+            <Pressable
+              style={{
+                position: 'absolute',
+                bottom: 48,
+                right: 30,
+                backgroundColor: '#10B981',
+                borderRadius: 24,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                elevation: 4,
+              }}
+              onPress={handleCameraPhotoDone}
+            >
+              <Ionicons name="checkmark-circle" size={22} color="#fff" />
+              <ThemedText style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>
+                Done ({capturedPhotos.length})
+              </ThemedText>
+            </Pressable>
+          )}
+
+          {/* Close button */}
           <Pressable
             style={{
               position: 'absolute',
@@ -424,7 +540,7 @@ export default function ExploreScreen() {
               justifyContent: 'center',
             }}
             onPress={() => {
-              console.log('[Camera] Close button pressed');
+              setCapturedPhotos([]);
               setCameraActive(false);
             }}
           >
@@ -463,7 +579,11 @@ export default function ExploreScreen() {
         <LoadingOverlay
           visible={scanning}
           message="Scanning Bill"
-          submessage="Uploading image for AI extraction..."
+          submessage={
+            scanProgress.total > 1
+              ? `Processing image ${scanProgress.current} of ${scanProgress.total}...`
+              : 'Uploading image for AI extraction...'
+          }
           icon="scan"
         />
       </>

@@ -57,14 +57,14 @@ export default function BillUploadScreen({
                 <Ionicons name="cloud-upload-outline" size={48} color="#4F46E5" />
               </View>
               <ThemedText style={styles.uploadTitle}>
-                Bill Photo
+                Bill Photos
               </ThemedText>
               <ThemedText style={styles.uploadSubtitle}>
-                JPG, PNG, CSV or Excel formats
+                Select one or more images (JPG, PNG)
               </ThemedText>
               <View style={styles.fileTypeHint}>
                 <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <ThemedText style={styles.hintText}>High quality photos work best</ThemedText>
+                <ThemedText style={styles.hintText}>Select multiple pages at once</ThemedText>
               </View>
             </View>
           </Pressable>
@@ -84,7 +84,7 @@ export default function BillUploadScreen({
               <Ionicons name="camera" size={24} color="#FFFFFF" />
               <View style={styles.buttonTextContainer}>
                 <ThemedText style={styles.buttonTitle}>Take Photo</ThemedText>
-                <ThemedText style={styles.buttonSubtitle}>Use your camera</ThemedText>
+                <ThemedText style={styles.buttonSubtitle}>Capture one or more pages</ThemedText>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
             </Pressable>
@@ -105,7 +105,7 @@ export default function BillUploadScreen({
               <Ionicons name="image" size={24} color="#4F46E5" />
               <View style={styles.buttonTextContainer}>
                 <ThemedText style={styles.galleryButtonTitle}>Choose from Gallery</ThemedText>
-                <ThemedText style={styles.galleryButtonSubtitle}>Select existing photo</ThemedText>
+                <ThemedText style={styles.galleryButtonSubtitle}>Select multiple photos</ThemedText>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#4F46E5" />
             </Pressable>

@@ -339,6 +339,13 @@ model BillItem {
   // ========== TOTALS ==========
   itemTotal       Float      @default(0)            // Legacy total field; expiry management does not use it
   
+  // ========== EXPIRY ACTION MANAGEMENT ==========
+  remainingQty    Float?                            // Manually entered remaining stock (Phase 2: auto from sales)
+  expiryStatus    String     @default("active")     // active | archived
+  archiveReason   String?                           // sold | returned | writeoff | expired
+  archivedAt      DateTime?                         // When it was archived
+  firstEnteredWindowAt DateTime?                    // When it first entered the action window
+
   // ========== METADATA ==========
   confidence      Float?     @default(1.0)          // OCR confidence (0-1)
   isProductMatched Boolean   @default(false)        // Whether linked to product catalog
@@ -349,6 +356,7 @@ model BillItem {
   @@index([billId])
   @@index([productId])
   @@index([name])
+  @@index([expiryStatus])
 }
 
 // EmailProcessingLog: Tracks Zoho emails that have been processed (prevents re-processing)
