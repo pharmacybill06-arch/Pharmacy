@@ -115,7 +115,11 @@ async function preprocessForOcr(imageBuffer) {
   };
 }
 
-
+/**
+ * Extract a quick OCR text hint using Tesseract as a local fallback
+ * when Google Vision doesn't return enough usable text.
+ */
+async function extractTesseractHint(imageBuffer) {
   try {
     const { createWorker } = require('tesseract.js');
     const worker = await createWorker('eng');

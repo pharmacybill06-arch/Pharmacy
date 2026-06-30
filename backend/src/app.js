@@ -32,6 +32,7 @@ app.use('/api/gstin', require('./routes/gstinRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/email-bills', require('./routes/emailBillRoutes'));
 app.use('/api/expiry', require('./routes/expiryRoutes'));
+app.use('/api/patients', require('./routes/patientRoutes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

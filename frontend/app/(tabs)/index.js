@@ -435,6 +435,21 @@ export default function BillsHomeScreen() {
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Payments</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Track UPI payments</ThemedText>
               </Pressable>
+
+              {/* Refill Reminders Button */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/patients')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#FEF2F2' }]}>
+                  <MaterialIcons name="medical-services" size={22} color="#DC2626" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Refill Reminders</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Medication sync</ThemedText>
+              </Pressable>
             </View>
           </View>
 

@@ -31,6 +31,7 @@ model User {
   payments  Payment[]
   emailConnections EmailInboxConnection[]
   emailProcessingLogs EmailProcessingLog[]
+  patients  Patient[]
 
   @@index([email])
   @@index([phone])
@@ -383,6 +384,59 @@ model EmailProcessingLog {
   @@index([processedAt])
 }
 
+
+// Patient model: Chronic patients tracked for refill reminders / medication sync
+model Patient {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  phone     String
+  notes     String?
+  isActive  Boolean  @default(true)              // Soft delete flag
+
+  medicines PatientMedicine[]
+  reminders ReminderLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, phone])
+  @@index([userId])
+}
+
+// PatientMedicine: One chronic medicine a patient is on, used to compute days-of-supply/run-out
+model PatientMedicine {
+  id              String   @id @default(cuid())
+  patientId       String
+  patient         Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  name            String                          // Medicine name (matched against Product for stock flag)
+  stripsDispensed Float                            // Strips dispensed at last fill
+  tabletsPerStrip Float                            // Tablets per strip
+  dosePerDay      Float                            // Tablets taken per day
+  lastFillDate    DateTime @default(now())         // Cycle start; reset by Confirm Pickup
+
+  isActive        Boolean  @default(true)          // Soft delete flag
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([patientId])
+}
+
+// ReminderLog: Record of refill reminders sent to a patient (mock channel in v1)
+model ReminderLog {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  channel   String   @default("manual")            // manual (mock); future: whatsapp/sms
+  sentAt    DateTime @default(now())
+
+  @@index([patientId])
+}
 
 // BillDetectionCache: Cache AI detection results to reduce API calls
 // Caches based on subject/sender patterns to avoid re-analyzing similar emails

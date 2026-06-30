@@ -688,6 +688,128 @@ export const paymentApi = {
   },
 };
 
+// ============================================================================
+// PATIENT API - Refill Reminders / Medication Sync
+// ============================================================================
+
+export const patientApi = {
+  /**
+   * Get all patients for a user, sorted by soonest medicine run-out
+   * @param {string} userId - User ID
+   */
+  getPatients: async (userId) => {
+    return apiFetch(`/patients/${userId}`);
+  },
+
+  /**
+   * Get a single patient with computed days-of-supply and sync recommendation
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   */
+  getPatientById: async (userId, patientId) => {
+    return apiFetch(`/patients/${userId}/${patientId}`);
+  },
+
+  /**
+   * Create a new patient (optionally with initial medicines[])
+   * @param {string} userId - User ID
+   * @param {Object} data - { name, phone, notes, medicines }
+   */
+  createPatient: async (userId, data) => {
+    return apiFetch(`/patients/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Update patient name/phone/notes
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   * @param {Object} data - Fields to update
+   */
+  updatePatient: async (userId, patientId, data) => {
+    return apiFetch(`/patients/${userId}/${patientId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Delete a patient (soft delete)
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   */
+  deletePatient: async (userId, patientId) => {
+    return apiFetch(`/patients/${userId}/${patientId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Add a medicine to a patient
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   * @param {Object} data - { name, stripsDispensed, tabletsPerStrip, dosePerDay }
+   */
+  addMedicine: async (userId, patientId, data) => {
+    return apiFetch(`/patients/${userId}/${patientId}/medicines`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Update a patient's medicine
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   * @param {string} medicineId - Medicine ID
+   * @param {Object} data - Fields to update
+   */
+  updateMedicine: async (userId, patientId, medicineId, data) => {
+    return apiFetch(`/patients/${userId}/${patientId}/medicines/${medicineId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Remove a medicine from a patient
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   * @param {string} medicineId - Medicine ID
+   */
+  deleteMedicine: async (userId, patientId, medicineId) => {
+    return apiFetch(`/patients/${userId}/${patientId}/medicines/${medicineId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Confirm pickup — resets the cycle from the actual pickup date
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   * @param {Array} medicines - [{ medicineId, stripsDispensed?, tabletsPerStrip?, dosePerDay? }]
+   */
+  confirmPickup: async (userId, patientId, medicines) => {
+    return apiFetch(`/patients/${userId}/${patientId}/confirm-pickup`, {
+      method: 'POST',
+      body: JSON.stringify({ medicines }),
+    });
+  },
+
+  /**
+   * Send a refill reminder (mock channel in v1 — logs only)
+   * @param {string} userId - User ID
+   * @param {string} patientId - Patient ID
+   */
+  sendReminder: async (userId, patientId) => {
+    return apiFetch(`/patients/${userId}/${patientId}/send-reminder`, {
+      method: 'POST',
+    });
+  },
+};
+
 // Default export with all APIs
 export default {
   auth: authApi,
@@ -698,6 +820,7 @@ export default {
   gstin: gstinApi,
   distributor: distributorApi,
   payment: paymentApi,
+  patient: patientApi,
   baseUrl: API_BASE_URL,
 };
 
