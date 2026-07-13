@@ -11,6 +11,9 @@ const patientController = require('../controllers/patientController');
  * matching them as :patientId.
  */
 
+// POST /patients/low-stock-alerts/run - Manually trigger the low-stock push-alert scan (testing)
+router.post('/low-stock-alerts/run', patientController.runLowStockAlerts);
+
 // ============================================
 // MEDICINE SUB-ROUTES (must be before generic /:userId/:patientId)
 // ============================================

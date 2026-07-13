@@ -21,7 +21,8 @@ model User {
   name      String?
   phone     String     @unique
   shopName  String?                              // User's shop/pharmacy name (used to filter from OCR)
-  
+  expoPushToken String?                          // Expo push token for this device, used for refill-reminder alerts
+
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   
@@ -434,10 +435,12 @@ model ReminderLog {
   patientId String
   patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  channel   String   @default("manual")            // manual (mock); future: whatsapp/sms
+  channel   String   @default("manual")            // manual (mock), whatsapp, call, push
+  medicineId String?                                // set for 'push' low-stock alerts, used to dedup per medicine per day
   sentAt    DateTime @default(now())
 
   @@index([patientId])
+  @@index([medicineId])
 }
 
 // BillDetectionCache: Cache AI detection results to reduce API calls

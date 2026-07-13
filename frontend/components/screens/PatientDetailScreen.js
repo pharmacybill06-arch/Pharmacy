@@ -27,6 +27,7 @@ import {
   normalizeDosageForm,
   toNumber,
 } from '@/utils/dosageForms';
+import { callPatient, messagePatientOnWhatsApp, buildRefillReminderMessage } from '@/utils/contactActions';
 
 function formatDate(date) {
   if (!date) return '-';
@@ -276,6 +277,25 @@ export default function PatientDetailScreen({
               </View>
             )}
           </Card>
+
+          <View style={styles.actionButtons}>
+            <SecondaryButton
+              title="Call"
+              icon="call-outline"
+              borderColor="#4F46E5"
+              textColor="#4F46E5"
+              onPress={() => callPatient(patient.phone)}
+              style={styles.actionButton}
+            />
+            <SecondaryButton
+              title="WhatsApp"
+              icon="logo-whatsapp"
+              borderColor="#25D366"
+              textColor="#25D366"
+              onPress={() => messagePatientOnWhatsApp(patient.phone, buildRefillReminderMessage(patient))}
+              style={styles.actionButton}
+            />
+          </View>
 
           <View style={styles.actionButtons}>
             <SecondaryButton title="Edit" icon="create-outline" onPress={onEdit} style={styles.actionButton} />

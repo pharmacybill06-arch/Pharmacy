@@ -1,6 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
-import { authApi } from '../services/api';
+import { authApi, userApi } from '../services/api';
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
+
+async function registerPushTokenForUser(userId) {
+  try {
+    const token = await registerForPushNotificationsAsync();
+    if (token) {
+      await userApi.savePushToken(userId, token);
+    }
+  } catch (error) {
+    console.warn('[Auth] Push token registration failed:', error.message);
+  }
+}
 
 const AUTH_STORAGE_KEY = 'pharmacy_bill_auth';
 const AUTH_FILE_PATH = `${FileSystem.documentDirectory}auth_data.json`;
@@ -70,6 +82,7 @@ export function AuthProvider({ children }) {
           await authApi.getProfile(userData.id);
           setUser(userData);
           setIsAuthenticated(true);
+          registerPushTokenForUser(userData.id);
         } catch (validationError) {
           console.log('[Auth] Stored user no longer exists on server, clearing session. Re-login required.');
           await Storage.removeItem(AUTH_STORAGE_KEY);
@@ -89,6 +102,7 @@ export function AuthProvider({ children }) {
       await Storage.setItem(AUTH_STORAGE_KEY, JSON.stringify(userData));
       setUser(userData);
       setIsAuthenticated(true);
+      registerPushTokenForUser(userData.id);
       return true;
     } catch (error) {
       console.error('Error storing user data:', error);

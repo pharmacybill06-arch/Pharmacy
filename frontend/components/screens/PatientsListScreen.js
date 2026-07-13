@@ -16,6 +16,7 @@ import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
+import { callPatient, messagePatientOnWhatsApp, buildRefillReminderMessage } from '@/utils/contactActions';
 
 /**
  * Days-left -> color/label, mirrors the expiry action-window thresholds
@@ -77,6 +78,22 @@ const PatientListItem = React.memo(({ item, onPress }) => {
             </ThemedText>
           </View>
           {item.lowStock && <Chip label="Low stock" variant="danger" />}
+          <View style={styles.footerActions}>
+            <Pressable
+              onPress={(e) => { e.stopPropagation(); callPatient(item.phone); }}
+              hitSlop={8}
+              style={({ pressed }) => [styles.actionIconButton, pressed && styles.actionIconButtonPressed]}
+            >
+              <Ionicons name="call" size={16} color="#4F46E5" />
+            </Pressable>
+            <Pressable
+              onPress={(e) => { e.stopPropagation(); messagePatientOnWhatsApp(item.phone, buildRefillReminderMessage(item)); }}
+              hitSlop={8}
+              style={({ pressed }) => [styles.actionIconButton, styles.whatsappButton, pressed && styles.actionIconButtonPressed]}
+            >
+              <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+            </Pressable>
+          </View>
         </View>
       </Card>
     </Pressable>
@@ -302,6 +319,19 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   infoText: { fontSize: 12, color: '#64748B' },
+  footerActions: { flexDirection: 'row', gap: 8, marginLeft: 'auto' },
+  actionIconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  whatsappButton: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  actionIconButtonPressed: { opacity: 0.6 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   emptyText: { fontSize: 18, fontWeight: '700', color: '#0F172A', marginTop: 16 },
   emptySubtext: { fontSize: 14, color: '#64748B', textAlign: 'center', marginTop: 8, lineHeight: 20 },

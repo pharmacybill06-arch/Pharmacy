@@ -165,6 +165,16 @@ export const userApi = {
       method: 'DELETE',
     });
   },
+
+  /**
+   * Save this device's Expo push token, used for refill-reminder alerts
+   */
+  savePushToken: async (userId, expoPushToken) => {
+    return apiFetch(`/users/${userId}/push-token`, {
+      method: 'PUT',
+      body: JSON.stringify({ expoPushToken }),
+    });
+  },
 };
 
 // ============================================================================

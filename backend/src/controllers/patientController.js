@@ -1,6 +1,19 @@
 const patientService = require('../services/patientService');
 const { normalizeDosageForm, getDefaultDosageDetails, toNumber } = require('../utils/dosageForms');
 
+// ============================================
+// LOW-STOCK PUSH ALERTS — manual trigger (for testing; also runs on a daily cron)
+// ============================================
+exports.runLowStockAlerts = async (req, res) => {
+  try {
+    const results = await patientService.findAndSendLowStockAlerts();
+    res.json({ message: 'Low-stock alert scan complete', results });
+  } catch (error) {
+    console.error('[PATIENT] Low-stock alert scan error:', error.message);
+    res.status(500).json({ error: 'Failed to run low-stock alert scan' });
+  }
+};
+
 /**
  * Patient Controller
  * Handles HTTP requests for refill reminders / medication sync

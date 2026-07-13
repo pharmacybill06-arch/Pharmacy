@@ -14,6 +14,9 @@ router.get('/:userId', userController.getUserById);
 // Update user
 router.put('/:userId', userController.updateUser);
 
+// Save this device's Expo push token
+router.put('/:userId/push-token', userController.savePushToken);
+
 // Delete user
 router.delete('/:userId', userController.deleteUser);
 

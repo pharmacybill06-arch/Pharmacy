@@ -6,7 +6,33 @@ import { InvoiceProvider } from '../contexts/InvoiceContext';
 import { PaymentProvider } from '../contexts/PaymentContext';
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import { useEffect } from 'react';
+import * as Notifications from 'expo-notifications';
 import 'react-native-reanimated';
+
+/**
+ * Navigate to Refill Reminders when a low-stock push notification is tapped
+ * (whether the app was foregrounded, backgrounded, or launched from a kill state).
+ */
+function NotificationTapHandler() {
+  const router = useRouter();
+
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response?.notification.request.content.data?.type === 'low_stock_reminder') {
+        router.push('/patients');
+      }
+    });
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      if (response.notification.request.content.data?.type === 'low_stock_reminder') {
+        router.push('/patients');
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  return null;
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -48,6 +74,7 @@ export default function RootLayout() {
           <InvoiceProvider>
             <PaymentProvider>
               <ShareIntentHandler />
+              <NotificationTapHandler />
               <Stack
                 screenOptions={{
                   animationEnabled: true,

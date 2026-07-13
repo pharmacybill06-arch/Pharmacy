@@ -45,6 +45,8 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`📌 Localhost: http://localhost:${PORT}/api/health`);
   console.log(`📱 Mobile/Network: http://${LOCAL_IP}:${PORT}/api/health`);
   console.log(`\n📡 Use this URL in your mobile app: http://${LOCAL_IP}:${PORT}`);
+
+  require('./jobs/lowStockReminderJob').start();
 });
 
 // Handle port already in use - kill old process and retry ONCE

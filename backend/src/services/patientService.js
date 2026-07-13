@@ -322,6 +322,100 @@ async function sendReminder(userId, patientId) {
   });
 }
 
+// ============================================
+// LOW-STOCK PUSH ALERTS (background job)
+// ============================================
+
+const ALERT_THRESHOLD_DAYS = 3; // "about to finish" — tighter than the 7-day low-stock UI badge
+const DEDUP_WINDOW_HOURS = 20;  // don't re-alert the same medicine within this window (job runs ~daily)
+
+/**
+ * Scan every active patient's medicines across all users, and push-notify each
+ * pharmacist (once, batched) about the medicines running out within ALERT_THRESHOLD_DAYS.
+ * Dedups per-medicine via ReminderLog so the same low-stock medicine doesn't
+ * re-alert on every run. Returns a per-user summary for logging.
+ */
+async function findAndSendLowStockAlerts() {
+  const { sendPushNotification } = require('../utils/pushService');
+
+  const patients = await prisma.patient.findMany({
+    where: { isActive: true },
+    include: {
+      medicines: { where: { isActive: true } },
+      user: { select: { id: true, expoPushToken: true, shopName: true } },
+    },
+  });
+
+  const dueByUser = new Map(); // userId -> { user, items: [...] }
+
+  for (const patient of patients) {
+    for (const medicine of patient.medicines) {
+      const annotated = annotateMedicine(medicine);
+      if (annotated.daysLeft > ALERT_THRESHOLD_DAYS) continue;
+
+      const recentAlert = await prisma.reminderLog.findFirst({
+        where: {
+          medicineId: medicine.id,
+          channel: 'push',
+          sentAt: { gte: new Date(Date.now() - DEDUP_WINDOW_HOURS * 3600 * 1000) },
+        },
+      });
+      if (recentAlert) continue;
+
+      if (!dueByUser.has(patient.userId)) {
+        dueByUser.set(patient.userId, { user: patient.user, items: [] });
+      }
+      dueByUser.get(patient.userId).items.push({
+        patientId: patient.id,
+        patientName: patient.name,
+        medicineId: medicine.id,
+        medicineName: medicine.name,
+        daysLeft: annotated.daysLeft,
+      });
+    }
+  }
+
+  const results = [];
+  for (const [userId, { user, items }] of dueByUser) {
+    if (!items.length) continue;
+
+    if (!user?.expoPushToken) {
+      console.log(`[PatientService] User ${userId} has ${items.length} low-stock alert(s) but no push token registered — skipping`);
+      results.push({ userId, count: items.length, success: false, error: 'no push token' });
+      continue;
+    }
+
+    const title = items.length === 1 ? 'Refill reminder' : `${items.length} patients need a refill soon`;
+    const body =
+      items.length === 1
+        ? `${items[0].patientName}'s ${items[0].medicineName} ${items[0].daysLeft <= 0 ? 'has run out' : `runs out in ${items[0].daysLeft}d`}`
+        : items
+            .slice(0, 3)
+            .map((i) => `${i.patientName} (${i.medicineName})`)
+            .join(', ') + (items.length > 3 ? ` +${items.length - 3} more` : '');
+
+    try {
+      await sendPushNotification(user.expoPushToken, {
+        title,
+        body,
+        data: { type: 'low_stock_reminder', patientIds: items.map((i) => i.patientId) },
+      });
+
+      await prisma.reminderLog.createMany({
+        data: items.map((i) => ({ patientId: i.patientId, medicineId: i.medicineId, channel: 'push' })),
+      });
+
+      console.log(`[PatientService] Sent low-stock push to user ${userId} (${items.length} item(s))`);
+      results.push({ userId, count: items.length, success: true });
+    } catch (error) {
+      console.error(`[PatientService] Failed to send push to user ${userId}:`, error.message);
+      results.push({ userId, count: items.length, success: false, error: error.message });
+    }
+  }
+
+  return results;
+}
+
 module.exports = {
   daysOfSupply,
   runOutDate,
@@ -336,4 +430,5 @@ module.exports = {
   deleteMedicine,
   confirmPickup,
   sendReminder,
+  findAndSendLowStockAlerts,
 };

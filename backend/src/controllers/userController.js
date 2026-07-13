@@ -147,6 +147,33 @@ exports.updateUser = async (req, res) => {
   }
 };
 
+// Save/update this device's Expo push token, used for refill-reminder alerts
+exports.savePushToken = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { expoPushToken } = req.body;
+
+    if (!expoPushToken || typeof expoPushToken !== 'string') {
+      return res.status(400).json({ error: 'expoPushToken is required' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { expoPushToken },
+    });
+
+    res.json({ message: 'Push token saved' });
+  } catch (error) {
+    console.error('Error saving push token:', error.message);
+    res.status(500).json({ error: 'Failed to save push token' });
+  }
+};
+
 // Delete user (cascade delete bills and bill items)
 exports.deleteUser = async (req, res) => {
   try {
