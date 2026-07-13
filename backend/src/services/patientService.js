@@ -1,5 +1,14 @@
 const prisma = require('../models/prisma');
 const { normalizeProductName } = require('./productService');
+const {
+  normalizeDosageForm,
+  toNumber,
+  getDefaultDosageDetails,
+  getDailyUsageQuantity,
+  getPackQuantity,
+  getDosageSummary,
+  getQuantityLabel,
+} = require('../utils/dosageForms');
 
 /**
  * Patient Service
@@ -16,9 +25,10 @@ const LOW_STOCK_WINDOW_DAYS = 7; // flag low stock when run-out falls within thi
  * Days of supply for a medicine = (strips x tablets per strip) / tablets per day
  */
 function daysOfSupply(medicine) {
-  const totalTablets = medicine.stripsDispensed * medicine.tabletsPerStrip;
-  if (!medicine.dosePerDay) return 0;
-  return totalTablets / medicine.dosePerDay;
+  const packQuantity = getPackQuantity(medicine);
+  const dailyUsage = getDailyUsageQuantity(medicine);
+  if (!dailyUsage) return 0;
+  return packQuantity / dailyUsage;
 }
 
 function runOutDate(medicine) {
@@ -43,9 +53,12 @@ function annotateMedicine(medicine) {
   const runOut = runOutDate(medicine);
   return {
     ...medicine,
+    dosageForm: normalizeDosageForm(medicine.dosageForm),
     daysOfSupply: Math.round(supply * 10) / 10,
     runOutDate: runOut,
     daysLeft: daysUntil(runOut),
+    dosageSummary: getDosageSummary(medicine),
+    quantityLabel: getQuantityLabel(medicine.dosageForm),
   };
 }
 
@@ -67,18 +80,21 @@ function computeSyncRecommendation(annotatedMedicines) {
       const gapDays = daysUntil(targetDate) - m.daysLeft;
       if (gapDays <= 0) return null;
 
-      const extraTablets = Math.ceil(gapDays * m.dosePerDay);
-      const extraStrips = Math.floor(extraTablets / m.tabletsPerStrip);
-      const looseTablets = extraTablets - extraStrips * m.tabletsPerStrip;
+      const dailyUsage = getDailyUsageQuantity(m);
+      const extraAmount = Math.ceil(gapDays * dailyUsage);
+      const form = normalizeDosageForm(m.dosageForm);
 
       return {
         medicineId: m.id,
         name: m.name,
+        dosageForm: form,
         currentRunOutDate: m.runOutDate,
         gapDays,
-        extraTablets,
-        extraStrips,
-        looseTablets,
+        extraAmount,
+        quantityLabel: getQuantityLabel(form),
+        extraTablets: form === 'tablet' ? extraAmount : undefined,
+        extraStrips: form === 'tablet' && m.tabletsPerStrip > 0 ? Math.floor(extraAmount / m.tabletsPerStrip) : undefined,
+        looseTablets: form === 'tablet' && m.tabletsPerStrip > 0 ? extraAmount - Math.floor(extraAmount / m.tabletsPerStrip) * m.tabletsPerStrip : undefined,
       };
     })
     .filter(Boolean);
@@ -121,10 +137,12 @@ async function createPatient(userId, data) {
       notes: notes || null,
       medicines: {
         create: medicines.map((m) => ({
+          dosageForm: normalizeDosageForm(m.dosageForm),
           name: m.name,
-          stripsDispensed: parseFloat(m.stripsDispensed),
-          tabletsPerStrip: parseFloat(m.tabletsPerStrip),
-          dosePerDay: parseFloat(m.dosePerDay),
+          stripsDispensed: normalizeDosageForm(m.dosageForm) === 'tablet' ? toNumber(m.stripsDispensed) : 0,
+          tabletsPerStrip: normalizeDosageForm(m.dosageForm) === 'tablet' ? toNumber(m.tabletsPerStrip) : 0,
+          dosePerDay: toNumber(m.dosePerDay),
+          dosageDetails: getDefaultDosageDetails(m.dosageForm, m),
           lastFillDate: m.lastFillDate ? new Date(m.lastFillDate) : new Date(),
         })),
       },
@@ -215,13 +233,16 @@ async function addMedicine(userId, patientId, data) {
   const patient = await prisma.patient.findFirst({ where: { id: patientId, userId } });
   if (!patient) return null;
 
+  const dosageForm = normalizeDosageForm(data.dosageForm);
   return prisma.patientMedicine.create({
     data: {
       patientId,
       name: data.name,
-      stripsDispensed: parseFloat(data.stripsDispensed),
-      tabletsPerStrip: parseFloat(data.tabletsPerStrip),
-      dosePerDay: parseFloat(data.dosePerDay),
+      dosageForm,
+      stripsDispensed: dosageForm === 'tablet' ? toNumber(data.stripsDispensed) : 0,
+      tabletsPerStrip: dosageForm === 'tablet' ? toNumber(data.tabletsPerStrip) : 0,
+      dosePerDay: toNumber(data.dosePerDay),
+      dosageDetails: getDefaultDosageDetails(dosageForm, data),
       lastFillDate: data.lastFillDate ? new Date(data.lastFillDate) : new Date(),
     },
   });
@@ -231,13 +252,18 @@ async function updateMedicine(userId, patientId, medicineId, data) {
   const patient = await prisma.patient.findFirst({ where: { id: patientId, userId } });
   if (!patient) return null;
 
+  const hasDosageForm = data.dosageForm !== undefined;
+  const dosageForm = hasDosageForm ? normalizeDosageForm(data.dosageForm) : null;
   const result = await prisma.patientMedicine.updateMany({
     where: { id: medicineId, patientId },
     data: {
       ...(data.name !== undefined && { name: data.name }),
-      ...(data.stripsDispensed !== undefined && { stripsDispensed: parseFloat(data.stripsDispensed) }),
-      ...(data.tabletsPerStrip !== undefined && { tabletsPerStrip: parseFloat(data.tabletsPerStrip) }),
-      ...(data.dosePerDay !== undefined && { dosePerDay: parseFloat(data.dosePerDay) }),
+      ...(hasDosageForm && { dosageForm }),
+      ...(data.dosePerDay !== undefined && { dosePerDay: toNumber(data.dosePerDay) }),
+      ...(data.dosageDetails !== undefined && { dosageDetails: data.dosageDetails }),
+      ...(hasDosageForm && dosageForm !== 'tablet' && { stripsDispensed: 0, tabletsPerStrip: 0 }),
+      ...((!hasDosageForm || dosageForm === 'tablet') && data.stripsDispensed !== undefined && { stripsDispensed: toNumber(data.stripsDispensed) }),
+      ...((!hasDosageForm || dosageForm === 'tablet') && data.tabletsPerStrip !== undefined && { tabletsPerStrip: toNumber(data.tabletsPerStrip) }),
     },
   });
   if (result.count === 0) return null;
@@ -265,13 +291,17 @@ async function confirmPickup(userId, patientId, medicineUpdates = []) {
 
   const now = new Date();
   for (const update of medicineUpdates) {
+    const dosageForm = normalizeDosageForm(update.dosageForm);
     await prisma.patientMedicine.updateMany({
       where: { id: update.medicineId, patientId },
       data: {
         lastFillDate: now,
-        ...(update.stripsDispensed !== undefined && { stripsDispensed: parseFloat(update.stripsDispensed) }),
-        ...(update.tabletsPerStrip !== undefined && { tabletsPerStrip: parseFloat(update.tabletsPerStrip) }),
-        ...(update.dosePerDay !== undefined && { dosePerDay: parseFloat(update.dosePerDay) }),
+        ...(update.dosageForm !== undefined && { dosageForm }),
+        ...(update.dosePerDay !== undefined && { dosePerDay: toNumber(update.dosePerDay) }),
+        ...(update.dosageDetails !== undefined && { dosageDetails: update.dosageDetails }),
+        ...(dosageForm !== 'tablet' && { stripsDispensed: 0, tabletsPerStrip: 0 }),
+        ...(dosageForm === 'tablet' && update.stripsDispensed !== undefined && { stripsDispensed: toNumber(update.stripsDispensed) }),
+        ...(dosageForm === 'tablet' && update.tabletsPerStrip !== undefined && { tabletsPerStrip: toNumber(update.tabletsPerStrip) }),
       },
     });
   }

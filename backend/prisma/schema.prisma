@@ -412,6 +412,8 @@ model PatientMedicine {
   patientId       String
   patient         Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
+  dosageForm      String   @default("tablet")
+  dosageDetails   Json?
   name            String                          // Medicine name (matched against Product for stock flag)
   stripsDispensed Float                            // Strips dispensed at last fill
   tabletsPerStrip Float                            // Tablets per strip

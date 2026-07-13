@@ -178,7 +178,7 @@ export const billApi = {
    * the best parser/fallbacks.
    */
   parseBillImage: async (imageUri, mimeType = 'image/jpeg') => {
-    const extension = mimeType.includes('png') ? 'png' : 'jpg';
+    const extension = mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : 'jpg';
     const formData = new FormData();
 
     formData.append('image', {
@@ -689,6 +689,52 @@ export const paymentApi = {
 };
 
 // ============================================================================
+// INVOICE API - Customer sales invoices
+// ============================================================================
+
+export const invoiceApi = {
+  /**
+   * Get all invoices for a user
+   * @param {string} userId - User ID
+   */
+  getInvoices: async (userId) => {
+    return apiFetch(`/invoices/${userId}`);
+  },
+
+  /**
+   * Create a new invoice
+   * @param {string} userId - User ID
+   * @param {Object} data - Invoice data
+   */
+  createInvoice: async (userId, data) => {
+    return apiFetch(`/invoices/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Get a single invoice by ID
+   * @param {string} userId - User ID
+   * @param {string} invoiceId - Invoice ID
+   */
+  getInvoiceById: async (userId, invoiceId) => {
+    return apiFetch(`/invoices/${userId}/${invoiceId}`);
+  },
+
+  /**
+   * Delete/reverse an invoice (refunds stock)
+   * @param {string} userId - User ID
+   * @param {string} invoiceId - Invoice ID
+   */
+  deleteInvoice: async (userId, invoiceId) => {
+    return apiFetch(`/invoices/${userId}/${invoiceId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ============================================================================
 // PATIENT API - Refill Reminders / Medication Sync
 // ============================================================================
 
@@ -821,6 +867,7 @@ export default {
   distributor: distributorApi,
   payment: paymentApi,
   patient: patientApi,
+  invoice: invoiceApi,
   baseUrl: API_BASE_URL,
 };
 

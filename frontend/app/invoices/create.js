@@ -11,13 +11,15 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/theme';
 import { useInvoice } from '../../contexts/InvoiceContext';
 import { useAuth } from '../../contexts/AuthContext';
 import ProductSearchDropdown from '../../components/invoice/ProductSearchDropdown';
 import InvoiceItemsTable from '../../components/invoice/InvoiceItemsTable';
+import AppBar from '@/components/ui/AppBar';
 
 /**
  * CreateInvoiceScreen
@@ -25,11 +27,13 @@ import InvoiceItemsTable from '../../components/invoice/InvoiceItemsTable';
  */
 export default function CreateInvoiceScreen() {
   const router = useRouter();
-  const { userId, apiUrl } = useAuth();
+  const { user } = useAuth();
+  const userId = user?.id;
   const {
     currentInvoice,
     updateCustomer,
     updatePayment,
+    updateRemarks,
     addItem,
     removeItem,
     updateItem,
@@ -134,7 +138,7 @@ export default function CreateInvoiceScreen() {
 
     setSaving(true);
     try {
-      const result = await createInvoice(userId, apiUrl);
+      const result = await createInvoice(userId);
       
       Alert.alert('Success', 'Invoice created successfully', [
         {
@@ -172,22 +176,14 @@ export default function CreateInvoiceScreen() {
   const excludeProductIds = currentInvoice.items.map((item) => item.productId);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <Stack.Screen
-        options={{
-          title: 'Create Invoice',
-          headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="chevron-back" size={24} color={Colors.light.primary} />
-            </TouchableOpacity>
-          )
-        }}
-      />
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <AppBar title="Create Invoice" onBack={() => router.back()} />
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Customer Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Customer Details</Text>
@@ -277,7 +273,6 @@ export default function CreateInvoiceScreen() {
               <Text style={styles.label}>Select Product</Text>
               <ProductSearchDropdown
                 userId={userId}
-                apiUrl={apiUrl}
                 onProductSelect={handleProductSelect}
                 placeholder="Search by name or manufacturer..."
                 excludeProductIds={excludeProductIds}
@@ -386,9 +381,7 @@ export default function CreateInvoiceScreen() {
               style={[styles.input, styles.multilineInput]}
               placeholder="Remarks (optional)"
               value={currentInvoice.remarks}
-              onChangeText={(text) => {
-                // Update remarks
-              }}
+              onChangeText={updateRemarks}
               multiline
               numberOfLines={3}
               placeholderTextColor={Colors.light.gray}
@@ -435,8 +428,9 @@ export default function CreateInvoiceScreen() {
         </View>
 
         <View style={styles.spacer} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -444,6 +438,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.lightGray
+  },
+  keyboardView: {
+    flex: 1
   },
   scrollView: {
     flex: 1,

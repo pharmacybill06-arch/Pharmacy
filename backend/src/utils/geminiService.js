@@ -1,8 +1,5 @@
-const Groq = require('groq-sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Initialize Groq AI
-let groqClient = null;
 // Initialize Gemini AI
 let geminiModel = null;
 let geminiTextModel = null;
@@ -78,24 +75,6 @@ function extractJsonObject(text) {
   return JSON.parse(jsonText);
 }
 
-function initializeGemini() {
-  const apiKey = process.env.GROQ_API_KEY;
-  
-  if (!apiKey) {
-    console.warn('[AIService] ⚠️ GROQ_API_KEY not found in environment');
-    return false;
-  }
-
-  try {
-    groqClient = new Groq({ apiKey });
-    console.log('[AIService] ✓ Groq AI initialized successfully');
-    return true;
-  } catch (error) {
-    console.error('[AIService] ✗ Failed to initialize:', error.message);
-    return false;
-  }
-}
-
 function initializeGeminiVision() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -146,12 +125,10 @@ function initializeGeminiText() {
 }
 
 /**
- * Parse OCR text using Gemini AI to extract structured bill data
- * @param {string} ocrText - Raw OCR text from bill image
- * @returns {Promise<Object>} Parsed bill data
+ * The standard OCR-text-to-JSON prompt, shared by every text-based parser (Gemini, Groq, OpenAI).
  */
-async function parseOcrWithGemini(ocrText) {
-  const prompt = `
+function getOcrTextPrompt(ocrText) {
+  return `
 You are an expert Indian pharmacy invoice parser. Parse the OCR text below into structured JSON.
 
 Return ONLY valid JSON (no markdown, no extra text). If a value is missing, return null or 0.
@@ -264,6 +241,15 @@ STEP 7 - PHONE NUMBERS: array ["9876543210"]
 OCR TEXT:
 ${ocrText}
 `;
+}
+
+/**
+ * Parse OCR text using Gemini AI to extract structured bill data
+ * @param {string} ocrText - Raw OCR text from bill image
+ * @returns {Promise<Object>} Parsed bill data
+ */
+async function parseOcrWithGemini(ocrText) {
+  const prompt = getOcrTextPrompt(ocrText);
 
   if (!geminiTextModel) {
     initializeGeminiText();
@@ -286,49 +272,16 @@ ${ocrText}
 
       return normalized;
     } catch (error) {
-      console.warn('[AIService] Gemini text parser failed, trying Groq fallback:', error.message);
-    }
-  }
-
-  // Initialize Groq fallback if not already done
-  if (!groqClient) {
-    const initialized = initializeGemini();
-    if (!initialized) {
-      throw new Error('Gemini and Groq AI are not configured. Please set GEMINI_API_KEY or GROQ_API_KEY in .env');
+      console.warn('[AIService] Gemini text parser failed, trying OpenAI fallback:', error.message);
     }
   }
 
   try {
-    console.log('[AIService] Sending request to Groq AI (llama-3.3-70b-versatile)...');
-    const chatCompletion = await groqClient.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert Indian pharmacy invoice parser. You always return ONLY valid JSON, no markdown fences, no extra text.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.2,
-      max_tokens: 8192,
-      response_format: { type: 'json_object' },
-    });
-
-    const text = chatCompletion.choices[0]?.message?.content || '';
-    console.log('[AIService] ✓ Received response from Groq');
-    logAiRawResponse('Groq text parser', text);
-    const parsed = extractJsonObject(text);
-    
-    // Normalize the data
-    const normalized = normalizeBillData(parsed, ocrText);
-    
-    console.log('[AIService] ✓ Successfully parsed bill data');
+    const { parseTextWithOpenAI } = require('./openaiService');
+    const normalized = await parseTextWithOpenAI(ocrText);
+    console.log('[AIService] ✓ Successfully parsed bill data with OpenAI text parser');
     console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
-    logAiFilledData('Groq text parser', normalized);
-    
+    logAiFilledData('OpenAI text parser', normalized);
     return normalized;
   } catch (error) {
     console.error('[AIService] ✗ Parsing failed:', error.message);
@@ -549,7 +502,7 @@ function normalizeBillData(parsed, sourceText = '') {
 
     // Expiry date format: must be MM/YY, MM-YY, MM/YYYY, or DD-MM-YYYY
     const expRaw = item.expiryDate || '';
-    const expValid = !expRaw || /^\d{2}[\/\-]\d{2,4}$/.test(expRaw) || /^\d{2}-\d{2}-\d{4}$/.test(expRaw);
+    const expValid = !expRaw || /^\d{1,2}[\/\-]\d{2,4}$/.test(expRaw) || /^\d{2}-\d{2}-\d{4}$/.test(expRaw);
     if (expRaw && !expValid) reasons.push('Expiry date format unrecognised');
 
     // Uncertainty flags from AI response (if model returned them)
@@ -895,12 +848,13 @@ async function parseImageWithVision(base64Image, mimeType = 'image/jpeg', ocrTex
     console.warn('[AIService] Gemini Vision failed, trying Groq Vision:', geminiErr.message);
   }
 
-  // Fallback to Groq Vision
+  // Fallback to OpenAI Vision (replaces Groq Vision as the fallback)
   try {
-    const result = await parseImageWithGroqVision(base64Image, mimeType, ocrTextHint);
+    const { parseImageWithOpenAIVision } = require('./openaiService');
+    const result = await parseImageWithOpenAIVision(base64Image, mimeType, ocrTextHint);
     return result;
-  } catch (groqErr) {
-    console.warn('[AIService] Groq Vision failed:', groqErr.message);
+  } catch (openaiErr) {
+    console.warn('[AIService] OpenAI Vision failed:', openaiErr.message);
   }
 
   // Final fallback: if we have OCR text, use text model
@@ -1046,10 +1000,22 @@ Rules:
 - Preserve the exact number of item rows visible in the table. Do not summarize or skip rows.
 - If the table spans many rows, continue until the totals/class section begins.
 - If a field is blank or not readable, use null rather than borrowing from a neighboring column.
-- UNCERTAINTY RULE: For each item, if batchNumber, expiryDate, quantity, or rate text is
-  blurry/partially obscured/ambiguous in the image, set the corresponding _uncertain_* field to true.
-  Do NOT guess a plausible value for an uncertain field — set null and mark uncertain.
-  If digits could be two different numbers (e.g. 0 vs 6, 1 vs 7), set _uncertain_* true.
+
+ROW-ALIGNMENT DISCIPLINE (this is the most common source of errors — follow strictly):
+- Process ONE row at a time, top to bottom. Before writing a row's batchNumber/expiryDate/quantity, re-verify each value is vertically aligned with THAT row's item name and S.No — not the row above or below it.
+- Never let a value "carry over" or shift from an adjacent row. If a cell looks blank, it IS blank (null) — do not fill it with the neighboring row's value.
+- After extracting all rows, do a self-check pass: compare each row's sn to its position in the array (1, 2, 3...) and confirm no two rows accidentally share the same batch/expiry/quantity combination unless the image genuinely shows that.
+
+CHARACTER-LEVEL PRECISION (batch numbers and expiry dates are dense alphanumeric strings printed in small font — read character by character, left to right, not as a whole-word guess):
+- Commonly confused character pairs to double-check: 0 vs O, 1 vs I vs l vs 7, 5 vs S, 6 vs G, 8 vs B vs 3, 2 vs Z.
+- Batch numbers frequently mix letters and digits (e.g. "716SPBN5", "MFL0479") — verify the exact count of characters matches what's printed; a common error is dropping or duplicating one trailing digit.
+- Expiry dates are usually MM/YY — verify BOTH the month and year digits individually against the image; do not assume a plausible-looking year, read the actual printed digit.
+- If, after careful re-reading, you are still not fully confident in a character, mark that field's _uncertain_* flag true rather than guessing — a null with uncertain=true is far more useful than a confident wrong value.
+
+UNCERTAINTY RULE: For each item, if batchNumber, expiryDate, quantity, or rate text is
+blurry/partially obscured/ambiguous in the image, set the corresponding _uncertain_* field to true.
+Do NOT guess a plausible value for an uncertain field — set null and mark uncertain.
+If digits could be two different numbers (e.g. 0 vs 6, 1 vs 7), set _uncertain_* true.
 ${ocrTextHint ? `\nHINT - OCR text extracted from this image (may contain errors/be out of order, use image layout as primary source of truth for ordering and missing items):\n${ocrTextHint}\n` : ''}`;
 }
 
@@ -1077,32 +1043,74 @@ function mergeParsedBill(metadata, itemResult) {
   };
 }
 
-async function runGroqVisionJson(base64Image, mimeType, prompt, maxTokens = 4096) {
-  const completion = await groqClient.chat.completions.create({
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: prompt,
-          },
-          {
-            type: 'image_url',
-            image_url: {
-              url: `data:${mimeType};base64,${base64Image}`,
-            },
-          },
-        ],
-      },
-    ],
-    model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-    temperature: 0,
-    max_tokens: maxTokens,
-    response_format: { type: 'json_object' },
-  });
+function valuesMatch(a, b, { numeric = false } = {}) {
+  if (numeric) {
+    const na = Number(a);
+    const nb = Number(b);
+    if (Number.isNaN(na) && Number.isNaN(nb)) return true;
+    return na === nb;
+  }
+  const sa = String(a ?? '').trim().toUpperCase();
+  const sb = String(b ?? '').trim().toUpperCase();
+  return sa === sb;
+}
 
-  return parseJsonResponse(completion.choices[0]?.message?.content || '');
+/**
+ * Reconcile two independent item-table extraction passes of the SAME image/prompt.
+ * A field is only trusted as "certain" if both passes agree; disagreements are kept
+ * (first pass's value, so the row isn't left blank) but flagged uncertain so the
+ * existing needsReview UI surfaces them for human check, instead of silently
+ * picking one possibly-wrong value.
+ */
+function reconcileItemPasses(itemsA = [], itemsB = []) {
+  const maxLen = Math.max(itemsA.length, itemsB.length);
+  if (itemsA.length !== itemsB.length) {
+    console.warn(`[AIService] Item-table double-read row count mismatch: pass A=${itemsA.length}, pass B=${itemsB.length}`);
+  }
+
+  const reconciled = [];
+  for (let i = 0; i < maxLen; i++) {
+    const a = itemsA[i];
+    const b = itemsB[i];
+    const hasBoth = !!a && !!b;
+
+    const row = {
+      sn: a?.sn ?? b?.sn,
+      name: a?.name ?? b?.name,
+      quantity: a?.quantity ?? b?.quantity,
+      batchNumber: a?.batchNumber ?? b?.batchNumber,
+      expiryDate: a?.expiryDate ?? b?.expiryDate,
+      _uncertain_batchNumber: !!a?._uncertain_batchNumber || !!b?._uncertain_batchNumber,
+      _uncertain_expiryDate: !!a?._uncertain_expiryDate || !!b?._uncertain_expiryDate,
+      _uncertain_quantity: !!a?._uncertain_quantity || !!b?._uncertain_quantity,
+      _uncertain_rate: !!a?._uncertain_rate || !!b?._uncertain_rate,
+    };
+
+    if (!hasBoth) {
+      // One pass didn't return this row at all — can't cross-verify, so don't trust it blindly.
+      row._uncertain_batchNumber = true;
+      row._uncertain_expiryDate = true;
+      row._uncertain_quantity = true;
+      console.warn(`[AIService] Row ${i + 1} only present in one pass — marking uncertain`);
+    } else {
+      if (!valuesMatch(a.quantity, b.quantity, { numeric: true })) {
+        row._uncertain_quantity = true;
+        console.log(`[AIService] Row ${i + 1} quantity disagreement: ${a.quantity} vs ${b.quantity}`);
+      }
+      if (!valuesMatch(a.batchNumber, b.batchNumber)) {
+        row._uncertain_batchNumber = true;
+        console.log(`[AIService] Row ${i + 1} batchNumber disagreement: "${a.batchNumber}" vs "${b.batchNumber}"`);
+      }
+      if (!valuesMatch(a.expiryDate, b.expiryDate)) {
+        row._uncertain_expiryDate = true;
+        console.log(`[AIService] Row ${i + 1} expiryDate disagreement: "${a.expiryDate}" vs "${b.expiryDate}"`);
+      }
+    }
+
+    reconciled.push(row);
+  }
+
+  return reconciled;
 }
 
 /**
@@ -1150,8 +1158,8 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
   const metadata = JSON.parse(jsonText);
   console.log(`[AIService] Gemini Vision metadata fields:\n${truncateForLog(metadata)}`);
 
-  console.log('[AIService] Sending image to Gemini Vision item-table pass...');
-  const itemsResult = await geminiModel.generateContent([
+  console.log('[AIService] Sending image to Gemini Vision item-table pass (2 independent reads for reconciliation)...');
+  const itemsPromptContent = [
     getVisionItemsPrompt(ocrTextHint),
     {
       inlineData: {
@@ -1159,12 +1167,20 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
         data: base64Image,
       },
     },
+  ];
+  const [itemsResultA, itemsResultB] = await Promise.all([
+    geminiModel.generateContent(itemsPromptContent),
+    geminiModel.generateContent(itemsPromptContent),
   ]);
-  const itemsText = itemsResult.response.text();
-  logAiRawResponse('Gemini Vision item-table pass', itemsText);
-  const itemResult = parseJsonResponse(itemsText);
-  console.log(`[AIService] Gemini Vision item-table fields:\n${truncateForLog(itemResult)}`);
-  const parsed = mergeParsedBill(metadata, itemResult);
+  const itemsTextA = itemsResultA.response.text();
+  const itemsTextB = itemsResultB.response.text();
+  logAiRawResponse('Gemini Vision item-table pass A', itemsTextA);
+  logAiRawResponse('Gemini Vision item-table pass B', itemsTextB);
+  const itemResultA = parseJsonResponse(itemsTextA);
+  const itemResultB = parseJsonResponse(itemsTextB);
+  const reconciledItems = reconcileItemPasses(itemResultA?.items, itemResultB?.items);
+  console.log(`[AIService] Gemini Vision reconciled item-table fields:\n${truncateForLog(reconciledItems)}`);
+  const parsed = mergeParsedBill(metadata, { items: reconciledItems });
   const normalized = normalizeBillData(parsed, ocrTextHint);
 
   console.log(`[AIService] ✓ Gemini Vision parsed: ${normalized.items?.length || 0} items`);
@@ -1172,95 +1188,15 @@ async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', 
   return normalized;
 }
 
-/**
- * Parse with Groq Vision (llama-4-scout) — fallback
- */
-async function parseImageWithGroqVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
-  if (!groqClient) {
-    const initialized = initializeGemini();
-    if (!initialized) {
-      throw new Error('Groq AI is not configured. Please set GROQ_API_KEY in .env');
-    }
-  }
-
-  try {
-    console.log('[AIService] Sending image to Groq Vision metadata pass...');
-    const metadataPass = await runGroqVisionJson(base64Image, mimeType, getVisionMetadataPrompt(ocrTextHint), 4096);
-    console.log(`[AIService] Groq Vision metadata fields:\n${truncateForLog(metadataPass)}`);
-
-    console.log('[AIService] Sending image to Groq Vision item-table pass...');
-    const itemPass = await runGroqVisionJson(base64Image, mimeType, getVisionItemsPrompt(ocrTextHint), 8192);
-    console.log(`[AIService] Groq Vision item-table fields:\n${truncateForLog(itemPass)}`);
-
-    const mergedParsed = mergeParsedBill(metadataPass, itemPass);
-    const normalizedMulti = normalizeBillData(mergedParsed, ocrTextHint);
-
-    console.log('[AIService] Vision parsed bill data successfully');
-    console.log(`[AIService] Extracted: ${normalizedMulti.items?.length || 0} items`);
-    logAiFilledData('Groq Vision final', normalizedMulti);
-
-    return normalizedMulti;
-
-    console.log('[AIService] Sending image to Groq Vision (llama-4-scout-17b-16e)...');
-
-    const chatCompletion = await groqClient.chat.completions.create({
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: visionPrompt,
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:${mimeType};base64,${base64Image}`,
-              },
-            },
-          ],
-        },
-      ],
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      temperature: 0.1,
-      max_tokens: 4096,
-    });
-
-    const text = chatCompletion.choices[0]?.message?.content || '';
-    console.log('[AIService] ✓ Received vision response from Groq');
-    logAiRawResponse('Groq Vision single-pass', text);
-
-    // Extract JSON from response
-    let jsonText = text.trim();
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
-    } else if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
-    }
-
-    const start = jsonText.indexOf('{');
-    const end = jsonText.lastIndexOf('}');
-    if (start !== -1 && end !== -1) {
-      jsonText = jsonText.slice(start, end + 1);
-    }
-
-    const parsed = JSON.parse(jsonText);
-    const normalized = normalizeBillData(parsed, ocrTextHint);
-
-    console.log('[AIService] ✓ Vision parsed bill data successfully');
-    console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
-    logAiFilledData('Groq Vision single-pass final', normalized);
-
-    return normalized;
-  } catch (error) {
-    console.error('[AIService] ✗ Groq Vision parsing failed:', error.message);
-    throw new Error(`Groq Vision parsing failed: ${error.message}`);
-  }
-}
-
 module.exports = {
   parseOcrWithGemini,
   parseImageWithVision,
-  initializeGemini,
   initializeGeminiVision,
+  normalizeBillData,
+  getOcrTextPrompt,
+  getVisionMetadataPrompt,
+  getVisionItemsPrompt,
+  mergeParsedBill,
+  parseJsonResponse,
+  reconcileItemPasses,
 };

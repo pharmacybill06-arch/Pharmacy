@@ -20,6 +20,13 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
+import {
+  getDosageSummary,
+  getPackQuantity,
+  getDosageFieldConfig,
+  normalizeDosageForm,
+  toNumber,
+} from '@/utils/dosageForms';
 
 function formatDate(date) {
   if (!date) return '-';
@@ -54,9 +61,7 @@ const MedicineCard = ({ medicine }) => {
           </ThemedText>
         </View>
       </View>
-      <ThemedText style={styles.medicineMeta}>
-        {medicine.stripsDispensed} strips x {medicine.tabletsPerStrip}/strip - {medicine.dosePerDay}/day
-      </ThemedText>
+      <ThemedText style={styles.medicineMeta}>{getDosageSummary(medicine)}</ThemedText>
       <View style={styles.medicineFooterRow}>
         <ThemedText style={styles.medicineRunOut}>
           Runs out: {formatDate(medicine.runOutDate)}
@@ -72,13 +77,13 @@ const MedicineCard = ({ medicine }) => {
  * quantity dispensed per medicine before resetting the cycle.
  */
 const ConfirmPickupModal = ({ visible, medicines, syncItems, onClose, onConfirm, isLoading }) => {
-  const [tablets, setTablets] = useState({});
+  const [quantities, setQuantities] = useState({});
 
   const getDefault = useCallback((medicine) => {
-    const normalTablets = medicine.stripsDispensed * medicine.tabletsPerStrip;
+    const normalQuantity = getPackQuantity(medicine);
     const syncItem = syncItems.find((s) => s.medicineId === medicine.id);
-    const extra = syncItem ? syncItem.extraTablets : 0;
-    return String(normalTablets + extra);
+    const extra = syncItem ? syncItem.extraAmount ?? syncItem.extraTablets ?? 0 : 0;
+    return String(normalQuantity + extra);
   }, [syncItems]);
 
   React.useEffect(() => {
@@ -87,15 +92,43 @@ const ConfirmPickupModal = ({ visible, medicines, syncItems, onClose, onConfirm,
       medicines.forEach((m) => {
         initial[m.id] = getDefault(m);
       });
-      setTablets(initial);
+      setQuantities(initial);
     }
   }, [visible, medicines, getDefault]);
 
   const handleConfirm = () => {
     const updates = medicines.map((m) => {
-      const tabletsGiven = parseFloat(tablets[m.id]) || 0;
-      const stripsDispensed = m.tabletsPerStrip > 0 ? tabletsGiven / m.tabletsPerStrip : 0;
-      return { medicineId: m.id, stripsDispensed, tabletsPerStrip: m.tabletsPerStrip, dosePerDay: m.dosePerDay };
+      const dosageForm = normalizeDosageForm(m.dosageForm);
+      const config = getDosageFieldConfig(dosageForm);
+      const enteredQuantity = parseFloat(quantities[m.id]) || 0;
+      const packField = config.fields[0]?.key;
+
+      if (dosageForm === 'tablet') {
+        const tabletsPerStrip = toNumber(m.tabletsPerStrip || m.dosageDetails?.tabletsPerStrip);
+        const stripsDispensed = tabletsPerStrip > 0 ? enteredQuantity / tabletsPerStrip : 0;
+        return {
+          medicineId: m.id,
+          dosageForm,
+          stripsDispensed,
+          tabletsPerStrip,
+          dosePerDay: toNumber(m.dosePerDay || m.dosageDetails?.dosePerDay),
+          dosageDetails: {
+            stripsDispensed,
+            tabletsPerStrip,
+            dosePerDay: toNumber(m.dosePerDay || m.dosageDetails?.dosePerDay),
+          },
+        };
+      }
+
+      return {
+        medicineId: m.id,
+        dosageForm,
+        dosePerDay: toNumber(m.dosePerDay || m.dosageDetails?.dosePerDay),
+        dosageDetails: {
+          ...(m.dosageDetails || {}),
+          [packField]: enteredQuantity,
+        },
+      };
     });
     onConfirm(updates);
   };
@@ -114,7 +147,7 @@ const ConfirmPickupModal = ({ visible, medicines, syncItems, onClose, onConfirm,
             </Pressable>
           </View>
           <ThemedText style={styles.modalSubtitle}>
-            Enter the tablets actually dispensed today. The cycle resets from today's date.
+            Enter the quantity actually dispensed today. The cycle resets from today's date.
           </ThemedText>
 
           <ScrollView style={styles.modalScroll}>
@@ -125,17 +158,15 @@ const ConfirmPickupModal = ({ visible, medicines, syncItems, onClose, onConfirm,
                   <ThemedText style={styles.modalMedicineName}>{m.name}</ThemedText>
                   {syncItem && (
                     <ThemedText style={styles.modalSyncHint}>
-                      Sync recommends +{syncItem.extraTablets} tablets ({syncItem.extraStrips} strips
-                      {syncItem.looseTablets > 0 ? ` + ${syncItem.looseTablets} loose` : ''}) to align
-                      refills
+                      Sync recommends +{syncItem.extraAmount ?? syncItem.extraTablets} {syncItem.quantityLabel || 'units'} to align refills
                     </ThemedText>
                   )}
                   <TextInput
                     style={styles.modalInput}
-                    value={tablets[m.id] ?? ''}
-                    onChangeText={(v) => setTablets((prev) => ({ ...prev, [m.id]: v }))}
+                    value={quantities[m.id] ?? ''}
+                    onChangeText={(v) => setQuantities((prev) => ({ ...prev, [m.id]: v }))}
                     keyboardType="decimal-pad"
-                    placeholder="Tablets dispensed"
+                    placeholder="Quantity dispensed today"
                     placeholderTextColor="#94A3B8"
                   />
                 </View>
@@ -271,8 +302,7 @@ export default function PatientDetailScreen({
                 <View key={item.medicineId} style={styles.syncItemRow}>
                   <ThemedText style={styles.syncItemName}>{item.name}</ThemedText>
                   <ThemedText style={styles.syncItemDetail}>
-                    Short-fill +{item.extraTablets} tablets ({item.extraStrips} strips
-                    {item.looseTablets > 0 ? ` + ${item.looseTablets} loose` : ''}) to bridge {item.gapDays}d
+                    Short-fill +{item.extraAmount ?? item.extraTablets} {item.quantityLabel || 'units'} to bridge {item.gapDays}d
                   </ThemedText>
                 </View>
               ))}

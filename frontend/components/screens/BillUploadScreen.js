@@ -14,6 +14,7 @@ export default function BillUploadScreen({
   onPickImage,
   onTakePhoto,
   onPickFile,
+  onPickPdf,
   onBack,
 }) {
   return (
@@ -129,6 +130,27 @@ export default function BillUploadScreen({
                 <ThemedText style={styles.fileButtonSubtitle}>Upload .csv or .xlsx file</ThemedText>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#059669" />
+            </Pressable>
+
+            <View style={styles.dividerContainer}>
+              <View style={styles.divider} />
+              <ThemedText style={styles.dividerText}>OR</ThemedText>
+              <View style={styles.divider} />
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.pdfButton,
+                pressed && styles.pdfButtonPressed,
+              ]}
+              onPress={onPickPdf}
+            >
+              <Ionicons name="document-text" size={24} color="#DC2626" />
+              <View style={styles.buttonTextContainer}>
+                <ThemedText style={styles.pdfButtonTitle}>Import PDF Bill</ThemedText>
+                <ThemedText style={styles.pdfButtonSubtitle}>Upload .pdf invoice or bill</ThemedText>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#DC2626" />
             </Pressable>
           </View>
 
@@ -391,6 +413,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#6EE7B7',
+    marginTop: 2,
+  },
+
+  // PDF Button
+  pdfButton: {
+    width: '100%',
+    height: 66,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  pdfButtonPressed: {
+    backgroundColor: '#FEF2F2',
+    transform: [{ scale: 0.98 }],
+  },
+  pdfButtonTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  pdfButtonSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#FCA5A5',
     marginTop: 2,
   },
 

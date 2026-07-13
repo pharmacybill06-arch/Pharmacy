@@ -1,4 +1,5 @@
 const patientService = require('../services/patientService');
+const { normalizeDosageForm, getDefaultDosageDetails, toNumber } = require('../utils/dosageForms');
 
 /**
  * Patient Controller
@@ -7,9 +8,28 @@ const patientService = require('../services/patientService');
 
 function validateMedicinePayload(m) {
   if (!m.name || !m.name.trim()) return 'Medicine name is required';
-  if (!(parseFloat(m.stripsDispensed) > 0)) return 'stripsDispensed must be greater than 0';
-  if (!(parseFloat(m.tabletsPerStrip) > 0)) return 'tabletsPerStrip must be greater than 0';
-  if (!(parseFloat(m.dosePerDay) > 0)) return 'dosePerDay must be greater than 0';
+  const form = normalizeDosageForm(m.dosageForm);
+  const details = getDefaultDosageDetails(form, m);
+  if (form === 'tablet') {
+    if (!(toNumber(details.stripsDispensed) > 0)) return 'stripsDispensed must be greater than 0';
+    if (!(toNumber(details.tabletsPerStrip) > 0)) return 'tabletsPerStrip must be greater than 0';
+  } else if (form === 'syrup') {
+    if (!(toNumber(details.bottleSizeMl) > 0)) return 'bottleSizeMl must be greater than 0';
+    if (!(toNumber(details.mlPerDose) > 0)) return 'mlPerDose must be greater than 0';
+  } else if (form === 'cream') {
+    if (!(toNumber(details.tubeSizeG) > 0)) return 'tubeSizeG must be greater than 0';
+    if (!(toNumber(details.gPerDose) > 0)) return 'gPerDose must be greater than 0';
+  } else if (form === 'inhaler') {
+    if (!(toNumber(details.inhalerCount) > 0)) return 'inhalerCount must be greater than 0';
+    if (!(toNumber(details.puffsPerDose) > 0)) return 'puffsPerDose must be greater than 0';
+  } else if (form === 'insulin') {
+    if (!(toNumber(details.unitsPerVial) > 0)) return 'unitsPerVial must be greater than 0';
+    if (!(toNumber(details.unitsPerDose) > 0)) return 'unitsPerDose must be greater than 0';
+  } else if (form === 'drops') {
+    if (!(toNumber(details.bottleSizeMl) > 0)) return 'bottleSizeMl must be greater than 0';
+    if (!(toNumber(details.dropsPerDose) > 0)) return 'dropsPerDose must be greater than 0';
+  }
+  if (!(toNumber(details.dosePerDay) > 0)) return 'dosePerDay must be greater than 0';
   return null;
 }
 

@@ -122,6 +122,30 @@ export default function ExploreScreen() {
     }
   };
 
+  const handlePickPdf = async () => {
+    if (!DocumentPicker) {
+      showToast(
+        'PDF import requires a development build.',
+        'warning',
+        'Native Module Missing'
+      );
+      return;
+    }
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      const file = result.assets[0];
+      console.log('[PdfPicker] Picked PDF:', file.name, 'uri:', file.uri);
+      await processImage(file.uri, 'application/pdf');
+    } catch (error) {
+      console.error('[PdfPicker] Error picking PDF:', error);
+      showToast('Failed to pick PDF. Please try again.', 'error', 'Error');
+    }
+  };
+
   const handlePickFile = async () => {
     if (!DocumentPicker) {
       showToast(
@@ -628,6 +652,7 @@ export default function ExploreScreen() {
           onPickImage={handlePickImage}
           onTakePhoto={handleTakePhoto}
           onPickFile={handlePickFile}
+          onPickPdf={handlePickPdf}
           onBack={handleCancel}
         />
         <Toast

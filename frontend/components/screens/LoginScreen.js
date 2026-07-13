@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Animated,
+  Easing,
   Dimensions,
   ScrollView,
 } from 'react-native';
@@ -27,6 +28,26 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const shakeAnimation = useRef(new Animated.Value(0)).current;
   const inputRef = useRef(null);
+
+  // Entrance animation: header fades/slides in first, the form card follows ~100ms later
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const headerSlide = useRef(new Animated.Value(20)).current;
+  const formFade = useRef(new Animated.Value(0)).current;
+  const formSlide = useRef(new Animated.Value(24)).current;
+
+  useEffect(() => {
+    const easing = Easing.out(Easing.cubic);
+    Animated.stagger(100, [
+      Animated.parallel([
+        Animated.timing(headerFade, { toValue: 1, duration: 450, easing, useNativeDriver: true }),
+        Animated.timing(headerSlide, { toValue: 0, duration: 450, easing, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.timing(formFade, { toValue: 1, duration: 500, easing, useNativeDriver: true }),
+        Animated.timing(formSlide, { toValue: 0, duration: 500, easing, useNativeDriver: true }),
+      ]),
+    ]).start();
+  }, [headerFade, headerSlide, formFade, formSlide]);
 
   const validatePhone = (phone) => {
     const phoneRegex = /^[6-9]\d{9}$/;
@@ -113,7 +134,12 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
           >
             {/* Logo/Header Section */}
-            <View style={styles.headerSection}>
+            <Animated.View
+              style={[
+                styles.headerSection,
+                { opacity: headerFade, transform: [{ translateY: headerSlide }] },
+              ]}
+            >
               <View style={styles.iconContainer}>
                 <View style={styles.iconInner}>
                   <Ionicons name="medical" size={36} color="#fff" />
@@ -121,10 +147,15 @@ export default function LoginScreen() {
               </View>
               <Text style={styles.appName}>Pharma Bills</Text>
               <Text style={styles.tagline}>Smart pharmacy bill management</Text>
-            </View>
+            </Animated.View>
 
             {/* Login Form Section */}
-            <View style={styles.formSection}>
+            <Animated.View
+              style={[
+                styles.formSection,
+                { opacity: formFade, transform: [{ translateY: formSlide }] },
+              ]}
+            >
               <View style={styles.card}>
                 <Text style={styles.welcomeText}>Welcome!</Text>
                 <Text style={styles.instructionText}>
@@ -197,7 +228,7 @@ export default function LoginScreen() {
                   <Text style={styles.linkText}>Privacy Policy</Text>
                 </Text>
               </View>
-            </View>
+            </Animated.View>
 
             {/* Footer */}
             <View style={styles.footer}>
@@ -357,7 +388,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 12,
-    paddingHorizontal: 4,
     backgroundColor: '#FEF2F2',
     paddingVertical: 8,
     borderRadius: 10,

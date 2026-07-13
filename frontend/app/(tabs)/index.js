@@ -108,6 +108,8 @@ function parseExpiryDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+const STOCK_PAGE_SIZE = 5;
+
 export default function BillsHomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -116,6 +118,7 @@ export default function BillsHomeScreen() {
   const [error, setError] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
+  const [visibleStockCount, setVisibleStockCount] = useState(STOCK_PAGE_SIZE);
 
   // Only use authenticated user ID; do not fetch with placeholder
   const userId = user?.id;
@@ -127,6 +130,7 @@ export default function BillsHomeScreen() {
       setError(null);
       const response = await billApi.getUserBills(userId);
       setBills(response.bills || []);
+      setVisibleStockCount(STOCK_PAGE_SIZE);
     } catch (err) {
       console.error('Error fetching bills:', err);
       setError(err.message);
@@ -160,9 +164,17 @@ export default function BillsHomeScreen() {
         if (a.daysUntilExpiry == null) return 1;
         if (b.daysUntilExpiry == null) return -1;
         return a.daysUntilExpiry - b.daysUntilExpiry;
-      })
-      .slice(0, 8);
+      });
   }, [bills]);
+
+  const visibleStockItems = useMemo(
+    () => expiringItems.slice(0, visibleStockCount),
+    [expiringItems, visibleStockCount]
+  );
+
+  const handleLoadMoreStock = useCallback(() => {
+    setVisibleStockCount((count) => Math.min(count + STOCK_PAGE_SIZE, expiringItems.length));
+  }, [expiringItems.length]);
 
   // Refresh bills whenever the screen comes into focus
   useFocusEffect(
@@ -361,13 +373,20 @@ export default function BillsHomeScreen() {
               </View>
             ) : (
               <View style={styles.billsList}>
-                {expiringItems.map((item) => (
+                {visibleStockItems.map((item) => (
                   <ExpiryItemRow
                     key={item.id || `${item.bill.id}-${item.name}-${item.batchNumber}`}
                     item={item}
                     onPress={handleBillPress}
                   />
                 ))}
+                {visibleStockCount < expiringItems.length && (
+                  <Pressable style={styles.loadMoreButton} onPress={handleLoadMoreStock}>
+                    <ThemedText style={styles.loadMoreText}>
+                      Load More ({expiringItems.length - visibleStockCount} remaining)
+                    </ThemedText>
+                  </Pressable>
+                )}
               </View>
             )}
           </View>
@@ -375,8 +394,10 @@ export default function BillsHomeScreen() {
           {/* Quick Actions Section */}
           <View style={styles.quickActionsSection}>
             <ThemedText style={styles.sectionTitle}>Quick Actions</ThemedText>
+
+            {/* Inventory */}
+            <ThemedText style={styles.quickActionsSubLabel}>Inventory</ThemedText>
             <View style={styles.quickActionsGrid}>
-              {/* Products Button */}
               <Pressable
                 style={({ pressed }) => [
                   styles.quickActionCard,
@@ -391,22 +412,6 @@ export default function BillsHomeScreen() {
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage catalog</ThemedText>
               </Pressable>
 
-              {/* Scan Button */}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.quickActionCard,
-                  pressed && styles.quickActionCardPressed,
-                ]}
-                onPress={handleScanBill}
-              >
-                <View style={[styles.quickActionIcon, { backgroundColor: '#ECFDF5' }]}>
-                  <MaterialIcons name="qr-code-scanner" size={22} color="#059669" />
-                </View>
-                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Scan Expiry</ThemedText>
-                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Add stock</ThemedText>
-              </Pressable>
-
-              {/* Distributors Button */}
               <Pressable
                 style={({ pressed }) => [
                   styles.quickActionCard,
@@ -420,8 +425,11 @@ export default function BillsHomeScreen() {
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Distributors</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage suppliers</ThemedText>
               </Pressable>
+            </View>
 
-              {/* Payments Button */}
+            {/* Payments & Care */}
+            <ThemedText style={styles.quickActionsSubLabel}>Payments & Care</ThemedText>
+            <View style={styles.quickActionsGrid}>
               <Pressable
                 style={({ pressed }) => [
                   styles.quickActionCard,
@@ -436,7 +444,6 @@ export default function BillsHomeScreen() {
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Track UPI payments</ThemedText>
               </Pressable>
 
-              {/* Refill Reminders Button */}
               <Pressable
                 style={({ pressed }) => [
                   styles.quickActionCard,
@@ -732,6 +739,15 @@ const styles = StyleSheet.create({
   billsList: {
     gap: 10,
   },
+  loadMoreButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    color: '#4F46E5',
+    fontWeight: '600',
+  },
   expiryRow: {
     minHeight: 72,
     backgroundColor: '#FFFFFF',
@@ -858,10 +874,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
   },
+  quickActionsSubLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 16,
+    marginBottom: 10,
+  },
   quickActionsGrid: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 14,
   },
   quickActionCard: {
     flex: 1,

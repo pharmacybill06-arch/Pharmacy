@@ -10,6 +10,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { Colors } from '../../constants/theme';
+import { productApi } from '../../services/api';
 
 /**
  * ProductSearchDropdown
@@ -17,7 +18,6 @@ import { Colors } from '../../constants/theme';
  */
 const ProductSearchDropdown = ({
   userId,
-  apiUrl,
   onProductSelect,
   placeholder = 'Search product...',
   excludeProductIds = []
@@ -39,25 +39,13 @@ const ProductSearchDropdown = ({
 
     setLoading(true);
     try {
-      const response = await fetch(
-        `${apiUrl}/products/${userId}/search?q=${encodeURIComponent(query)}&limit=10`,
-        {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
+      const data = await productApi.searchProducts(userId, query, 10);
 
-      if (!response.ok) {
-        throw new Error('Search failed');
-      }
-
-      const data = await response.json();
-      
       // Filter out excluded products and out-of-stock
       const filtered = (data.products || []).filter(
         p => !excludeProductIds.includes(p.id) && p.stock > 0
       );
-      
+
       setSuggestions(filtered);
     } catch (error) {
       console.error('Product search error:', error);
@@ -65,7 +53,7 @@ const ProductSearchDropdown = ({
     } finally {
       setLoading(false);
     }
-  }, [userId, apiUrl, excludeProductIds]);
+  }, [userId, excludeProductIds]);
 
   const handleSearch = useCallback((text) => {
     setSearchQuery(text);

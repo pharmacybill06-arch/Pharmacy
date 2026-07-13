@@ -10,11 +10,13 @@ import {
   Alert,
   TextInput
 } from 'react-native';
-import { Stack, useRouter, useFocusEffect } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { useInvoice } from '../../contexts/InvoiceContext';
+import AppBar from '@/components/ui/AppBar';
 
 /**
  * InvoicesListScreen
@@ -22,9 +24,10 @@ import { useInvoice } from '../../contexts/InvoiceContext';
  */
 export default function InvoicesListScreen() {
   const router = useRouter();
-  const { userId, apiUrl } = useAuth();
+  const { user } = useAuth();
+  const userId = user?.id;
   const { fetchInvoices, deleteInvoice, invoiceList, loading } = useInvoice();
-  
+
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredInvoices, setFilteredInvoices] = useState([]);
@@ -32,12 +35,12 @@ export default function InvoicesListScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadInvoices();
-    }, [userId, apiUrl])
+    }, [userId])
   );
 
   const loadInvoices = async () => {
     try {
-      await fetchInvoices(userId, apiUrl);
+      await fetchInvoices(userId);
     } catch (error) {
       Alert.alert('Error', 'Failed to load invoices');
     }
@@ -79,7 +82,7 @@ export default function InvoicesListScreen() {
           text: 'Delete',
           onPress: async () => {
             try {
-              await deleteInvoice(userId, invoiceId, apiUrl);
+              await deleteInvoice(userId, invoiceId);
               Alert.alert('Success', 'Invoice deleted and stock refunded');
               await loadInvoices();
             } catch (error) {
@@ -194,19 +197,12 @@ export default function InvoicesListScreen() {
   );
 
   return (
-    <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: 'Invoices',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={() => router.push('/invoices/create')}
-              style={styles.headerButton}
-            >
-              <Ionicons name="add-circle" size={24} color={Colors.light.primary} />
-            </TouchableOpacity>
-          )
-        }}
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <AppBar
+        title="Invoices"
+        onBack={() => router.back()}
+        rightIcon="add"
+        onRightPress={() => router.push('/invoices/create')}
       />
 
       <View style={styles.searchContainer}>
@@ -242,7 +238,7 @@ export default function InvoicesListScreen() {
           contentContainerStyle={filteredInvoices.length === 0 ? styles.emptyListContainer : null}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -266,9 +262,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.light.text,
     paddingVertical: 0
-  },
-  headerButton: {
-    paddingRight: 12
   },
   invoiceCard: {
     backgroundColor: Colors.light.white,

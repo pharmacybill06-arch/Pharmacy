@@ -11,10 +11,13 @@ import {
   TextInput,
   Modal
 } from 'react-native';
-import { Stack, useRouter, useFocusEffect } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { productApi } from '../../services/api';
+import AppBar from '@/components/ui/AppBar';
 
 /**
  * InventoryScreen
@@ -22,8 +25,9 @@ import { useAuth } from '../../contexts/AuthContext';
  */
 export default function InventoryScreen() {
   const router = useRouter();
-  const { userId, apiUrl } = useAuth();
-  
+  const { user } = useAuth();
+  const userId = user?.id;
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -36,22 +40,13 @@ export default function InventoryScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadProducts();
-    }, [userId, apiUrl])
+    }, [userId])
   );
 
   const loadProducts = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${apiUrl}/products/${userId}?limit=100&activeOnly=true`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load products');
-      }
-
-      const data = await response.json();
+      const data = await productApi.getProducts(userId, { limit: 100, activeOnly: true });
       setProducts(data.products || []);
     } catch (error) {
       Alert.alert('Error', error.message);
@@ -101,18 +96,7 @@ export default function InventoryScreen() {
     }
 
     try {
-      const response = await fetch(
-        `${apiUrl}/products/${userId}/${editingProduct.id}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stock: newStock })
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to update stock');
-      }
+      await productApi.updateProduct(userId, editingProduct.id, { stock: newStock });
 
       Alert.alert('Success', 'Stock updated successfully');
       setModalVisible(false);
@@ -133,14 +117,7 @@ export default function InventoryScreen() {
           text: 'Delete',
           onPress: async () => {
             try {
-              const response = await fetch(
-                `${apiUrl}/products/${userId}/${productId}`,
-                { method: 'DELETE' }
-              );
-
-              if (!response.ok) {
-                throw new Error('Failed to delete product');
-              }
+              await productApi.deleteProduct(userId, productId);
 
               Alert.alert('Success', 'Product deleted');
               await loadProducts();
@@ -283,19 +260,12 @@ export default function InventoryScreen() {
   );
 
   return (
-    <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: 'Inventory',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={() => router.push('/products')}
-              style={styles.headerButton}
-            >
-              <Ionicons name="add-circle" size={24} color={Colors.light.primary} />
-            </TouchableOpacity>
-          )
-        }}
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <AppBar
+        title="Inventory"
+        onBack={() => router.back()}
+        rightIcon="add"
+        onRightPress={() => router.push('/products')}
       />
 
       <View style={styles.searchContainer}>
@@ -422,7 +392,7 @@ export default function InventoryScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -446,9 +416,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.light.text,
     paddingVertical: 0
-  },
-  headerButton: {
-    paddingRight: 12
   },
   productCard: {
     backgroundColor: Colors.light.white,

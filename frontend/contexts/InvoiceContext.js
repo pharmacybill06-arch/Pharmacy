@@ -1,4 +1,5 @@
 import React, { createContext, useState, useCallback } from 'react';
+import { invoiceApi } from '../services/api';
 
 export const InvoiceContext = createContext();
 
@@ -87,6 +88,14 @@ export const InvoiceProvider = ({ children }) => {
     }));
   }, []);
 
+  // Update remarks
+  const updateRemarks = useCallback((remarks) => {
+    setCurrentInvoice((prev) => ({
+      ...prev,
+      remarks
+    }));
+  }, []);
+
   // Reset invoice
   const resetInvoice = useCallback(() => {
     setCurrentInvoice({
@@ -110,20 +119,11 @@ export const InvoiceProvider = ({ children }) => {
   }, []);
 
   // Fetch invoices
-  const fetchInvoices = useCallback(async (userId, apiUrl) => {
+  const fetchInvoices = useCallback(async (userId) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/invoices/${userId}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch invoices');
-      }
-
-      const data = await response.json();
+      const data = await invoiceApi.getInvoices(userId);
       setInvoiceList(data.invoices || []);
       return data;
     } catch (err) {
@@ -135,22 +135,11 @@ export const InvoiceProvider = ({ children }) => {
   }, []);
 
   // Create invoice
-  const createInvoice = useCallback(async (userId, apiUrl) => {
+  const createInvoice = useCallback(async (userId) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/invoices/${userId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentInvoice)
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to create invoice');
-      }
-
-      const data = await response.json();
+      const data = await invoiceApi.createInvoice(userId, currentInvoice);
       resetInvoice();
       return data;
     } catch (err) {
@@ -162,20 +151,11 @@ export const InvoiceProvider = ({ children }) => {
   }, [currentInvoice, resetInvoice]);
 
   // Get invoice by ID
-  const getInvoice = useCallback(async (userId, invoiceId, apiUrl) => {
+  const getInvoice = useCallback(async (userId, invoiceId) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/invoices/${userId}/${invoiceId}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch invoice');
-      }
-
-      const data = await response.json();
+      const data = await invoiceApi.getInvoiceById(userId, invoiceId);
       return data.invoice;
     } catch (err) {
       setError(err.message);
@@ -186,20 +166,11 @@ export const InvoiceProvider = ({ children }) => {
   }, []);
 
   // Delete invoice (reversal)
-  const deleteInvoice = useCallback(async (userId, invoiceId, apiUrl) => {
+  const deleteInvoice = useCallback(async (userId, invoiceId) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/invoices/${userId}/${invoiceId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete invoice');
-      }
-
-      const data = await response.json();
+      const data = await invoiceApi.deleteInvoice(userId, invoiceId);
       return data;
     } catch (err) {
       setError(err.message);
@@ -220,6 +191,7 @@ export const InvoiceProvider = ({ children }) => {
     updateTotals,
     updateCustomer,
     updatePayment,
+    updateRemarks,
     resetInvoice,
     fetchInvoices,
     createInvoice,

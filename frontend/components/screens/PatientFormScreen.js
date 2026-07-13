@@ -15,6 +15,15 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import PrimaryButton from '@/components/ui/PrimaryButton';
+import {
+  DOSAGE_FORM_OPTIONS,
+  getDosageFieldConfig,
+  getDaysOfSupply,
+  getDosageSummary,
+  normalizeDosageForm,
+  buildDosageDetails,
+  toNumber,
+} from '@/utils/dosageForms';
 
 let tempIdCounter = 0;
 function makeTempId() {
@@ -72,13 +81,92 @@ const FormField = ({
   </View>
 );
 
+const DosageChip = ({ label, selected, onPress }) => (
+  <Pressable
+    onPress={onPress}
+    style={({ pressed }) => [
+      styles.dosageChip,
+      selected && styles.dosageChipSelected,
+      pressed && styles.dosageChipPressed,
+    ]}
+  >
+    <ThemedText style={[styles.dosageChipText, selected && styles.dosageChipTextSelected]}>
+      {label}
+    </ThemedText>
+  </Pressable>
+);
+
+const DosageField = ({ field, value, onChangeText }) => (
+  <View style={styles.formGroup}>
+    <ThemedText style={styles.formGroupLabel}>{field.label}</ThemedText>
+    <TextInput
+      style={styles.input}
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={field.placeholder}
+      placeholderTextColor="#94A3B8"
+      keyboardType={field.keyboardType || 'default'}
+    />
+  </View>
+);
+
+function createEmptyMedicine() {
+  return {
+    tempId: makeTempId(),
+    name: '',
+    dosageForm: 'tablet',
+    stripsDispensed: '',
+    tabletsPerStrip: '',
+    bottleSizeMl: '',
+    mlPerDose: '',
+    tubeSizeG: '',
+    gPerDose: '',
+    inhalerCount: '',
+    puffsPerDose: '',
+    unitsPerVial: '',
+    unitsPerDose: '',
+    dropsPerDose: '',
+    dosePerDay: '',
+  };
+}
+
+function hydrateMedicine(medicine) {
+  const dosageForm = normalizeDosageForm(medicine?.dosageForm);
+  const details = medicine?.dosageDetails || medicine || {};
+  return {
+    id: medicine.id,
+    name: medicine.name || '',
+    dosageForm,
+    stripsDispensed: String(details.stripsDispensed ?? medicine.stripsDispensed ?? ''),
+    tabletsPerStrip: String(details.tabletsPerStrip ?? medicine.tabletsPerStrip ?? ''),
+    bottleSizeMl: String(details.bottleSizeMl ?? ''),
+    mlPerDose: String(details.mlPerDose ?? ''),
+    tubeSizeG: String(details.tubeSizeG ?? ''),
+    gPerDose: String(details.gPerDose ?? ''),
+    inhalerCount: String(details.inhalerCount ?? ''),
+    puffsPerDose: String(details.puffsPerDose ?? ''),
+    unitsPerVial: String(details.unitsPerVial ?? ''),
+    unitsPerDose: String(details.unitsPerDose ?? ''),
+    dropsPerDose: String(details.dropsPerDose ?? ''),
+    dosePerDay: String(details.dosePerDay ?? medicine.dosePerDay ?? ''),
+  };
+}
+
 /**
- * One medicine row: name, strips dispensed, tablets/strip, dose/day
+ * One medicine row with dosage-form specific fields.
  */
-const MedicineRow = ({ medicine, onChange, onRemove, error }) => (
-  <View style={styles.medicineRow}>
+const MedicineRow = ({ medicine, onChange, onRemove, error }) => {
+  const fieldConfig = getDosageFieldConfig(medicine.dosageForm);
+
+  return (
+    <View style={styles.medicineRow}>
     <View style={styles.medicineRowHeader}>
-      <ThemedText style={styles.medicineRowTitle}>Medicine</ThemedText>
+      <View>
+        <ThemedText style={styles.medicineRowTitle}>Medicine</ThemedText>
+        <ThemedText style={styles.medicineRowSubtitle}>
+          {getDosageSummary(medicine)}
+        </ThemedText>
+      </View>
       <Pressable onPress={onRemove} hitSlop={8}>
         <Ionicons name="trash-outline" size={18} color="#DC2626" />
       </Pressable>
@@ -92,39 +180,57 @@ const MedicineRow = ({ medicine, onChange, onRemove, error }) => (
       placeholderTextColor="#94A3B8"
     />
 
-    <View style={styles.medicineNumbersRow}>
-      <View style={styles.medicineNumberField}>
-        <ThemedText style={styles.smallLabel}>Strips</ThemedText>
-        <TextInput
-          style={styles.input}
-          value={medicine.stripsDispensed}
-          onChangeText={(v) => onChange({ ...medicine, stripsDispensed: v })}
-          placeholder="2"
-          placeholderTextColor="#94A3B8"
-          keyboardType="decimal-pad"
-        />
+    <View style={styles.dosageFormSection}>
+      <ThemedText style={styles.smallLabel}>Dosage form</ThemedText>
+      <View style={styles.dosageSelect}>
+        <ThemedText style={styles.dosageSelectValue}>
+          {DOSAGE_FORM_OPTIONS.find((opt) => opt.value === medicine.dosageForm)?.label || 'Tablet'}
+        </ThemedText>
+        <Ionicons name="chevron-down" size={18} color="#8C6D2F" />
       </View>
-      <View style={styles.medicineNumberField}>
-        <ThemedText style={styles.smallLabel}>Tabs/strip</ThemedText>
-        <TextInput
-          style={styles.input}
-          value={medicine.tabletsPerStrip}
-          onChangeText={(v) => onChange({ ...medicine, tabletsPerStrip: v })}
-          placeholder="15"
-          placeholderTextColor="#94A3B8"
-          keyboardType="decimal-pad"
-        />
+
+      <View style={styles.dosageChipRow}>
+        {DOSAGE_FORM_OPTIONS.map((option) => (
+          <DosageChip
+            key={option.value}
+            label={option.label}
+            selected={medicine.dosageForm === option.value}
+            onPress={() => onChange({ ...medicine, dosageForm: option.value })}
+          />
+        ))}
       </View>
-      <View style={styles.medicineNumberField}>
-        <ThemedText style={styles.smallLabel}>Dose/day</ThemedText>
-        <TextInput
-          style={styles.input}
-          value={medicine.dosePerDay}
-          onChangeText={(v) => onChange({ ...medicine, dosePerDay: v })}
-          placeholder="1"
-          placeholderTextColor="#94A3B8"
-          keyboardType="decimal-pad"
+
+      <View style={styles.dosageDivider} />
+
+      <ThemedText style={styles.medicineRowSubtitle}>
+        {medicine.dosageForm === 'tablet'
+          ? 'Fields for tablet'
+          : `Fields for ${DOSAGE_FORM_OPTIONS.find((opt) => opt.value === medicine.dosageForm)?.label.toLowerCase() || 'medicine'}`}
+      </ThemedText>
+
+      <View style={styles.fieldsRow}>
+        {fieldConfig.fields.slice(0, 2).map((field) => (
+          <View key={field.key} style={styles.halfWidthField}>
+            <DosageField
+              field={field}
+              value={medicine[field.key]}
+              onChangeText={(v) => onChange({ ...medicine, [field.key]: v })}
+            />
+          </View>
+        ))}
+      </View>
+      {fieldConfig.fields[2] && (
+        <DosageField
+          field={fieldConfig.fields[2]}
+          value={medicine[fieldConfig.fields[2].key]}
+          onChangeText={(v) => onChange({ ...medicine, [fieldConfig.fields[2].key]: v })}
         />
+      )}
+      <View style={styles.runOutBanner}>
+        <ThemedText style={styles.runOutBannerLabel}>Runs out in</ThemedText>
+        <ThemedText style={styles.runOutBannerValue}>
+          {Math.max(0, Math.round(getDaysOfSupply(medicine) * 10) / 10)} days
+        </ThemedText>
       </View>
     </View>
     {error && (
@@ -133,8 +239,9 @@ const MedicineRow = ({ medicine, onChange, onRemove, error }) => (
         <ThemedText style={styles.errorText}>{error}</ThemedText>
       </View>
     )}
-  </View>
-);
+    </View>
+  );
+};
 
 /**
  * PatientFormScreen
@@ -155,11 +262,7 @@ export default function PatientFormScreen({
   });
   const [medicines, setMedicines] = useState(
     (patient?.medicines || []).map((m) => ({
-      id: m.id,
-      name: m.name,
-      stripsDispensed: String(m.stripsDispensed),
-      tabletsPerStrip: String(m.tabletsPerStrip),
-      dosePerDay: String(m.dosePerDay),
+      ...hydrateMedicine(m),
     }))
   );
 
@@ -184,7 +287,7 @@ export default function PatientFormScreen({
   const addMedicineRow = useCallback(() => {
     setMedicines((prev) => [
       ...prev,
-      { tempId: makeTempId(), name: '', stripsDispensed: '', tabletsPerStrip: '', dosePerDay: '' },
+      createEmptyMedicine(),
     ]);
   }, []);
 
@@ -202,8 +305,12 @@ export default function PatientFormScreen({
       const key = m.id || m.tempId;
       if (!m.name.trim()) {
         newMedicineErrors[key] = 'Medicine name is required';
-      } else if (!(parseFloat(m.stripsDispensed) > 0) || !(parseFloat(m.tabletsPerStrip) > 0) || !(parseFloat(m.dosePerDay) > 0)) {
-        newMedicineErrors[key] = 'Strips, tablets/strip and dose/day must be greater than 0';
+      } else {
+        const config = getDosageFieldConfig(m.dosageForm);
+        const invalidField = config.fields.find((field) => !(toNumber(m[field.key]) > 0));
+        if (invalidField) {
+          newMedicineErrors[key] = `${invalidField.label} must be greater than 0`;
+        }
       }
     });
 
@@ -224,9 +331,12 @@ export default function PatientFormScreen({
     const medicinesData = medicines.map((m) => ({
       id: m.id, // present for existing medicines, undefined for new ones
       name: m.name.trim(),
-      stripsDispensed: parseFloat(m.stripsDispensed),
-      tabletsPerStrip: parseFloat(m.tabletsPerStrip),
-      dosePerDay: parseFloat(m.dosePerDay),
+      dosageForm: normalizeDosageForm(m.dosageForm),
+      ...buildDosageDetails(m.dosageForm, m),
+      stripsDispensed: normalizeDosageForm(m.dosageForm) === 'tablet' ? toNumber(m.stripsDispensed) : 0,
+      tabletsPerStrip: normalizeDosageForm(m.dosageForm) === 'tablet' ? toNumber(m.tabletsPerStrip) : 0,
+      dosePerDay: toNumber(m.dosePerDay),
+      dosageDetails: buildDosageDetails(m.dosageForm, m),
     }));
 
     onSave?.({ patientData, medicines: medicinesData });
@@ -318,7 +428,7 @@ export default function PatientFormScreen({
             <View style={styles.infoCard}>
               <Ionicons name="information-circle-outline" size={20} color="#64748B" />
               <ThemedText style={styles.infoText}>
-                Days of supply = (strips x tablets per strip) / dose per day. The run-out date and
+                Days of supply is computed from the selected dosage form. The run-out date and
                 medication sync recommendation are computed automatically on the patient's detail page.
               </ThemedText>
             </View>
@@ -394,8 +504,70 @@ const styles = StyleSheet.create({
   },
   medicineRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   medicineRowTitle: { fontSize: 12, fontWeight: '700', color: '#334155' },
-  medicineNumbersRow: { flexDirection: 'row', gap: 8 },
-  medicineNumberField: { flex: 1 },
+  medicineRowSubtitle: { fontSize: 11, color: '#64748B', marginTop: 2 },
+  dosageFormSection: {
+    marginTop: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  dosageSelect: {
+    marginTop: 6,
+    backgroundColor: '#FFF7E8',
+    borderWidth: 1.5,
+    borderColor: '#E8C76C',
+    borderRadius: 12,
+    minHeight: 46,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dosageSelectValue: { fontSize: 15, color: '#4A3A12', fontWeight: '600' },
+  dosageChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  dosageChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#2F2F2F',
+    borderWidth: 1,
+    borderColor: '#494949',
+  },
+  dosageChipSelected: {
+    backgroundColor: '#FFF2CF',
+    borderColor: '#FFF2CF',
+  },
+  dosageChipPressed: { opacity: 0.85 },
+  dosageChipText: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
+  dosageChipTextSelected: { color: '#4A3A12' },
+  dosageDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  formGroup: { marginBottom: 12 },
+  formGroupLabel: { fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 6 },
+  halfWidthField: { flex: 1 },
+  fieldsRow: { flexDirection: 'row', gap: 8 },
+  fullWidthField: { width: '100%' },
+  runOutBanner: {
+    marginTop: 6,
+    backgroundColor: '#E6F5F1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  runOutBannerLabel: { fontSize: 13, fontWeight: '600', color: '#225E52' },
+  runOutBannerValue: { fontSize: 14, fontWeight: '700', color: '#225E52' },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',

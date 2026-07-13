@@ -1,6 +1,7 @@
 
 const { parseOcrWithGemini, parseImageWithVision } = require('../utils/geminiService');
 const { extractTextFromImage } = require('../utils/ocrService');
+const { parseInvoiceWithNanonets } = require('../utils/nanonetsService');
 const {
   normalizeEasyOcr,
   normalizeVision,
@@ -232,55 +233,88 @@ exports.parseImage = async (req, res) => {
       });
     }
 
-    console.log(`[AIController] Parsing bill image with vision AI (${mimeType}, ${Math.round(base64Image.length / 1024)}KB base64)...`);
+    // Keep the original (un-preprocessed) bytes for Mindee — it does its own image handling.
+    const originalBuffer = sourceBuffer;
+    const originalMimeType = mimeType;
 
-    // ── Image preprocessing: enhance + blur detection ──────────────────────
+    console.log(`[AIController] Parsing bill with vision AI (${mimeType}, ${Math.round(base64Image.length / 1024)}KB base64)...`);
+
+    // ── PDF path: skip image preprocessing, use pdf-parse for text hint ───────
     let blurScore = null;
     let isBlurry = false;
-    try {
-      const imgBuffer = Buffer.from(base64Image, 'base64');
-      const preprocessed = await preprocessForOcr(imgBuffer);
-      base64Image = preprocessed.base64;
-      sourceBuffer = Buffer.from(base64Image, 'base64');
-      mimeType = preprocessed.mimeType;
-      blurScore = preprocessed.blurScore;
-      isBlurry = preprocessed.isBlurry;
-      console.log(`[AIController] Image preprocessed. Blur score: ${blurScore?.toFixed(1)}, isBlurry: ${isBlurry}`);
-    } catch (prepErr) {
-      console.warn('[AIController] Preprocessing failed, using original:', prepErr.message);
-    }
-
-    // ── OCR hint: only run if image is blurry OR no hint was provided ────────
-    // On clear images Gemini Vision reads the image directly (hint not needed).
-    // On blurry/low-confidence images the hint helps ground the model.
-    const needsOcrHint = isBlurry || (!ocrTextHint || ocrTextHint.trim().length < 20);
-    if (needsOcrHint && (!ocrTextHint || ocrTextHint.trim().length < 20)) {
-      const ocrBuffer = ocrSourceBuffer || sourceBuffer || Buffer.from(base64Image, 'base64');
-      ocrTextHint = await extractGoogleVisionHint(ocrBuffer);
-      if (!ocrTextHint || ocrTextHint.trim().length < 20) {
-        // Only fall back to Tesseract when Google Vision also fails
-        ocrTextHint = await extractTesseractHint(ocrBuffer);
+    if (mimeType === 'application/pdf') {
+      console.log('[AIController] PDF detected — skipping image preprocessing');
+      try {
+        const pdfParse = require('pdf-parse');
+        const pdfData = await pdfParse(Buffer.from(base64Image, 'base64'));
+        if (pdfData.text && pdfData.text.trim().length > 20) {
+          ocrTextHint = pdfData.text.trim();
+          console.log(`[AIController] PDF text extracted: ${ocrTextHint.length} chars`);
+        } else {
+          console.log('[AIController] PDF appears image-based, will rely on Gemini Vision directly');
+        }
+      } catch (pdfErr) {
+        console.warn('[AIController] pdf-parse failed, proceeding with Vision AI:', pdfErr.message);
       }
-    } else if (!isBlurry && ocrTextHint && ocrTextHint.trim().length >= 20) {
-      console.log('[AIController] Clear image with existing hint — skipping extra OCR pass');
+    } else {
+      // ── Image preprocessing: enhance + blur detection ──────────────────────
+      try {
+        const imgBuffer = Buffer.from(base64Image, 'base64');
+        const preprocessed = await preprocessForOcr(imgBuffer);
+        base64Image = preprocessed.base64;
+        sourceBuffer = Buffer.from(base64Image, 'base64');
+        mimeType = preprocessed.mimeType;
+        blurScore = preprocessed.blurScore;
+        isBlurry = preprocessed.isBlurry;
+        console.log(`[AIController] Image preprocessed. Blur score: ${blurScore?.toFixed(1)}, isBlurry: ${isBlurry}`);
+      } catch (prepErr) {
+        console.warn('[AIController] Preprocessing failed, using original:', prepErr.message);
+      }
+
+      // ── OCR hint: only run if image is blurry OR no hint was provided ────────
+      const needsOcrHint = isBlurry || (!ocrTextHint || ocrTextHint.trim().length < 20);
+      if (needsOcrHint && (!ocrTextHint || ocrTextHint.trim().length < 20)) {
+        const ocrBuffer = ocrSourceBuffer || sourceBuffer || Buffer.from(base64Image, 'base64');
+        ocrTextHint = await extractGoogleVisionHint(ocrBuffer);
+        if (!ocrTextHint || ocrTextHint.trim().length < 20) {
+          ocrTextHint = await extractTesseractHint(ocrBuffer);
+        }
+      } else if (!isBlurry && ocrTextHint && ocrTextHint.trim().length >= 20) {
+        console.log('[AIController] Clear image with existing hint — skipping extra OCR pass');
+      }
     }
 
     let parsedData;
     let methodUsed = 'vision';
 
-    try {
-      console.log('[AIController] Parsing bill image with Gemini Vision...');
-      parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
-      logAiResponse('vision', parsedData);
-    } catch (visionErr) {
-      console.warn('[AIController] Vision AI parsing failed, falling back to OCR text parsing:', visionErr.message);
-      if (ocrTextHint && ocrTextHint.trim().length > 50) {
-        console.log('[AIController] Falling back: Parsing OCR text with AI...');
-        parsedData = await parseOcrWithGemini(ocrTextHint);
-        methodUsed = 'ocr+ai';
-        logAiResponse('ocr+ai', parsedData);
-      } else {
-        throw visionErr;
+    // ── Nanonets: try first when configured (NANONETS_API_KEY + NANONETS_MODEL_ID) ──
+    if (process.env.NANONETS_API_KEY && process.env.NANONETS_MODEL_ID) {
+      try {
+        console.log('[AIController] Parsing bill with Nanonets...');
+        parsedData = await parseInvoiceWithNanonets(originalBuffer, originalMimeType, 'invoice');
+        methodUsed = 'nanonets';
+        logAiResponse('nanonets', parsedData);
+      } catch (nanonetsErr) {
+        console.warn('[AIController] Nanonets parsing failed, falling back to Gemini Vision:', nanonetsErr.message);
+      }
+    }
+
+    if (!parsedData) {
+      try {
+        console.log('[AIController] Parsing bill image with Gemini Vision...');
+        parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
+        methodUsed = 'vision';
+        logAiResponse('vision', parsedData);
+      } catch (visionErr) {
+        console.warn('[AIController] Vision AI parsing failed, falling back to OCR text parsing:', visionErr.message);
+        if (ocrTextHint && ocrTextHint.trim().length > 50) {
+          console.log('[AIController] Falling back: Parsing OCR text with AI...');
+          parsedData = await parseOcrWithGemini(ocrTextHint);
+          methodUsed = 'ocr+ai';
+          logAiResponse('ocr+ai', parsedData);
+        } else {
+          throw visionErr;
+        }
       }
     }
 
@@ -288,7 +322,7 @@ exports.parseImage = async (req, res) => {
       success: true,
       data: parsedData,
       ocrText: ocrTextHint,
-      confidence: methodUsed === 'vision' ? 0.95 : 0.90,
+      confidence: methodUsed === 'nanonets' ? 0.95 : methodUsed === 'vision' ? 0.95 : 0.90,
       method: methodUsed,
       imageQuality: {
         blurScore: blurScore !== null ? Math.round(blurScore * 10) / 10 : null,
@@ -304,7 +338,8 @@ exports.parseImage = async (req, res) => {
         itemsNeedingReview: (parsedData.items || []).filter(it => it.needsReview).length,
       },
     };
-    logTerminalResponse(methodUsed === 'vision' ? 'VISION OCR + AI' : 'OCR + AI (FALLBACK)', responseBody);
+    const terminalLabel = methodUsed === 'nanonets' ? 'NANONETS' : methodUsed === 'vision' ? 'VISION OCR + AI' : 'OCR + AI (FALLBACK)';
+    logTerminalResponse(terminalLabel, responseBody);
     res.json(responseBody);
   } catch (error) {
     console.error('[AIController] Vision parse error:', error.message);
