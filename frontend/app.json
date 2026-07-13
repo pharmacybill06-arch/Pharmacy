@@ -10,14 +10,15 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.pharmacybillapp",
+      "bundleIdentifier": "com.setpharma.pharmacybillapp",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access to scan pharmacy bills and extract text",
         "NSPhotoLibraryUsageDescription": "This app needs photo library access to select bill images for scanning"
       }
     },
     "android": {
-      "package": "com.yourcompany.pharmacybillapp",
+      "package": "com.setpharma.pharmacybillapp",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA"
       ],

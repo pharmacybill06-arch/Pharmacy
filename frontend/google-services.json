@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "815287088292",
+    "project_id": "setu-pharma-b2806",
+    "storage_bucket": "setu-pharma-b2806.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:815287088292:android:354dda01002fd2ee246231",
+        "android_client_info": {
+          "package_name": "com.setpharma.pharmacybillapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqO5FZ78nNR3L-Mgr_kXcsDFTecqH8bRY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

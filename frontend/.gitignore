@@ -36,6 +36,9 @@ yarn-error.*
 .env.production
 !.env.example
 
+# Firebase service account keys (admin credentials — never commit)
+*firebase-adminsdk*.json
+
 # typescript
 *.tsbuildinfo
 

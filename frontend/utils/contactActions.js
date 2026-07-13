@@ -18,13 +18,15 @@ export async function callPatient(phone) {
     Alert.alert('No phone number', 'This patient has no phone number on file.');
     return;
   }
-  const url = `tel:${normalized}`;
-  const canOpen = await Linking.canOpenURL(url);
-  if (!canOpen) {
-    Alert.alert('Unable to place call', 'Calling is not supported on this device.');
-    return;
+  // Note: intentionally NOT gating on Linking.canOpenURL() here — on Android 11+,
+  // canOpenURL() requires a <queries> manifest declaration to return true even
+  // for the always-handled tel: scheme, so it false-negatives. openURL() itself
+  // works fine; we just catch the (rare) real failure instead.
+  try {
+    await Linking.openURL(`tel:${normalized}`);
+  } catch (error) {
+    Alert.alert('Unable to place call', 'No dialer app is available on this device.');
   }
-  Linking.openURL(url);
 }
 
 export async function messagePatientOnWhatsApp(phone, message) {
@@ -34,12 +36,11 @@ export async function messagePatientOnWhatsApp(phone, message) {
     return;
   }
   const url = `https://wa.me/${normalized}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
-  const canOpen = await Linking.canOpenURL(url);
-  if (!canOpen) {
+  try {
+    await Linking.openURL(url);
+  } catch (error) {
     Alert.alert('WhatsApp not available', 'WhatsApp does not appear to be installed on this device.');
-    return;
   }
-  Linking.openURL(url);
 }
 
 export function buildRefillReminderMessage(patient, shopName) {
