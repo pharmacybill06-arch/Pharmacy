@@ -1,9 +1,54 @@
 const productService = require('../services/productService');
+const productAggregationService = require('../services/productAggregationService');
 
 /**
  * Product Controller
  * Handles HTTP requests for product management
  */
+
+// ============================================
+// LIST ENRICHED (batch/expiry/distributor aggregated from BillItem)
+// ============================================
+
+/**
+ * GET /products/:userId/list-enriched
+ */
+exports.getEnrichedProducts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const {
+      search = '',
+      distributorIds,
+      expiryMonth,
+      receivedFrom,
+      receivedTo,
+      sort = 'fefo',
+      page = 1,
+      limit = 20,
+    } = req.query;
+
+    console.log(`[PRODUCT] Fetching enriched product list for user: ${userId}`);
+
+    const result = await productAggregationService.getEnrichedProducts(userId, {
+      search,
+      distributorIds,
+      expiryMonth,
+      receivedFrom,
+      receivedTo,
+      sort,
+      page: parseInt(page),
+      limit: parseInt(limit),
+    });
+
+    res.json({
+      message: 'Enriched product list fetched successfully',
+      ...result,
+    });
+  } catch (error) {
+    console.error('[PRODUCT] Get enriched products error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch enriched product list' });
+  }
+};
 
 // ============================================
 // CREATE PRODUCT

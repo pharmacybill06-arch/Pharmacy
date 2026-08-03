@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/themed-view';
@@ -16,142 +18,397 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { useProductList, useProductCRUD } from '@/hooks/useProducts';
+import DateField from '@/components/ui/DateField';
+import { useEnrichedProductList, useProductCRUD } from '@/hooks/useProducts';
+import { productApi, distributorApi } from '@/services/api';
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function getExpiryColor(daysLeft) {
+  if (daysLeft === null || daysLeft === undefined) return '#94A3B8';
+  if (daysLeft < 90) return '#EF4444';
+  if (daysLeft < 180) return '#F59E0B';
+  return '#10B981';
+}
+
+function ddmmyyyyToIso(value) {
+  const m = String(value || '').match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
 
 /**
- * Product List Item Component (Memoized for performance)
+ * Batch row — used inside an expanded product card
  */
-const ProductListItem = React.memo(({ item, onPress, onLongPress }) => {
-  const formatDate = (dateStr) => {
-    if (!dateStr) return 'Never used';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', { 
-      day: 'numeric', 
-      month: 'short', 
-      year: 'numeric' 
-    });
-  };
+function BatchRow({ batch }) {
+  const color = getExpiryColor(batch.daysLeft);
+  return (
+    <View style={[styles.batchRow, batch.isArchived && styles.batchRowArchived]}>
+      <View style={styles.batchRowTop}>
+        <ThemedText style={[styles.batchNumber, batch.matchedSearch && styles.batchNumberHighlight]} numberOfLines={1}>
+          Batch {batch.batchNumber || '—'}
+        </ThemedText>
+        {batch.isArchived && (
+          <View style={styles.archivedTag}>
+            <ThemedText style={styles.archivedTagText}>Archived</ThemedText>
+          </View>
+        )}
+      </View>
+      <View style={styles.batchRowMeta}>
+        <ThemedText style={styles.batchMetaText}>Qty {batch.quantity ?? '—'}</ThemedText>
+        <ThemedText style={styles.batchMetaDot}>·</ThemedText>
+        {batch.daysLeft !== null ? (
+          <ThemedText style={[styles.batchMetaText, { color }]}>
+            Exp: {batch.expiryDate} · {batch.daysLeft}d left
+          </ThemedText>
+        ) : (
+          <ThemedText style={[styles.batchMetaText, { color: '#94A3B8' }]}>
+            Exp: {batch.expiryDate || 'Unknown'}
+          </ThemedText>
+        )}
+      </View>
+      <View style={styles.batchRowMeta}>
+        <ThemedText style={styles.batchMetaTextMuted} numberOfLines={1}>
+          {batch.distributorName || 'Unknown distributor'}
+        </ThemedText>
+        {batch.invoiceNumber && (
+          <>
+            <ThemedText style={styles.batchMetaDot}>·</ThemedText>
+            <ThemedText style={styles.batchMetaTextMuted} numberOfLines={1}>
+              Inv #{batch.invoiceNumber}{batch.invoiceDate ? ` · ${batch.invoiceDate}` : ''}
+            </ThemedText>
+          </>
+        )}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Product card — new redesigned layout with expand-in-place batch list
+ */
+const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress }) => {
+  const color = getExpiryColor(item.daysToEarliestExpiry);
+  const searchMatch = item.batches.find((b) => b.matchedSearch);
 
   return (
-    <Pressable
-      onPress={() => onPress(item)}
-      onLongPress={() => onLongPress(item)}
-      style={({ pressed }) => [
-        styles.productCard,
-        pressed && styles.productCardPressed,
-      ]}
-    >
-      <Card style={styles.productCardInner}>
-        <View style={styles.productHeader}>
-          <View style={styles.productInfo}>
+    <Card style={styles.productCardInner} noPadding>
+      <Pressable
+        onPress={() => onToggleExpand(item.id)}
+        onLongPress={() => onLongPress(item)}
+        style={({ pressed }) => pressed && styles.pressedOverlay}
+      >
+        <View style={styles.cardTopRow}>
+          <View style={styles.cardTextCol}>
             <ThemedText style={styles.productName} numberOfLines={1}>
               {item.name}
             </ThemedText>
-            {item.manufacturer && (
-              <ThemedText style={styles.manufacturer} numberOfLines={1}>
-                {item.manufacturer}
+            {item.daysToEarliestExpiry !== null ? (
+              <ThemedText style={[styles.expiryLine, { color }]} numberOfLines={1}>
+                Exp: {item.earliestExpiry} · {item.daysToEarliestExpiry}d left
+              </ThemedText>
+            ) : (
+              <ThemedText style={[styles.expiryLine, { color: '#94A3B8' }]} numberOfLines={1}>
+                Exp: {item.earliestExpiry || 'Unknown'}
               </ThemedText>
             )}
-          </View>
-          <View style={styles.priceInfo}>
-            {item.defaultRate && (
-              <ThemedText style={styles.rate}>₹{item.defaultRate}</ThemedText>
-            )}
-            {item.defaultMrp && item.defaultMrp !== item.defaultRate && (
-              <ThemedText style={styles.mrp}>MRP: ₹{item.defaultMrp}</ThemedText>
-            )}
-          </View>
-        </View>
-        
-        <View style={styles.productFooter}>
-          <View style={styles.usageInfo}>
-            <Ionicons name="repeat-outline" size={14} color="#64748B" />
-            <ThemedText style={styles.usageText}>
-              Used {item.usageCount || 0} times
+            <ThemedText style={styles.distributorLine} numberOfLines={1}>
+              {item.distributors.length === 1
+                ? item.distributors[0]
+                : item.distributors.length > 1
+                ? `${item.distributors.length} distributors`
+                : 'No distributor on record'}
             </ThemedText>
+            {searchMatch && (
+              <View style={styles.matchTag}>
+                <ThemedText style={styles.matchTagText} numberOfLines={1}>
+                  Invoice #{searchMatch.invoiceNumber} · {searchMatch.distributorName} · {searchMatch.invoiceDate || ''}
+                </ThemedText>
+              </View>
+            )}
           </View>
-          <ThemedText style={styles.lastUsed}>
-            {formatDate(item.lastUsedAt)}
-          </ThemedText>
+          <View style={styles.cardRightCol}>
+            <View style={styles.batchBadge}>
+              <ThemedText style={styles.batchBadgeText}>{item.batchCount}</ThemedText>
+              <ThemedText style={styles.batchBadgeLabel}>batch{item.batchCount === 1 ? '' : 'es'}</ThemedText>
+            </View>
+            <Pressable onPress={() => onEdit(item)} hitSlop={8} style={styles.editIconButton}>
+              <Ionicons name="create-outline" size={16} color="#64748B" />
+            </Pressable>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#94A3B8" />
+          </View>
         </View>
-        
-        {item.isProductMatched && (
-          <View style={styles.matchedBadge}>
-            <Ionicons name="checkmark-circle" size={12} color="#059669" />
-            <ThemedText style={styles.matchedText}>Linked</ThemedText>
-          </View>
-        )}
-      </Card>
-    </Pressable>
+      </Pressable>
+
+      {expanded && (
+        <View style={styles.batchListContainer}>
+          {item.batches.map((b, idx) => (
+            <BatchRow key={`${b.billId}-${idx}`} batch={b} />
+          ))}
+        </View>
+      )}
+    </Card>
   );
 });
 
-ProductListItem.displayName = 'ProductListItem';
+ProductCard.displayName = 'ProductCard';
 
 /**
- * Loading Skeleton Component
+ * Month-year picker modal (no native picker exists in this app — built inline)
  */
-const LoadingSkeleton = () => (
-  <View style={styles.skeletonContainer}>
-    {[1, 2, 3, 4, 5].map((i) => (
-      <View key={i} style={styles.skeletonCard}>
-        <View style={styles.skeletonLine} />
-        <View style={styles.skeletonLineSm} />
-        <View style={styles.skeletonLineXs} />
-      </View>
-    ))}
-  </View>
-);
+function ExpiryMonthModal({ visible, value, onClose, onSelect }) {
+  const now = new Date();
+  const [year, setYear] = useState(() => {
+    if (value) {
+      const [, y] = value.split('-');
+      return Number(y);
+    }
+    return now.getFullYear();
+  });
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>Expiring in</ThemedText>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748B" />
+            </Pressable>
+          </View>
+          <View style={styles.yearStepper}>
+            <Pressable onPress={() => setYear((y) => y - 1)} hitSlop={8}>
+              <Ionicons name="chevron-back" size={20} color="#4F46E5" />
+            </Pressable>
+            <ThemedText style={styles.yearText}>{year}</ThemedText>
+            <Pressable onPress={() => setYear((y) => y + 1)} hitSlop={8}>
+              <Ionicons name="chevron-forward" size={20} color="#4F46E5" />
+            </Pressable>
+          </View>
+          <View style={styles.monthGrid}>
+            {MONTH_NAMES.map((name, idx) => {
+              const mm = String(idx + 1).padStart(2, '0');
+              const key = `${mm}-${year}`;
+              const isSelected = value === key;
+              return (
+                <Pressable
+                  key={key}
+                  style={[styles.monthCell, isSelected && styles.monthCellSelected]}
+                  onPress={() => {
+                    onSelect(key);
+                    onClose();
+                  }}
+                >
+                  <ThemedText style={[styles.monthCellText, isSelected && styles.monthCellTextSelected]}>
+                    {name}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </View>
+          {value && (
+            <Pressable
+              style={styles.modalClearButton}
+              onPress={() => {
+                onSelect(null);
+                onClose();
+              }}
+            >
+              <ThemedText style={styles.modalClearButtonText}>Clear</ThemedText>
+            </Pressable>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
 
 /**
- * Empty State Component
+ * Received-on date range modal
  */
-const EmptyState = ({ searchQuery, onAddPress }) => (
+function ReceivedRangeModal({ visible, from, to, onClose, onApply }) {
+  const [fromLocal, setFromLocal] = useState(from || '');
+  const [toLocal, setToLocal] = useState(to || '');
+
+  useEffect(() => {
+    if (visible) {
+      setFromLocal(from || '');
+      setToLocal(to || '');
+    }
+  }, [visible, from, to]);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>Received on</ThemedText>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748B" />
+            </Pressable>
+          </View>
+          <DateField label="From" value={fromLocal} onChange={setFromLocal} />
+          <DateField label="To" value={toLocal} onChange={setToLocal} />
+          <View style={styles.modalActionRow}>
+            <Pressable
+              style={styles.modalClearButton}
+              onPress={() => {
+                onApply(null, null);
+                onClose();
+              }}
+            >
+              <ThemedText style={styles.modalClearButtonText}>Clear</ThemedText>
+            </Pressable>
+            <Pressable
+              style={styles.modalApplyButton}
+              onPress={() => {
+                onApply(ddmmyyyyToIso(fromLocal), ddmmyyyyToIso(toLocal));
+                onClose();
+              }}
+            >
+              <ThemedText style={styles.modalApplyButtonText}>Apply</ThemedText>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * Distributor multi-select modal
+ */
+function DistributorModal({ visible, distributors, selectedIds, onClose, onApply }) {
+  const [localSelected, setLocalSelected] = useState(selectedIds);
+
+  useEffect(() => {
+    if (visible) setLocalSelected(selectedIds);
+  }, [visible, selectedIds]);
+
+  const toggle = (id) => {
+    setLocalSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>Distributor</ThemedText>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748B" />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.distributorList}>
+            {distributors.map((d) => {
+              const isSelected = localSelected.includes(d.id);
+              return (
+                <Pressable key={d.id} style={styles.distributorRow} onPress={() => toggle(d.id)}>
+                  <Ionicons
+                    name={isSelected ? 'checkbox' : 'square-outline'}
+                    size={20}
+                    color={isSelected ? '#4F46E5' : '#94A3B8'}
+                  />
+                  <ThemedText style={styles.distributorRowText} numberOfLines={1}>
+                    {d.name}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+            {distributors.length === 0 && (
+              <ThemedText style={styles.noDistributorsText}>No distributors yet</ThemedText>
+            )}
+          </ScrollView>
+          <View style={styles.modalActionRow}>
+            <Pressable
+              style={styles.modalClearButton}
+              onPress={() => {
+                onApply([]);
+                onClose();
+              }}
+            >
+              <ThemedText style={styles.modalClearButtonText}>Clear</ThemedText>
+            </Pressable>
+            <Pressable
+              style={styles.modalApplyButton}
+              onPress={() => {
+                onApply(localSelected);
+                onClose();
+              }}
+            >
+              <ThemedText style={styles.modalApplyButtonText}>Apply</ThemedText>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * Empty State
+ */
+const EmptyState = ({ hasActiveFilters, onClearFilters, onAddPress }) => (
   <View style={styles.emptyContainer}>
     <View style={styles.emptyIconContainer}>
       <Ionicons name="cube-outline" size={64} color="#CBD5E1" />
     </View>
     <ThemedText style={styles.emptyTitle}>
-      {searchQuery ? 'No products found' : 'No products yet'}
+      {hasActiveFilters ? 'No products match' : 'No products yet'}
     </ThemedText>
-    <ThemedText style={styles.emptySubtitle}>
-      {searchQuery
-        ? 'Try adjusting your search'
-        : 'Products will be automatically added when you save bills, or you can add them manually'}
-    </ThemedText>
-    {!searchQuery && (
-      <Pressable style={styles.emptyAddButton} onPress={onAddPress}>
-        <Ionicons name="add" size={20} color="#FFFFFF" />
-        <ThemedText style={styles.emptyAddButtonText}>Add Product</ThemedText>
+    {hasActiveFilters ? (
+      <Pressable style={styles.emptyAddButton} onPress={onClearFilters}>
+        <ThemedText style={styles.emptyAddButtonText}>Clear filters?</ThemedText>
       </Pressable>
+    ) : (
+      <>
+        <ThemedText style={styles.emptySubtitle}>
+          Products will be automatically added when you save bills, or you can add them manually
+        </ThemedText>
+        <Pressable style={styles.emptyAddButton} onPress={onAddPress}>
+          <Ionicons name="add" size={20} color="#FFFFFF" />
+          <ThemedText style={styles.emptyAddButtonText}>Add Product</ThemedText>
+        </Pressable>
+      </>
     )}
   </View>
 );
 
 /**
  * ProductsListScreen
- * Shows all products with search, filter, and CRUD actions
+ * Batch-aware product list: search across name/batch/invoice, distributor +
+ * expiry-month + received-date filters, FEFO sort, expand-in-place batch view.
  */
-export default function ProductsListScreen({
-  userId,
-  onBack,
-  onProductPress,
-  onAddPress,
-}) {
+export default function ProductsListScreen({ userId, onBack, onProductPress, onAddPress }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ visible: false, product: null });
-  
+  const [expandedId, setExpandedId] = useState(null);
+  const [distributorModalVisible, setDistributorModalVisible] = useState(false);
+  const [monthModalVisible, setMonthModalVisible] = useState(false);
+  const [rangeModalVisible, setRangeModalVisible] = useState(false);
+  const [distributors, setDistributors] = useState([]);
+
   const {
     products,
     pagination,
+    distributorIds,
+    setDistributorIds,
+    expiryMonth,
+    setExpiryMonth,
+    receivedFrom,
+    receivedTo,
+    setReceivedRange,
+    sort,
+    setSort,
+    activeFilterCount,
+    clearAllFilters,
     isLoading,
     isRefreshing,
     error,
     refresh,
     loadMore,
     updateSearch,
-    removeFromList,
-  } = useProductList(userId);
+  } = useEnrichedProductList(userId);
 
   const { deleteProduct, isLoading: isDeleting } = useProductCRUD(userId);
 
@@ -163,9 +420,31 @@ export default function ProductsListScreen({
     return () => clearTimeout(timer);
   }, [searchQuery, updateSearch]);
 
-  const handleProductPress = useCallback((product) => {
-    onProductPress?.(product);
-  }, [onProductPress]);
+  // Fetch distributor options once
+  useEffect(() => {
+    if (!userId) return;
+    distributorApi.getDistributors(userId).then((res) => {
+      setDistributors(res.distributors || []);
+    }).catch(() => {});
+  }, [userId]);
+
+  const distributorNameById = useMemo(
+    () => new Map(distributors.map((d) => [d.id, d.name])),
+    [distributors]
+  );
+
+  const handleToggleExpand = useCallback((id) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }, []);
+
+  const handleEdit = useCallback(async (item) => {
+    try {
+      const res = await productApi.getProductById(userId, item.id);
+      onProductPress?.(res.product);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to load product details.');
+    }
+  }, [userId, onProductPress]);
 
   const handleLongPress = useCallback((product) => {
     setDeleteDialog({ visible: true, product });
@@ -174,28 +453,25 @@ export default function ProductsListScreen({
   const handleDeleteConfirm = useCallback(async () => {
     const product = deleteDialog.product;
     setDeleteDialog({ visible: false, product: null });
-    
     try {
       await deleteProduct(product.id);
-      removeFromList(product.id);
+      refresh();
     } catch (err) {
       Alert.alert('Error', 'Failed to delete product. Please try again.');
     }
-  }, [deleteDialog.product, deleteProduct, removeFromList]);
-
-  const handleDeleteCancel = useCallback(() => {
-    setDeleteDialog({ visible: false, product: null });
-  }, []);
+  }, [deleteDialog.product, deleteProduct, refresh]);
 
   const renderItem = useCallback(
     ({ item }) => (
-      <ProductListItem 
-        item={item} 
-        onPress={handleProductPress}
+      <ProductCard
+        item={item}
+        expanded={expandedId === item.id}
+        onToggleExpand={handleToggleExpand}
+        onEdit={handleEdit}
         onLongPress={handleLongPress}
       />
     ),
-    [handleProductPress, handleLongPress]
+    [expandedId, handleToggleExpand, handleEdit, handleLongPress]
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
@@ -209,36 +485,26 @@ export default function ProductsListScreen({
     );
   }, [pagination.hasMore]);
 
+  const hasActiveFilters = activeFilterCount > 0 || !!searchQuery;
+
   const ListEmptyComponent = useCallback(
     () => (
-      <EmptyState 
-        searchQuery={searchQuery}
+      <EmptyState
+        hasActiveFilters={hasActiveFilters}
+        onClearFilters={() => {
+          setSearchQuery('');
+          clearAllFilters();
+        }}
         onAddPress={onAddPress}
       />
     ),
-    [searchQuery, onAddPress]
+    [hasActiveFilters, clearAllFilters, onAddPress]
   );
-
-  if (isLoading && products.length === 0) {
-    return (
-      <ThemedView style={styles.container}>
-        <SafeAreaView style={styles.safeArea} edges={['top']}>
-          <AppBar title="My Products" onBack={onBack} />
-          <LoadingSkeleton />
-        </SafeAreaView>
-      </ThemedView>
-    );
-  }
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <AppBar
-          title="My Products"
-          onBack={onBack}
-          rightIcon="add"
-          onRightPress={onAddPress}
-        />
+        <AppBar title="My Products" onBack={onBack} rightIcon="add" onRightPress={onAddPress} />
 
         <View style={styles.content}>
           {/* Search Bar */}
@@ -246,7 +512,7 @@ export default function ProductsListScreen({
             <Ionicons name="search-outline" size={20} color="#64748B" />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search products..."
+              placeholder="Search by name, batch or invoice #..."
               placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -260,6 +526,76 @@ export default function ProductsListScreen({
             )}
           </View>
 
+          {/* Filter chip row */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
+            <Pressable
+              style={[styles.filterChip, distributorIds.length > 0 && styles.filterChipActive]}
+              onPress={() => setDistributorModalVisible(true)}
+            >
+              <ThemedText style={[styles.filterChipText, distributorIds.length > 0 && styles.filterChipTextActive]}>
+                Distributor{distributorIds.length > 0 ? ` (${distributorIds.length})` : ''}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, expiryMonth && styles.filterChipActive]}
+              onPress={() => setMonthModalVisible(true)}
+            >
+              <ThemedText style={[styles.filterChipText, expiryMonth && styles.filterChipTextActive]}>
+                Expiring in{expiryMonth ? `: ${expiryMonth}` : ''}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, (receivedFrom || receivedTo) && styles.filterChipActive]}
+              onPress={() => setRangeModalVisible(true)}
+            >
+              <ThemedText style={[styles.filterChipText, (receivedFrom || receivedTo) && styles.filterChipTextActive]}>
+                Received on
+              </ThemedText>
+            </Pressable>
+            <View style={styles.filterDivider} />
+            <Pressable style={[styles.sortChip, sort === 'fefo' && styles.sortChipActive]} onPress={() => setSort('fefo')}>
+              <ThemedText style={[styles.sortChipText, sort === 'fefo' && styles.sortChipTextActive]}>Earliest expiry</ThemedText>
+            </Pressable>
+            <Pressable style={[styles.sortChip, sort === 'name' && styles.sortChipActive]} onPress={() => setSort('name')}>
+              <ThemedText style={[styles.sortChipText, sort === 'name' && styles.sortChipTextActive]}>A-Z</ThemedText>
+            </Pressable>
+          </ScrollView>
+
+          {/* Active filter chips */}
+          {(distributorIds.length > 0 || expiryMonth || receivedFrom || receivedTo) && (
+            <View style={styles.activeChipsRow}>
+              {distributorIds.map((id) => (
+                <Pressable
+                  key={id}
+                  style={styles.activeChip}
+                  onPress={() => setDistributorIds(distributorIds.filter((x) => x !== id))}
+                >
+                  <ThemedText style={styles.activeChipText} numberOfLines={1}>
+                    {distributorNameById.get(id) || id}
+                  </ThemedText>
+                  <Ionicons name="close" size={12} color="#4F46E5" />
+                </Pressable>
+              ))}
+              {expiryMonth && (
+                <Pressable style={styles.activeChip} onPress={() => setExpiryMonth(null)}>
+                  <ThemedText style={styles.activeChipText}>Exp {expiryMonth}</ThemedText>
+                  <Ionicons name="close" size={12} color="#4F46E5" />
+                </Pressable>
+              )}
+              {(receivedFrom || receivedTo) && (
+                <Pressable style={styles.activeChip} onPress={() => setReceivedRange(null, null)}>
+                  <ThemedText style={styles.activeChipText}>Received range</ThemedText>
+                  <Ionicons name="close" size={12} color="#4F46E5" />
+                </Pressable>
+              )}
+              {activeFilterCount >= 2 && (
+                <Pressable style={styles.clearAllChip} onPress={clearAllFilters}>
+                  <ThemedText style={styles.clearAllChipText}>Clear all</ThemedText>
+                </Pressable>
+              )}
+            </View>
+          )}
+
           {/* Stats Bar */}
           <View style={styles.statsBar}>
             <ThemedText style={styles.statsText}>
@@ -267,7 +603,6 @@ export default function ProductsListScreen({
             </ThemedText>
           </View>
 
-          {/* Error State */}
           {error && (
             <View style={styles.errorContainer}>
               <Ionicons name="alert-circle" size={24} color="#DC2626" />
@@ -278,29 +613,22 @@ export default function ProductsListScreen({
             </View>
           )}
 
-          {/* Products List */}
           <FlatList
             data={products}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
-            ListEmptyComponent={ListEmptyComponent}
+            ListEmptyComponent={!isLoading ? ListEmptyComponent : null}
             ListFooterComponent={renderFooter}
             onEndReached={loadMore}
             onEndReachedThreshold={0.5}
             refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={refresh}
-                colors={['#4F46E5']}
-                tintColor="#4F46E5"
-              />
+              <RefreshControl refreshing={isRefreshing} onRefresh={refresh} colors={['#4F46E5']} tintColor="#4F46E5" />
             }
           />
         </View>
 
-        {/* Delete Confirmation Dialog */}
         <ConfirmDialog
           visible={deleteDialog.visible}
           title="Delete Product"
@@ -309,7 +637,28 @@ export default function ProductsListScreen({
           confirmText={isDeleting ? 'Deleting...' : 'Delete'}
           cancelText="Cancel"
           onConfirm={handleDeleteConfirm}
-          onCancel={handleDeleteCancel}
+          onCancel={() => setDeleteDialog({ visible: false, product: null })}
+        />
+
+        <DistributorModal
+          visible={distributorModalVisible}
+          distributors={distributors}
+          selectedIds={distributorIds}
+          onClose={() => setDistributorModalVisible(false)}
+          onApply={setDistributorIds}
+        />
+        <ExpiryMonthModal
+          visible={monthModalVisible}
+          value={expiryMonth}
+          onClose={() => setMonthModalVisible(false)}
+          onSelect={setExpiryMonth}
+        />
+        <ReceivedRangeModal
+          visible={rangeModalVisible}
+          from={receivedFrom}
+          to={receivedTo}
+          onClose={() => setRangeModalVisible(false)}
+          onApply={setReceivedRange}
         />
       </SafeAreaView>
     </ThemedView>
@@ -317,18 +666,9 @@ export default function ProductsListScreen({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  safeArea: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  safeArea: { flex: 1 },
+  content: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -340,151 +680,101 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
-  searchInput: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 15,
-    color: '#0F172A',
-    fontWeight: '500',
+  searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: '#0F172A', fontWeight: '500' },
+
+  filterRow: { flexGrow: 0, marginBottom: 8 },
+  filterRowContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  statsBar: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+  filterChipActive: { backgroundColor: '#EEF2FF', borderColor: '#4F46E5' },
+  filterChipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  filterChipTextActive: { color: '#4F46E5' },
+  filterDivider: { width: 1, height: 20, backgroundColor: '#E2E8F0', marginHorizontal: 2 },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  statsText: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  listContent: {
-    paddingBottom: 100,
-  },
-  productCard: {
-    marginBottom: 10,
-  },
-  productCardPressed: {
-    opacity: 0.7,
-  },
-  productCardInner: {
-    padding: 14,
-    position: 'relative',
-    borderRadius: 18,
-  },
-  productHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  productInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  productName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 2,
-  },
-  manufacturer: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  priceInfo: {
-    alignItems: 'flex-end',
-  },
-  rate: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#059669',
-  },
-  mrp: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 2,
-  },
-  productFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  usageInfo: {
+  sortChipActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
+  sortChipText: { fontSize: 12, fontWeight: '600', color: '#64748B' },
+  sortChipTextActive: { color: '#FFFFFF' },
+
+  activeChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  activeChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    maxWidth: 200,
   },
-  usageText: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  lastUsed: {
-    fontSize: 12,
-    color: '#94A3B8',
-  },
-  matchedBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#D1FAE5',
+  activeChipText: { fontSize: 11, fontWeight: '600', color: '#4F46E5' },
+  clearAllChip: { paddingHorizontal: 10, paddingVertical: 5 },
+  clearAllChipText: { fontSize: 11, fontWeight: '700', color: '#DC2626' },
+
+  statsBar: { paddingVertical: 6, paddingHorizontal: 4 },
+  statsText: { fontSize: 13, color: '#64748B', fontWeight: '500' },
+  listContent: { paddingBottom: 100 },
+
+  productCardInner: { padding: 0, borderRadius: 18, marginBottom: 10, overflow: 'hidden' },
+  pressedOverlay: { opacity: 0.7 },
+  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 14 },
+  cardTextCol: { flex: 1, marginRight: 10 },
+  productName: { fontSize: 16, fontWeight: '700', color: '#0F172A' },
+  expiryLine: { fontSize: 13, fontWeight: '600', marginTop: 3 },
+  distributorLine: { fontSize: 12, color: '#64748B', marginTop: 3 },
+  matchTag: {
+    marginTop: 6,
+    backgroundColor: '#FEF3C7',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 8,
-    gap: 3,
+    alignSelf: 'flex-start',
   },
-  matchedText: {
-    fontSize: 10,
-    color: '#059669',
-    fontWeight: '600',
-  },
-  footerLoader: {
-    paddingVertical: 20,
-    alignItems: 'center',
-  },
-  skeletonContainer: {
-    padding: 16,
-  },
-  skeletonCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 10,
-  },
-  skeletonLine: {
-    backgroundColor: '#E2E8F0',
-    height: 16,
-    borderRadius: 8,
-    width: '70%',
-    marginBottom: 8,
-  },
-  skeletonLineSm: {
+  matchTagText: { fontSize: 11, fontWeight: '600', color: '#92400E' },
+  cardRightCol: { alignItems: 'flex-end', gap: 6 },
+  batchBadge: {
     backgroundColor: '#F1F5F9',
-    height: 12,
-    borderRadius: 6,
-    width: '40%',
-    marginBottom: 8,
-  },
-  skeletonLineXs: {
-    backgroundColor: '#F1F5F9',
-    height: 10,
-    borderRadius: 5,
-    width: '30%',
-  },
-  emptyContainer: {
-    flex: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 32,
+    minWidth: 56,
   },
+  batchBadgeText: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  batchBadgeLabel: { fontSize: 9, color: '#64748B', textTransform: 'uppercase' },
+  editIconButton: { padding: 2 },
+
+  batchListContainer: { borderTopWidth: 1, borderTopColor: '#E2E8F0', backgroundColor: '#F8FAFC' },
+  batchRow: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  batchRowArchived: { opacity: 0.55 },
+  batchRowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  batchNumber: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
+  batchNumberHighlight: { backgroundColor: '#FEF3C7', paddingHorizontal: 4, borderRadius: 4 },
+  archivedTag: { backgroundColor: '#E2E8F0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  archivedTagText: { fontSize: 9, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
+  batchRowMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' },
+  batchMetaText: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  batchMetaTextMuted: { fontSize: 12, color: '#64748B' },
+  batchMetaDot: { fontSize: 12, color: '#CBD5E1' },
+
+  footerLoader: { paddingVertical: 20, alignItems: 'center' },
+
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 32 },
   emptyIconContainer: {
     width: 120,
     height: 120,
@@ -496,20 +786,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C7D2FE',
   },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24,
-  },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#0F172A', marginBottom: 8, textAlign: 'center' },
+  emptySubtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
   emptyAddButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -518,17 +796,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 16,
     gap: 8,
-    shadowColor: '#4F46E5',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  emptyAddButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
+  emptyAddButtonText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -538,20 +808,43 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 8,
   },
-  errorText: {
+  errorText: { flex: 1, fontSize: 13, color: '#DC2626' },
+  retryButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#DC2626', borderRadius: 6 },
+  retryText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 24 },
+  modalCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, maxHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#0F172A' },
+  modalActionRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  modalClearButton: {
     flex: 1,
-    fontSize: 13,
-    color: '#DC2626',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
   },
-  retryButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#DC2626',
-    borderRadius: 6,
+  modalClearButtonText: { fontSize: 14, fontWeight: '600', color: '#475569' },
+  modalApplyButton: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: '#4F46E5' },
+  modalApplyButtonText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+
+  yearStepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24, marginBottom: 16 },
+  yearText: { fontSize: 16, fontWeight: '700', color: '#0F172A', minWidth: 60, textAlign: 'center' },
+  monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' },
+  monthCell: {
+    width: '30%',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    marginBottom: 8,
   },
-  retryText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
+  monthCellSelected: { backgroundColor: '#4F46E5' },
+  monthCellText: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  monthCellTextSelected: { color: '#FFFFFF' },
+
+  distributorList: { maxHeight: 320 },
+  distributorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  distributorRowText: { fontSize: 14, color: '#0F172A', flex: 1 },
+  noDistributorsText: { fontSize: 13, color: '#94A3B8', textAlign: 'center', paddingVertical: 20 },
 });

@@ -322,9 +322,130 @@ export function useProductList(userId, options = {}) {
   };
 }
 
+/**
+ * useEnrichedProductList Hook
+ * Products list with batch/expiry/distributor info aggregated from BillItem —
+ * single search box (name/batch/invoice), distributor + expiry-month +
+ * received-date filters (AND logic), FEFO/name sort, pagination.
+ */
+export function useEnrichedProductList(userId, options = {}) {
+  const { initialLimit = 20 } = options;
+
+  const [products, setProducts] = useState([]);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: initialLimit,
+    total: 0,
+    totalPages: 0,
+    hasMore: false,
+  });
+  const [searchFilter, setSearchFilter] = useState('');
+  const [distributorIds, setDistributorIds] = useState([]);
+  const [expiryMonth, setExpiryMonth] = useState(null); // "MM-YYYY"
+  const [receivedFrom, setReceivedFrom] = useState(null);
+  const [receivedTo, setReceivedTo] = useState(null);
+  const [sort, setSort] = useState('fefo'); // 'fefo' | 'name'
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const filtersKey = JSON.stringify({ searchFilter, distributorIds, expiryMonth, receivedFrom, receivedTo, sort });
+
+  const fetchProducts = useCallback(async (page = 1) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const result = await productApi.getEnrichedProducts(userId, {
+        page,
+        limit: pagination.limit,
+        search: searchFilter,
+        distributorIds,
+        expiryMonth,
+        receivedFrom,
+        receivedTo,
+        sort,
+      });
+
+      if (page === 1) {
+        setProducts(result.products);
+      } else {
+        setProducts((prev) => [...prev, ...result.products]);
+      }
+
+      setPagination(result.pagination);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, pagination.limit, filtersKey]);
+
+  useEffect(() => {
+    if (userId) {
+      fetchProducts(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, filtersKey]);
+
+  const refresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchProducts(1);
+  }, [fetchProducts]);
+
+  const loadMore = useCallback(async () => {
+    if (pagination.hasMore && !isLoading) {
+      await fetchProducts(pagination.page + 1);
+    }
+  }, [fetchProducts, pagination, isLoading]);
+
+  const updateSearch = useCallback((search) => {
+    setSearchFilter(search);
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setDistributorIds([]);
+    setExpiryMonth(null);
+    setReceivedFrom(null);
+    setReceivedTo(null);
+  }, []);
+
+  const activeFilterCount =
+    (distributorIds.length > 0 ? 1 : 0) + (expiryMonth ? 1 : 0) + (receivedFrom || receivedTo ? 1 : 0);
+
+  return {
+    products,
+    pagination,
+    searchFilter,
+    distributorIds,
+    setDistributorIds,
+    expiryMonth,
+    setExpiryMonth,
+    receivedFrom,
+    receivedTo,
+    setReceivedRange: (from, to) => {
+      setReceivedFrom(from);
+      setReceivedTo(to);
+    },
+    sort,
+    setSort,
+    activeFilterCount,
+    clearAllFilters,
+    isLoading,
+    isRefreshing,
+    error,
+    refresh,
+    loadMore,
+    updateSearch,
+  };
+}
+
 export default {
   useProductSearch,
   useProductAutofill,
   useProductCRUD,
   useProductList,
+  useEnrichedProductList,
 };

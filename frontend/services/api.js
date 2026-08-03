@@ -380,6 +380,27 @@ export const productApi = {
   },
 
   /**
+   * Get products with batch/expiry/distributor info aggregated from BillItem
+   * (search across name/batch/invoice, distributor + expiry-month + received-date filters)
+   * @param {string} userId - User ID
+   * @param {Object} options - { search, distributorIds, expiryMonth, receivedFrom, receivedTo, sort, page, limit }
+   */
+  getEnrichedProducts: async (userId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.search) params.append('search', options.search);
+    if (options.distributorIds?.length) params.append('distributorIds', options.distributorIds.join(','));
+    if (options.expiryMonth) params.append('expiryMonth', options.expiryMonth);
+    if (options.receivedFrom) params.append('receivedFrom', options.receivedFrom);
+    if (options.receivedTo) params.append('receivedTo', options.receivedTo);
+    if (options.sort) params.append('sort', options.sort);
+    if (options.page) params.append('page', options.page);
+    if (options.limit) params.append('limit', options.limit);
+
+    const queryString = params.toString();
+    return apiFetch(`/products/${userId}/list-enriched${queryString ? `?${queryString}` : ''}`);
+  },
+
+  /**
    * Search products for autocomplete
    * @param {string} userId - User ID
    * @param {string} query - Search query

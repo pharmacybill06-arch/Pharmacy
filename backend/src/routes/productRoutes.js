@@ -23,6 +23,10 @@ const {
 // SPECIFIC ROUTES (must be before /:userId and /:userId/:productId)
 // ============================================
 
+// GET /products/:userId/list-enriched - Products list with batch/expiry/distributor
+// aggregated from BillItem (search, filters, sort, pagination)
+router.get('/:userId/list-enriched', validateUserId, validatePagination, productController.getEnrichedProducts);
+
 // GET /products/:userId/search - Search products for autocomplete
 router.get('/:userId/search', validateUserId, validateSearchQuery, productController.searchProducts);
 
