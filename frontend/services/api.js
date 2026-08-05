@@ -4,6 +4,18 @@
  */
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+
+/**
+ * Resolve a relative storage path (e.g. "/uploads/payments/xxx.jpg") returned by the
+ * backend into an absolute URL the RN <Image> component can load. Already-absolute
+ * URLs are returned unchanged.
+ */
+export function getFileUrl(relativePath) {
+  if (!relativePath) return null;
+  if (/^https?:\/\//i.test(relativePath)) return relativePath;
+  return `${API_ORIGIN}${relativePath.startsWith('/') ? '' : '/'}${relativePath}`;
+}
 
 // DEBUG: Log the API URL on startup
 console.log('[API Service] Initialized with URL:', API_BASE_URL);
@@ -887,6 +899,124 @@ export const patientApi = {
   },
 };
 
+// ============================================================================
+// LEDGER API — Distributor Payments (Khata)
+// ============================================================================
+
+export const ledgerApi = {
+  /**
+   * Screen A — all distributors with outstanding/overdue totals, sorted highest first
+   * @param {string} userId - User ID
+   */
+  getSummary: async (userId) => {
+    return apiFetch(`/ledger/user/${userId}/summary`);
+  },
+
+  /**
+   * Home screen alert: total overdue across all distributors
+   * @param {string} userId - User ID
+   */
+  getOverdueAlert: async (userId) => {
+    return apiFetch(`/ledger/user/${userId}/overdue-alert`);
+  },
+
+  /**
+   * Screen B — distributor ledger detail: bills, payments, and the chronological statement
+   * @param {string} distributorId - Distributor ID
+   */
+  getDistributorLedger: async (distributorId) => {
+    return apiFetch(`/ledger/distributor/${distributorId}`);
+  },
+
+  /**
+   * Flow C, step 5 — allocation targets (opening balance + unpaid/partial bills, oldest first)
+   * @param {string} distributorId - Distributor ID
+   */
+  getAllocationTargets: async (distributorId) => {
+    return apiFetch(`/ledger/distributor/${distributorId}/allocation-targets`);
+  },
+
+  /**
+   * Upload a payment attachment (UPI screenshot or photographed receipt/cheque/credit note).
+   * Compress client-side before calling this.
+   * @param {string} userId - User ID
+   * @param {string} imageUri - Local image URI
+   * @param {string} mimeType - image/jpeg | image/png | image/webp
+   */
+  uploadAttachment: async (userId, imageUri, mimeType = 'image/jpeg') => {
+    const extension = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+    const formData = new FormData();
+    formData.append('attachment', {
+      uri: imageUri,
+      name: `payment.${extension}`,
+      type: mimeType,
+    });
+    return apiUpload(`/ledger/user/${userId}/upload-attachment`, formData);
+  },
+
+  /**
+   * Flow C — record a payment for a distributor.
+   * Omit `allocations` for FIFO auto-allocation; pass [] to skip allocation ("Adjust later").
+   * @param {string} userId - User ID
+   * @param {string} distributorId - Distributor ID
+   * @param {Object} data - { amount, paymentDate, mode, referenceNumber, attachmentPath, attachmentSource, notes, allocations?, force? }
+   */
+  recordPayment: async (userId, distributorId, data) => {
+    return apiFetch(`/ledger/user/${userId}/distributor/${distributorId}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Edit a payment. If reducing amount below its allocated total, pass a new `allocations` plan.
+   * @param {string} paymentId - Payment ID
+   * @param {Object} data - Fields to update
+   */
+  updatePayment: async (paymentId, data) => {
+    return apiFetch(`/ledger/payments/${paymentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Archive a payment (never hard-deleted)
+   * @param {string} paymentId - Payment ID
+   */
+  archivePayment: async (paymentId) => {
+    return apiFetch(`/ledger/payments/${paymentId}/archive`, { method: 'POST' });
+  },
+
+  /**
+   * Restore an archived payment
+   * @param {string} paymentId - Payment ID
+   */
+  unarchivePayment: async (paymentId) => {
+    return apiFetch(`/ledger/payments/${paymentId}/unarchive`, { method: 'POST' });
+  },
+
+  /**
+   * Archived payments filter view
+   * @param {string} userId - User ID
+   */
+  getArchivedPayments: async (userId) => {
+    return apiFetch(`/ledger/user/${userId}/archived-payments`);
+  },
+
+  /**
+   * Edit a distributor's opening balance (with an audit note)
+   * @param {string} distributorId - Distributor ID
+   * @param {Object} data - { openingBalance, note }
+   */
+  updateOpeningBalance: async (distributorId, data) => {
+    return apiFetch(`/ledger/distributor/${distributorId}/opening-balance`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
 // Default export with all APIs
 export default {
   auth: authApi,
@@ -897,6 +1027,7 @@ export default {
   gstin: gstinApi,
   distributor: distributorApi,
   payment: paymentApi,
+  ledger: ledgerApi,
   patient: patientApi,
   invoice: invoiceApi,
   baseUrl: API_BASE_URL,

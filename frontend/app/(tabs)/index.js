@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
-import { billApi } from '@/services/api';
+import { billApi, ledgerApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import ExpiryActionPanel from '@/components/expiry/ExpiryActionPanel';
 
@@ -119,6 +119,7 @@ export default function BillsHomeScreen() {
   const [editingBill, setEditingBill] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
   const [visibleStockCount, setVisibleStockCount] = useState(STOCK_PAGE_SIZE);
+  const [overdueAlert, setOverdueAlert] = useState({ totalOverdue: 0, distributorsWithOverdue: 0 });
 
   // Only use authenticated user ID; do not fetch with placeholder
   const userId = user?.id;
@@ -181,6 +182,9 @@ export default function BillsHomeScreen() {
     useCallback(() => {
       if (userId) {
         fetchBills();
+        ledgerApi.getOverdueAlert(userId)
+          .then(setOverdueAlert)
+          .catch((err) => console.log('Could not fetch overdue alert:', err.message));
       }
     }, [userId, fetchBills])
   );
@@ -335,6 +339,24 @@ export default function BillsHomeScreen() {
             </View>
           </View>
 
+          {/* Overdue distributor dues alert */}
+          {overdueAlert.totalOverdue > 0 && (
+            <Pressable
+              style={({ pressed }) => [styles.overdueAlertCard, pressed && styles.overdueAlertCardPressed]}
+              onPress={() => router.push('/ledger')}
+            >
+              <View style={styles.overdueAlertIcon}>
+                <MaterialIcons name="error-outline" size={22} color="#DC2626" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={styles.overdueAlertText}>
+                  ₹{overdueAlert.totalOverdue.toLocaleString('en-IN')} overdue across {overdueAlert.distributorsWithOverdue} distributor{overdueAlert.distributorsWithOverdue !== 1 ? 's' : ''}
+                </ThemedText>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#DC2626" />
+            </Pressable>
+          )}
+
           {/* Expiry Action Panel — surfaces only batches needing action */}
           <ExpiryActionPanel
             userId={userId}
@@ -435,13 +457,27 @@ export default function BillsHomeScreen() {
                   styles.quickActionCard,
                   pressed && styles.quickActionCardPressed,
                 ]}
+                onPress={() => router.push('/ledger')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#FEF2F2' }]}>
+                  <MaterialIcons name="account-balance-wallet" size={22} color="#DC2626" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Distributor Dues</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Khata & payments</ThemedText>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
                 onPress={() => router.push('/payments')}
               >
                 <View style={[styles.quickActionIcon, { backgroundColor: '#F0FDF4' }]}>
                   <MaterialIcons name="payment" size={22} color="#059669" />
                 </View>
-                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Payments</ThemedText>
-                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Track UPI payments</ThemedText>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>UPI Payments</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Shared receipts</ThemedText>
               </Pressable>
 
               <Pressable
@@ -710,6 +746,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Overdue Alert Card
+  overdueAlertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    gap: 12,
+  },
+  overdueAlertCardPressed: {
+    opacity: 0.8,
+  },
+  overdueAlertIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overdueAlertText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#991B1B',
   },
 
   // Expiring Items Section Styles

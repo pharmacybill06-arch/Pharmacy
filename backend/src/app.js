@@ -28,6 +28,7 @@ app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/invoices', require('./routes/invoiceRoutes'));
 app.use('/api/distributors', require('./routes/distributorRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
+app.use('/api/ledger', require('./routes/ledgerRoutes'));
 app.use('/api/gstin', require('./routes/gstinRoutes'));
 app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/email-bills', require('./routes/emailBillRoutes'));

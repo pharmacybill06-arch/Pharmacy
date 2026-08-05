@@ -282,7 +282,11 @@ exports.updateBill = async (req, res) => {
     // Invoice identification
     if (updateData.invoiceNumber !== undefined) data.invoiceNumber = updateData.invoiceNumber;
     if (updateData.invoiceDate !== undefined) data.invoiceDate = parseDateString(updateData.invoiceDate);
-    
+    if (updateData.dueDate !== undefined) data.dueDate = parseDateString(updateData.dueDate);
+
+    // Ledger: grand total (Phase 1 — always manually confirmed by the user)
+    if (updateData.grandTotal !== undefined) data.grandTotal = updateData.grandTotal === null ? null : parseFloat(updateData.grandTotal);
+
     // Customer details
     if (updateData.customerName !== undefined) data.customerName = updateData.customerName;
     if (updateData.customerPhone !== undefined) data.customerPhone = updateData.customerPhone;

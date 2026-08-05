@@ -16,60 +16,60 @@ datasource db {
 
 // User model: Stores pharmacy app users (patients, staff)
 model User {
-  id        String     @id @default(cuid())
-  email     String?    @unique
-  name      String?
-  phone     String     @unique
-  shopName  String?                              // User's shop/pharmacy name (used to filter from OCR)
-  expoPushToken String?                          // Expo push token for this device, used for refill-reminder alerts
+  id            String  @id @default(cuid())
+  email         String? @unique
+  name          String?
+  phone         String  @unique
+  shopName      String? // User's shop/pharmacy name (used to filter from OCR)
+  expoPushToken String? // Expo push token for this device, used for refill-reminder alerts
 
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  
-  bills     Bill[]
-  products  Product[]
-  distributors Distributor[]
-  payments  Payment[]
-  emailConnections EmailInboxConnection[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bills               Bill[]
+  products            Product[]
+  distributors        Distributor[]
+  payments            Payment[]
+  emailConnections    EmailInboxConnection[]
   emailProcessingLogs EmailProcessingLog[]
-  patients  Patient[]
+  patients            Patient[]
 
   @@index([email])
   @@index([phone])
 }
 
 model EmailInboxConnection {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  provider        String   @default("zoho")
-  authType        String   @default("imap_password")
-  emailAddress    String?
-  displayName     String?
-  password        String?
-  imapHost        String?
-  imapPort        Int?     @default(993)
-  imapSecure      Boolean  @default(true)
-  mailbox         String?  @default("INBOX")
+  provider     String  @default("zoho")
+  authType     String  @default("imap_password")
+  emailAddress String?
+  displayName  String?
+  password     String?
+  imapHost     String?
+  imapPort     Int?    @default(993)
+  imapSecure   Boolean @default(true)
+  mailbox      String? @default("INBOX")
 
   accountId       String?
   accessToken     String?
   refreshToken    String?
   clientId        String?
   clientSecret    String?
-  apiDomain       String   @default("https://mail.zoho.in")
-  accountsBaseUrl String   @default("https://accounts.zoho.in")
+  apiDomain       String  @default("https://mail.zoho.in")
+  accountsBaseUrl String  @default("https://accounts.zoho.in")
   folderId        String?
 
-  isActive        Boolean  @default(true)
-  lastSyncedAt    DateTime?
-  tokenUpdatedAt  DateTime?
+  isActive       Boolean   @default(true)
+  lastSyncedAt   DateTime?
+  tokenUpdatedAt DateTime?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  processingLogs  EmailProcessingLog[]
+  processingLogs EmailProcessingLog[]
 
   @@unique([userId, provider])
   @@index([userId, isActive])
@@ -78,28 +78,33 @@ model EmailInboxConnection {
 // Distributor model: Suppliers/Distributors (Bhalla, Laksh, etc.)
 // Normalized from pharmacyName field in bills
 model Distributor {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // ========== DISTRIBUTOR DETAILS ==========
-  name        String                              // Distributor name (e.g., Bhalla Medical)
-  address     String?                             // Full address
-  phone       String?                             // Contact phone
-  gstin       String?                             // GST Identification Number
-  dlNumber    String?                             // Drug License Number
-  email       String?                             // Contact email
-  
+  name     String // Distributor name (e.g., Bhalla Medical)
+  address  String? // Full address
+  phone    String? // Contact phone
+  gstin    String? // GST Identification Number
+  dlNumber String? // Drug License Number
+  email    String? // Contact email
+
   // ========== METADATA ==========
-  notes       String?                             // Additional notes
-  isActive    Boolean  @default(true)             // Soft delete flag
-  
+  notes    String? // Additional notes
+  isActive Boolean @default(true) // Soft delete flag
+
+  // ========== LEDGER (Distributor Payments / Khata) ==========
+  openingBalance          Float     @default(0) // Dues that existed before app adoption (from "CURRANT BAL" on printed bill)
+  openingBalanceNote      String? // Audit note explaining the last edit to openingBalance
+  openingBalanceUpdatedAt DateTime? // When openingBalance was last edited
+
   // ========== RELATIONSHIPS ==========
-  bills       Bill[]
-  payments    Payment[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  bills    Bill[]
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, name, gstin])
   @@index([userId])
@@ -110,48 +115,48 @@ model Distributor {
 // Product model: Unique products catalog for quick billing
 // Auto-populated from OCR-parsed BillItems + manual entries
 model Product {
-  id            String     @id @default(cuid())
-  userId        String
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // ========== PRODUCT IDENTIFICATION ==========
-  name          String                              // Product/medicine name
-  nameNormalized String                             // Normalized name for matching (lowercase, no spaces)
-  salt          String?                             // Salt composition of medicine
-  manufacturer  String?                             // Manufacturer name
-  hsnCode       String?                             // HSN/SAC code for taxation
-  batchNumber   String?                             // Batch number for tracking
-  expiryDate    String?                             // Expiry date (dd-mm-yyyy format)
-  
+  name           String // Product/medicine name
+  nameNormalized String // Normalized name for matching (lowercase, no spaces)
+  salt           String? // Salt composition of medicine
+  manufacturer   String? // Manufacturer name
+  hsnCode        String? // HSN/SAC code for taxation
+  batchNumber    String? // Batch number for tracking
+  expiryDate     String? // Expiry date (dd-mm-yyyy format)
+
   // ========== INVENTORY ==========
-  quantity      Float?                              // Current quantity in stock
-  purchaseDate  String?                             // Purchase date (dd-mm-yyyy format)
-  stock         Float      @default(0)              // Current stock quantity (for sales tracking)
-  minStock      Float?                              // Alert threshold for low stock
-  unit          String     @default("units")        // tabs, bottle, ml, etc.
-  
+  quantity     Float? // Current quantity in stock
+  purchaseDate String? // Purchase date (dd-mm-yyyy format)
+  stock        Float   @default(0) // Current stock quantity (for sales tracking)
+  minStock     Float? // Alert threshold for low stock
+  unit         String  @default("units") // tabs, bottle, ml, etc.
+
   // ========== DEFAULT PRICING ==========
-  defaultMrp    Float?                              // Default MRP
-  defaultRate   Float?                              // Default selling rate
-  mrp           Float?                              // MRP per unit
-  purchaseRate  Float?                              // Purchase rate per unit
-  sellingRate   Float?                              // Selling rate per unit
-  ptr           Float?                              // PTR (Price to Retailer)
-  gstPercent    Float?                              // Default GST percentage
-  
+  defaultMrp   Float? // Default MRP
+  defaultRate  Float? // Default selling rate
+  mrp          Float? // MRP per unit
+  purchaseRate Float? // Purchase rate per unit
+  sellingRate  Float? // Selling rate per unit
+  ptr          Float? // PTR (Price to Retailer)
+  gstPercent   Float? // Default GST percentage
+
   // ========== USAGE TRACKING ==========
-  usageCount    Int        @default(0)              // Times used in bills
-  lastUsedAt    DateTime?                           // Last time used in a bill
-  
+  usageCount Int       @default(0) // Times used in bills
+  lastUsedAt DateTime? // Last time used in a bill
+
   // ========== METADATA ==========
-  notes         String?                             // Additional notes
-  isActive      Boolean    @default(true)           // Soft delete flag
-  
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  
+  notes    String? // Additional notes
+  isActive Boolean @default(true) // Soft delete flag
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // ========== RELATIONSHIPS ==========
-  billItems     BillItem[]
+  billItems BillItem[]
 
   @@unique([userId, nameNormalized])
   @@index([userId])
@@ -163,14 +168,14 @@ model Product {
 
 // OTP model: Stores OTPs for phone verification
 model Otp {
-  id        String     @id @default(cuid())
+  id        String   @id @default(cuid())
   phone     String
   otp       String
   expiresAt DateTime
-  verified  Boolean    @default(false)
-  attempts  Int        @default(0)
-  
-  createdAt DateTime   @default(now())
+  verified  Boolean  @default(false)
+  attempts  Int      @default(0)
+
+  createdAt DateTime @default(now())
 
   @@index([phone])
   @@index([expiresAt])
@@ -178,81 +183,84 @@ model Otp {
 
 // Bill model: Main invoice/bill record with all extracted fields
 model Bill {
-  id          String     @id @default(cuid())
-  userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // ========== BILL TYPE ==========
-  billType    String     @default("purchase")       // purchase (from distributor) or sale (to customer)
-  
+  billType String @default("purchase") // purchase (from distributor) or sale (to customer)
+
   // ========== DISTRIBUTOR RELATION ==========
   distributorId String?
   distributor   Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
-  
+
   // ========== FILE STORAGE ==========
-  fileName    String
-  filePath    String
-  fileSize    Int
-  mimeType    String
-  
+  fileName String
+  filePath String
+  fileSize Int
+  mimeType String
+
   // ========== PHARMACY DETAILS (DEPRECATED - Use Distributor) ==========
-  pharmacyName    String?                         // LEGACY: Kept for backward compatibility
-  shopAddress     String?                           // Full shop address
-  phoneNumbers    String?                           // JSON array of phone numbers
-  
+  pharmacyName String? // LEGACY: Kept for backward compatibility
+  shopAddress  String? // Full shop address
+  phoneNumbers String? // JSON array of phone numbers
+
   // ========== INVOICE IDENTIFICATION ==========
-  invoiceNumber   String?
-  invoiceDate     DateTime?
-  
+  invoiceNumber String?
+  invoiceDate   DateTime?
+  dueDate       DateTime? // Ledger: drives overdue logic (user-entered or extracted)
+
   // ========== CUSTOMER DETAILS ==========
   customerName    String?
   customerPhone   String?
   customerAddress String?
   doctorName      String?
-  
+
   // ========== FINANCIAL TOTALS ==========
-  subtotal        Float?                            // Sum of all items before tax/discount
-  
+  subtotal Float? // Sum of all items before tax/discount
+
   // Tax breakdown
-  cgst            Float?                            // Central GST amount
-  sgst            Float?                            // State GST amount
-  totalGst        Float?                            // Total GST (CGST + SGST)
-  
+  cgst     Float? // Central GST amount
+  sgst     Float? // State GST amount
+  totalGst Float? // Total GST (CGST + SGST)
+
   // Discounts and adjustments
-  discountAmount  Float?                            // Total discount applied
-  roundOff        Float?                            // Round-off adjustment
-  
-  grandTotal      Float?                            // Final payable amount
-  
+  discountAmount Float? // Total discount applied
+  roundOff       Float? // Round-off adjustment
+
+  grandTotal Float? // Final payable amount
+
   // ========== PAYMENT DETAILS ==========
-  paymentType     String?                           // cash, credit, card, upi, etc.
-  amountPaid      Float?                            // Amount actually paid
-  balanceAmount   Float?                            // Remaining balance
-  
+  paymentType   String? // cash, credit, card, upi, etc.
+  amountPaid    Float? // Amount actually paid
+  balanceAmount Float? // Remaining balance
+
   // ========== ADDITIONAL INFO ==========
-  remarks         String?                           // Any special notes or remarks
-  
+  remarks String? // Any special notes or remarks
+
   // ========== OCR & PROCESSING ==========
-  status          String     @default("uploaded")   // uploaded, processing, completed, failed
-  rawOcrText      String?                           // Raw text extracted from OCR
-  
+  status     String  @default("uploaded") // uploaded, processing, completed, failed
+  rawOcrText String? // Raw text extracted from OCR
+
   // Processing metadata
-  ocrEngine       String?                           // ml-kit, tesseract, etc.
-  aiParser        String?                           // gemini-ai, groq, etc.
-  processedAt     DateTime?                         // When AI parsing was completed
-  
+  ocrEngine   String? // ml-kit, tesseract, etc.
+  aiParser    String? // gemini-ai, groq, etc.
+  processedAt DateTime? // When AI parsing was completed
+
   // Timestamps
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // ========== RELATIONSHIPS ==========
-  items           BillItem[]
+  items       BillItem[]
+  allocations PaymentAllocation[] // Ledger: payments (or partial payments) settling this bill
 
   @@index([userId])
   @@index([billType])
   @@index([distributorId])
   @@index([status])
   @@index([invoiceDate])
+  @@index([dueDate])
   @@index([pharmacyName])
   @@index([invoiceNumber])
 }
@@ -260,100 +268,131 @@ model Bill {
 // Payment model: Track payments made to distributors via UPI (Google Pay, PhonePe, Paytm, etc.)
 // Captures shared payment receipts from UPI apps
 model Payment {
-  id              String     @id @default(cuid())
-  userId          String
-  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // ========== DISTRIBUTOR LINK ==========
-  distributorId   String?
-  distributor     Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
-  
-  // ========== TRANSACTION DETAILS ==========
-  transactionId   String?                           // UPI Transaction ID / UTR Number
-  upiRefNumber    String?                           // UPI Reference Number
-  amount          Float                             // Amount paid
-  payeeName       String?                           // Payee name from UPI receipt
-  payeeUpiId      String?                           // Payee UPI ID (e.g., merchant@upi)
-  payerName       String?                           // Payer name
-  payerUpiId      String?                           // Payer UPI ID
-  
-  // ========== PAYMENT INFO ==========
-  paymentApp      String?                           // google_pay, phonepe, paytm, etc.
-  paymentMethod   String     @default("upi")        // upi, neft, rtgs, cash, cheque
-  paymentDate     DateTime?                         // Date of the actual payment
-  paymentStatus   String     @default("success")    // success, pending, failed
-  
-  // ========== RAW DATA ==========
-  rawSharedText   String?                           // Raw text received from share intent
-  screenshotPath  String?                           // Path to payment screenshot if shared as image
-  
-  // ========== NOTES ==========
-  notes           String?                           // User notes about the payment
-  
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([transactionId, userId])                 // Prevent duplicate transaction entries
+  // ========== DISTRIBUTOR LINK ==========
+  distributorId String?
+  distributor   Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+
+  // ========== TRANSACTION DETAILS ==========
+  transactionId String? // UPI Transaction ID / UTR Number
+  upiRefNumber  String? // UPI Reference Number
+  amount        Float // Amount paid
+  payeeName     String? // Payee name from UPI receipt
+  payeeUpiId    String? // Payee UPI ID (e.g., merchant@upi)
+  payerName     String? // Payer name
+  payerUpiId    String? // Payer UPI ID
+
+  // ========== PAYMENT INFO ==========
+  paymentApp    String? // google_pay, phonepe, paytm, etc.
+  paymentMethod String    @default("upi") // upi, neft, rtgs, cash, cheque
+  paymentDate   DateTime? // Date of the actual payment
+  paymentStatus String    @default("success") // success, pending, failed
+
+  // ========== RAW DATA ==========
+  rawSharedText  String? // Raw text received from share intent
+  screenshotPath String? // Path to payment screenshot/receipt photo (ledger: "attachment_path")
+
+  // ========== LEDGER (Distributor Payments / Khata) ==========
+  referenceNumber  String? // Generic ref: UPI ref / UTR / cheque no / credit note no
+  attachmentSource String? // gallery | camera
+  isArchived       Boolean   @default(false) // Archive only — never hard-delete once allocated
+  archivedAt       DateTime?
+
+  // ========== NOTES ==========
+  notes String? // User notes about the payment
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ========== RELATIONSHIPS ==========
+  allocations PaymentAllocation[]
+
+  @@unique([transactionId, userId]) // Prevent duplicate transaction entries
   @@index([userId])
   @@index([distributorId])
   @@index([paymentDate])
   @@index([transactionId])
   @@index([paymentApp])
+  @@index([isArchived])
+}
+
+// PaymentAllocation: Join table between Payment and Bill (ledger reconciliation)
+// A payment can settle multiple bills; a bill can be settled by multiple partial payments.
+// billId is null for the two "virtual" allocation targets: opening_balance and on_account (unallocated advance).
+model PaymentAllocation {
+  id String @id @default(cuid())
+
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  billId String?
+  bill   Bill?   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  allocationType  String @default("bill") // bill | opening_balance | on_account
+  allocatedAmount Float
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([billId])
 }
 
 // BillItem model: Individual line items from invoice (medicines, products)
 model BillItem {
-  id              String     @id @default(cuid())
-  billId          String
-  bill            Bill       @relation(fields: [billId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
   // ========== PRODUCT LINK ==========
-  productId       String?                           // Link to Product catalog (optional)
-  product         Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
-  
+  productId String? // Link to Product catalog (optional)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
   // ========== ITEM IDENTIFICATION ==========
-  serialNumber    Int?                              // S.N. from bill
-  name            String                            // Medicine/product name
-  manufacturer    String?                           // Manufacturer name
-  
+  serialNumber Int? // S.N. from bill
+  name         String // Medicine/product name
+  manufacturer String? // Manufacturer name
+
   // ========== BATCH & EXPIRY ==========
-  batchNumber     String?                           // Batch number
-  expiryDate      String?                           // Expiry date (stored as string as it varies in format)
-  hsnCode         String?                           // HSN/SAC code for taxation
-  
+  batchNumber String? // Batch number
+  expiryDate  String? // Expiry date (stored as string as it varies in format)
+  hsnCode     String? // HSN/SAC code for taxation
+
   // ========== QUANTITY ==========
-  quantity        Float                             // Quantity purchased
-  freeQuantity    Float?                            // Free quantity (offers)
-  unit            String     @default("units")      // tabs, caps, ml, bottle, sachet, etc.
-  
+  quantity     Float // Quantity purchased
+  freeQuantity Float? // Free quantity (offers)
+  unit         String @default("units") // tabs, caps, ml, bottle, sachet, etc.
+
   // ========== PRICING ==========
-  mrp             Float?                            // Maximum Retail Price per unit
-  rate            Float      @default(0)            // Legacy price field; expiry management does not use it
-  
+  mrp  Float? // Maximum Retail Price per unit
+  rate Float  @default(0) // Legacy price field; expiry management does not use it
+
   // ========== TAXES ==========
-  gstPercent      Float?                            // Overall GST percentage
-  cgstPercent     Float?                            // CGST percentage
-  sgstPercent     Float?                            // SGST percentage
-  
+  gstPercent  Float? // Overall GST percentage
+  cgstPercent Float? // CGST percentage
+  sgstPercent Float? // SGST percentage
+
   // ========== DISCOUNT ==========
-  discount        Float?                            // Discount on this item
-  
+  discount Float? // Discount on this item
+
   // ========== TOTALS ==========
-  itemTotal       Float      @default(0)            // Legacy total field; expiry management does not use it
-  
+  itemTotal Float @default(0) // Legacy total field; expiry management does not use it
+
   // ========== EXPIRY ACTION MANAGEMENT ==========
-  remainingQty    Float?                            // Manually entered remaining stock (Phase 2: auto from sales)
-  expiryStatus    String     @default("active")     // active | archived
-  archiveReason   String?                           // sold | returned | writeoff | expired
-  archivedAt      DateTime?                         // When it was archived
-  firstEnteredWindowAt DateTime?                    // When it first entered the action window
+  remainingQty         Float? // Manually entered remaining stock (Phase 2: auto from sales)
+  expiryStatus         String    @default("active") // active | archived
+  archiveReason        String? // sold | returned | writeoff | expired
+  archivedAt           DateTime? // When it was archived
+  firstEnteredWindowAt DateTime? // When it first entered the action window
 
   // ========== METADATA ==========
-  confidence      Float?     @default(1.0)          // OCR confidence (0-1)
-  isProductMatched Boolean   @default(false)        // Whether linked to product catalog
-  
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  confidence       Float?  @default(1.0) // OCR confidence (0-1)
+  isProductMatched Boolean @default(false) // Whether linked to product catalog
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([billId])
   @@index([productId])
@@ -363,21 +402,21 @@ model BillItem {
 
 // EmailProcessingLog: Tracks Zoho emails that have been processed (prevents re-processing)
 model EmailProcessingLog {
-  id            String   @id @default(cuid())
-  userId        String?
-  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  connectionId  String?
-  connection    EmailInboxConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
-  messageId     String                  // Zoho Mail message ID
-  subject       String?
-  sender        String?
-  folderId      String?
-  emailDate     DateTime?
-  attachments   Int      @default(0)    // Number of attachments processed
-  billsCreated  Int      @default(0)    // How many bills were saved
-  status        String   @default("processed") // processed, failed, skipped
-  errorMessage  String?
-  processedAt   DateTime @default(now())
+  id           String                @id @default(cuid())
+  userId       String?
+  user         User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId String?
+  connection   EmailInboxConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  messageId    String // Zoho Mail message ID
+  subject      String?
+  sender       String?
+  folderId     String?
+  emailDate    DateTime?
+  attachments  Int                   @default(0) // Number of attachments processed
+  billsCreated Int                   @default(0) // How many bills were saved
+  status       String                @default("processed") // processed, failed, skipped
+  errorMessage String?
+  processedAt  DateTime              @default(now())
 
   @@unique([connectionId, messageId])
   @@index([userId])
@@ -385,17 +424,16 @@ model EmailProcessingLog {
   @@index([processedAt])
 }
 
-
 // Patient model: Chronic patients tracked for refill reminders / medication sync
 model Patient {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  name      String
-  phone     String
-  notes     String?
-  isActive  Boolean  @default(true)              // Soft delete flag
+  name     String
+  phone    String
+  notes    String?
+  isActive Boolean @default(true) // Soft delete flag
 
   medicines PatientMedicine[]
   reminders ReminderLog[]
@@ -409,35 +447,35 @@ model Patient {
 
 // PatientMedicine: One chronic medicine a patient is on, used to compute days-of-supply/run-out
 model PatientMedicine {
-  id              String   @id @default(cuid())
-  patientId       String
-  patient         Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   dosageForm      String   @default("tablet")
   dosageDetails   Json?
-  name            String                          // Medicine name (matched against Product for stock flag)
-  stripsDispensed Float                            // Strips dispensed at last fill
-  tabletsPerStrip Float                            // Tablets per strip
-  dosePerDay      Float                            // Tablets taken per day
-  lastFillDate    DateTime @default(now())         // Cycle start; reset by Confirm Pickup
+  name            String // Medicine name (matched against Product for stock flag)
+  stripsDispensed Float // Strips dispensed at last fill
+  tabletsPerStrip Float // Tablets per strip
+  dosePerDay      Float // Tablets taken per day
+  lastFillDate    DateTime @default(now()) // Cycle start; reset by Confirm Pickup
 
-  isActive        Boolean  @default(true)          // Soft delete flag
+  isActive Boolean @default(true) // Soft delete flag
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([patientId])
 }
 
 // ReminderLog: Record of refill reminders sent to a patient (mock channel in v1)
 model ReminderLog {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   patientId String
-  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  channel   String   @default("manual")            // manual (mock), whatsapp, call, push
-  medicineId String?                                // set for 'push' low-stock alerts, used to dedup per medicine per day
-  sentAt    DateTime @default(now())
+  channel    String   @default("manual") // manual (mock), whatsapp, call, push
+  medicineId String? // set for 'push' low-stock alerts, used to dedup per medicine per day
+  sentAt     DateTime @default(now())
 
   @@index([patientId])
   @@index([medicineId])
@@ -446,18 +484,18 @@ model ReminderLog {
 // BillDetectionCache: Cache AI detection results to reduce API calls
 // Caches based on subject/sender patterns to avoid re-analyzing similar emails
 model BillDetectionCache {
-  id          String    @id @default(cuid())
-  cacheKey    String    @unique                  // Hash of normalized subject + sender
-  subject     String?                            // Original subject (for debugging)
-  sender      String?                            // Original sender (for debugging)
-  isBill      Boolean                            // Detection result
-  confidence  Float                              // Confidence score (0-1)
-  reason      String?                            // Detection reason
-  billType    String                             // body-text, attachment, both, none
-  hitCount    Int       @default(1)              // Number of cache hits
-  lastHitAt   DateTime  @default(now())          // Last time this cache was used
-  createdAt   DateTime  @default(now())
-  expiresAt   DateTime?                          // Optional expiration (for cleanup)
+  id         String    @id @default(cuid())
+  cacheKey   String    @unique // Hash of normalized subject + sender
+  subject    String? // Original subject (for debugging)
+  sender     String? // Original sender (for debugging)
+  isBill     Boolean // Detection result
+  confidence Float // Confidence score (0-1)
+  reason     String? // Detection reason
+  billType   String // body-text, attachment, both, none
+  hitCount   Int       @default(1) // Number of cache hits
+  lastHitAt  DateTime  @default(now()) // Last time this cache was used
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime? // Optional expiration (for cleanup)
 
   @@index([cacheKey])
   @@index([expiresAt])
