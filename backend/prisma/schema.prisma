@@ -30,6 +30,8 @@ model User {
   products            Product[]
   distributors        Distributor[]
   payments            Payment[]
+  sales               Sale[]
+  exportLogs          ExportLog[]
   emailConnections    EmailInboxConnection[]
   emailProcessingLogs EmailProcessingLog[]
   patients            Patient[]
@@ -125,13 +127,24 @@ model Product {
   salt           String? // Salt composition of medicine
   manufacturer   String? // Manufacturer name
   hsnCode        String? // HSN/SAC code for taxation
-  batchNumber    String? // Batch number for tracking
-  expiryDate     String? // Expiry date (dd-mm-yyyy format)
+  batchNumber    String? // DEPRECATED: single-batch field superseded by ProductBatch. Only ever holds the last-synced batch.
+  expiryDate     String? // DEPRECATED: superseded by ProductBatch.expiryDate (proper DateTime). Free-text, last-synced batch only.
+
+  // ========== PACK / UNIT DEFINITION ==========
+  // All stock math happens in base units; packs are a display conversion only.
+  packSize  Int    @default(1) // Base units per pack (1 strip = 15 tablets -> 15)
+  baseUnit  String @default("unit") // tablet, ml, unit, capsule
+  packLabel String @default("pack") // strip, bottle, vial, tube
+
+  // ========== REGULATORY ==========
+  scheduleFlag String @default("none") // none | h1 | nrx — h1/nrx force a billed sale with customer + doctor
 
   // ========== INVENTORY ==========
   quantity     Float? // Current quantity in stock
   purchaseDate String? // Purchase date (dd-mm-yyyy format)
-  stock        Float   @default(0) // Current stock quantity (for sales tracking)
+  // DERIVED display value = SUM(batches.quantityBase). Sales code must never write to it;
+  // it deducts from ProductBatch.quantityBase instead.
+  stock        Float   @default(0)
   minStock     Float? // Alert threshold for low stock
   unit         String  @default("units") // tabs, bottle, ml, etc.
 
@@ -157,6 +170,8 @@ model Product {
 
   // ========== RELATIONSHIPS ==========
   billItems BillItem[]
+  batches   ProductBatch[]
+  saleItems SaleItem[]
 
   @@unique([userId, nameNormalized])
   @@index([userId])
@@ -164,6 +179,103 @@ model Product {
   @@index([nameNormalized])
   @@index([lastUsedAt])
   @@index([expiryDate])
+  @@index([scheduleFlag])
+}
+
+// ProductBatch: batch-level stock — the unit of truth for FEFO picking and recall traceability.
+// Replaces the single Product.batchNumber/expiryDate/stock triple, which could only ever
+// describe the most recently synced batch.
+model ProductBatch {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Stored EXACTLY as entered/extracted. Never auto-corrected, auto-filled or "cleaned"
+  // by any AI/OCR step — a user free-text override is always available.
+  batchNumber String
+
+  // Proper date type. Month-only inputs ("8/26") are parsed to the last day of that month.
+  expiryDate DateTime?
+
+  // Stock in BASE units (tablets/ml/pieces), never strips. May go negative: a stock
+  // mismatch warns the pharmacist but never blocks a real sale at the counter.
+  quantityBase Float @default(0)
+
+  purchaseRate Float? // From the purchase bill item, for margin reporting later
+  mrp          Float?
+
+  // Traceability: which purchase line created this batch
+  sourceBillItemId String?
+  sourceBillItem   BillItem? @relation(fields: [sourceBillItemId], references: [id], onDelete: SetNull)
+
+  isArchived Boolean @default(false) // Archive, never delete
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  saleItems SaleItem[]
+
+  @@unique([productId, batchNumber])
+  @@index([productId, expiryDate])
+  @@index([sourceBillItemId])
+}
+
+// Sale: one counter sale. "quick" = recorded in seconds and billed later; "billed" = has a Bill.
+model Sale {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  saleDate DateTime @default(now())
+  status   String   @default("quick") // quick (unbilled) | billed
+
+  // Set when converted to a Bill (billType = "sale")
+  billId String? @unique
+  bill   Bill?   @relation(fields: [billId], references: [id], onDelete: SetNull)
+
+  // Mandatory only for Schedule H1 / NRX sales
+  customerName String?
+  doctorName   String?
+
+  customerPhone String?
+  totalAmount   Float? // Optional in quick mode
+
+  isArchived Boolean   @default(false) // Archive, never delete — archiving restores stock
+  archivedAt DateTime?
+  notes      String?
+
+  items SaleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, saleDate])
+  @@index([userId, status])
+  @@index([isArchived])
+}
+
+// SaleItem: one line of a sale, always pinned to the exact physical batch it came from.
+model SaleItem {
+  id     String @id @default(cuid())
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  // Mandatory. Every sale line knows its exact batch — the recall-traceability hook.
+  // Restrict on delete so a sold-from batch can never be removed out from under history.
+  productBatchId String
+  productBatch   ProductBatch @relation(fields: [productBatchId], references: [id], onDelete: Restrict)
+
+  quantityBase Float // In base units (tablets) — supports loose sale
+  pricePerBase Float? // Optional in quick mode
+
+  createdAt DateTime @default(now())
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([productBatchId])
 }
 
 // OTP model: Stores OTPs for phone verification
@@ -254,6 +366,7 @@ model Bill {
   // ========== RELATIONSHIPS ==========
   items       BillItem[]
   allocations PaymentAllocation[] // Ledger: payments (or partial payments) settling this bill
+  sale        Sale? // Set when this bill was created by converting a quick sale (billType = "sale")
 
   @@index([userId])
   @@index([billType])
@@ -394,6 +507,9 @@ model BillItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // ========== RELATIONSHIPS ==========
+  createdBatches ProductBatch[] // Batches this purchase line brought into stock
+
   @@index([billId])
   @@index([productId])
   @@index([name])
@@ -479,6 +595,26 @@ model ReminderLog {
 
   @@index([patientId])
   @@index([medicineId])
+}
+
+// ExportLog: audit trail of data exports. Files are generated on demand and streamed
+// straight to the user — nothing is stored server-side, so this is the only record
+// that an export happened.
+model ExportLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  exportType String // purchases | expiry | sales | ledger
+  format     String @default("xlsx") // xlsx | csv
+  filters    Json? // The filter set used, for support/debugging
+  rowCount   Int    @default(0)
+  fileName   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([exportType])
 }
 
 // BillDetectionCache: Cache AI detection results to reduce API calls

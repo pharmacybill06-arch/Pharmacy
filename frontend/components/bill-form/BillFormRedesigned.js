@@ -107,6 +107,8 @@ export default function BillFormRedesigned({
     invoiceNumber: initialData?.invoiceNumber || '',
     invoiceDate: initialData?.invoiceDate || '',
     dueDate: initialData?.dueDate || '',
+    paymentType: initialData?.paymentType || '',
+    grandTotal: initialData?.grandTotal != null ? String(initialData.grandTotal) : '',
     items: initialData?.items || [],
   });
 

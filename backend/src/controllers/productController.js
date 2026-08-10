@@ -1,10 +1,76 @@
 const productService = require('../services/productService');
 const productAggregationService = require('../services/productAggregationService');
+const batchService = require('../services/batchService');
 
 /**
  * Product Controller
  * Handles HTTP requests for product management
  */
+
+// ============================================
+// BATCHES (batch-level stock, FEFO ordered)
+// ============================================
+
+/**
+ * GET /products/:userId/:productId/batches
+ * Batches sorted by expiry ASC (FEFO order) with remaining quantity.
+ * Empty batches are returned too — the pharmacist must always be able to see
+ * which physical strip to pick from.
+ */
+exports.getProductBatches = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { includeArchived } = req.query;
+    const result = await batchService.getProductBatches(productId, {
+      includeArchived: includeArchived === 'true',
+    });
+    res.json({ message: 'Product batches fetched successfully', ...result });
+  } catch (error) {
+    console.error('[PRODUCT] Get batches error:', error.message);
+    if (error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to fetch product batches' });
+  }
+};
+
+/**
+ * POST /products/:userId/:productId/batches
+ * Create or update a batch by hand — the user override that must always be available.
+ */
+exports.upsertProductBatch = async (req, res) => {
+  try {
+    const { userId, productId } = req.params;
+    const batch = await batchService.upsertBatchManually(userId, productId, req.body);
+    res.status(201).json({ message: 'Batch saved successfully', batch });
+  } catch (error) {
+    console.error('[PRODUCT] Upsert batch error:', error.message);
+    if (error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error.message.includes('required')) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to save batch' });
+  }
+};
+
+/**
+ * POST /products/:userId/batches/:batchId/archive — archive, never delete
+ */
+exports.archiveProductBatch = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const batch = await batchService.archiveBatch(batchId, req.body?.isArchived !== false);
+    res.json({ message: 'Batch archive state updated successfully', batch });
+  } catch (error) {
+    console.error('[PRODUCT] Archive batch error:', error.message);
+    if (error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to archive batch' });
+  }
+};
 
 // ============================================
 // LIST ENRICHED (batch/expiry/distributor aggregated from BillItem)

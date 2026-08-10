@@ -15,6 +15,13 @@ function parseDateString(dateStr) {
   }
 }
 
+// Helper function to parse a monetary amount, tolerating stray commas/currency symbols
+function parseAmount(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const num = typeof value === 'number' ? value : parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(num) ? num : null;
+}
+
 function normalizeExpiryItem(item = {}, index = 0) {
   return {
     serialNumber: item.sn || item.serialNumber ? parseInt(item.sn || item.serialNumber) : index + 1,
@@ -94,7 +101,13 @@ exports.uploadBill = async (req, res) => {
         // ========== INVOICE IDENTIFICATION ==========
         invoiceNumber: parsedData?.invoiceNumber || null,
         invoiceDate: parsedData?.invoiceDate ? parseDateString(parsedData.invoiceDate) : null,
-        
+        dueDate: parsedData?.dueDate ? parseDateString(parsedData.dueDate) : null,
+        paymentType: parsedData?.paymentType || null,
+
+        // ========== LEDGER ==========
+        // Total payment captured on upload — feeds the distributor ledger as the bill's due amount
+        grandTotal: parseAmount(parsedData?.grandTotal),
+
         // ========== CUSTOMER DETAILS ==========
         customerName: parsedData?.customerName || null,
         customerPhone: parsedData?.customerPhone || null,
@@ -453,6 +466,11 @@ exports.saveDraft = async (req, res) => {
         // Invoice identification
         invoiceNumber: parsedData?.invoiceNumber || null,
         invoiceDate: parsedData?.invoiceDate ? parseDateString(parsedData.invoiceDate) : null,
+        dueDate: parsedData?.dueDate ? parseDateString(parsedData.dueDate) : null,
+        paymentType: parsedData?.paymentType || null,
+
+        // Ledger: total payment (feeds the distributor ledger once the draft is converted)
+        grandTotal: parseAmount(parsedData?.grandTotal),
 
         // Customer details
         customerName: parsedData?.customerName || null,
@@ -595,6 +613,9 @@ exports.convertDraft = async (req, res) => {
         ...(parsedData?.shopAddress && { shopAddress: parsedData.shopAddress }),
         ...(parsedData?.invoiceNumber && { invoiceNumber: parsedData.invoiceNumber }),
         ...(parsedData?.invoiceDate && { invoiceDate: parseDateString(parsedData.invoiceDate) }),
+        ...(parsedData?.dueDate && { dueDate: parseDateString(parsedData.dueDate) }),
+        ...(parsedData?.paymentType && { paymentType: parsedData.paymentType }),
+        ...(parsedData?.grandTotal !== undefined && { grandTotal: parseAmount(parsedData.grandTotal) }),
       },
       include: { items: true }
     });

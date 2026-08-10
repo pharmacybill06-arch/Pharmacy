@@ -44,6 +44,11 @@ export default function ProductsScreen() {
     setSelectedProduct(null);
   }, []);
 
+  // Sell this product straight from its row in the list
+  const handleSellPress = useCallback(() => {
+    router.push('/sales?view=sell');
+  }, [router]);
+
   // Render based on current view
   if (currentView === 'form') {
     return (
@@ -62,6 +67,7 @@ export default function ProductsScreen() {
       onBack={handleBack}
       onProductPress={handleProductPress}
       onAddPress={handleAddPress}
+      onSellPress={handleSellPress}
     />
   );
 }

@@ -113,6 +113,12 @@ async function createProduct(userId, productData) {
       expiryDate: productData.expiryDate?.trim() || null,
       quantity: productData.quantity ? parseFloat(productData.quantity) : null,
       purchaseDate: productData.purchaseDate?.trim() || null,
+      // Pack definition — drives every pack <-> base-unit conversion
+      packSize: productData.packSize ? parseInt(productData.packSize, 10) : 1,
+      baseUnit: productData.baseUnit?.trim() || 'unit',
+      packLabel: productData.packLabel?.trim() || 'pack',
+      // Regulatory: h1/nrx force a billed sale with customer + doctor
+      scheduleFlag: productData.scheduleFlag?.toLowerCase().trim() || 'none',
       defaultMrp: productData.defaultMrp ? parseFloat(productData.defaultMrp) : null,
       defaultRate: productData.defaultRate ? parseFloat(productData.defaultRate) : null,
       ptr: productData.ptr ? parseFloat(productData.ptr) : null,
@@ -280,7 +286,22 @@ async function updateProduct(productId, userId, updateData) {
   if (updateData.notes !== undefined) {
     data.notes = updateData.notes?.trim() || null;
   }
-  
+
+  // ========== PACK DEFINITION & SCHEDULE ==========
+  if (updateData.packSize !== undefined) {
+    const packSize = parseInt(updateData.packSize, 10);
+    data.packSize = Number.isInteger(packSize) && packSize >= 1 ? packSize : 1;
+  }
+  if (updateData.baseUnit !== undefined) {
+    data.baseUnit = updateData.baseUnit?.trim() || 'unit';
+  }
+  if (updateData.packLabel !== undefined) {
+    data.packLabel = updateData.packLabel?.trim() || 'pack';
+  }
+  if (updateData.scheduleFlag !== undefined) {
+    data.scheduleFlag = updateData.scheduleFlag?.toLowerCase().trim() || 'none';
+  }
+
   console.log('[PRODUCT UPDATE] Updating product with data:', data);
   
   const product = await prisma.product.update({
@@ -457,7 +478,10 @@ async function syncProductsFromBillItems(userId, items) {
     linked: 0,
     errors: []
   };
-  
+
+  // Items that resolved to a product, ready for the ProductBatch upsert after the loop
+  const batchCandidates = [];
+
   for (const item of items) {
     if (!item.name || item.name.trim().length === 0) {
       continue;
@@ -546,7 +570,10 @@ async function syncProductsFromBillItems(userId, items) {
         });
         results.linked++;
       }
-      
+
+      // Collect for the batch-level stock upsert below
+      batchCandidates.push({ ...item, productId: product.id });
+
     } catch (error) {
       results.errors.push({
         itemName: item.name,
@@ -554,7 +581,28 @@ async function syncProductsFromBillItems(userId, items) {
       });
     }
   }
-  
+
+  // ========== BATCH-LEVEL STOCK ==========
+  // Bring the purchased quantities into ProductBatch (matched on productId + batchNumber,
+  // added in base units). This is what FEFO picking and recall traceability run on;
+  // Product.stock above is only a derived display value.
+  if (batchCandidates.length > 0) {
+    try {
+      // Required lazily: batchService also reads from productService (normalizeProductName
+      // is not used there today, but keeping this lazy avoids a require cycle if it ever is).
+      const batchService = require('./batchService');
+      results.batches = await batchService.upsertBatchesFromBillItems(userId, batchCandidates);
+      console.log(
+        `[PRODUCT SYNC] Batch stock: ${results.batches.created} created, ` +
+        `${results.batches.toppedUp} topped up, ${results.batches.skipped} skipped`
+      );
+    } catch (error) {
+      // Never fail the bill save because batch stock could not be updated
+      console.error('[PRODUCT SYNC] Batch upsert warning:', error.message);
+      results.errors.push({ itemName: 'batch-sync', error: error.message });
+    }
+  }
+
   return results;
 }
 

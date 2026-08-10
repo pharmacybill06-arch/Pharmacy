@@ -3,6 +3,42 @@
  * Validates product-related request data
  */
 
+const VALID_SCHEDULE_FLAGS = ['none', 'h1', 'nrx'];
+
+/**
+ * Shared checks for the pack/unit definition and the regulatory schedule flag.
+ * packSize drives every pack<->base-unit conversion, so a bad value silently corrupts
+ * stock math — it is validated strictly rather than coerced.
+ */
+function validatePackAndSchedule(body) {
+  const errors = [];
+
+  if (body.packSize !== undefined && body.packSize !== null && body.packSize !== '') {
+    const packSize = Number(body.packSize);
+    if (!Number.isInteger(packSize)) {
+      errors.push('Pack size must be a whole number of base units');
+    } else if (packSize < 1) {
+      errors.push('Pack size must be at least 1');
+    } else if (packSize > 100000) {
+      errors.push('Pack size exceeds maximum allowed value');
+    }
+  }
+
+  if (body.scheduleFlag !== undefined && body.scheduleFlag !== null && body.scheduleFlag !== '') {
+    if (!VALID_SCHEDULE_FLAGS.includes(String(body.scheduleFlag).toLowerCase())) {
+      errors.push(`Schedule must be one of: ${VALID_SCHEDULE_FLAGS.join(', ')}`);
+    }
+  }
+
+  for (const field of ['baseUnit', 'packLabel']) {
+    if (body[field] && String(body[field]).length > 40) {
+      errors.push(`${field} must be less than 40 characters`);
+    }
+  }
+
+  return errors;
+}
+
 /**
  * Validate create product request
  */
@@ -61,10 +97,12 @@ exports.validateCreateProduct = (req, res, next) => {
     errors.push('HSN code must be less than 20 characters');
   }
 
+  errors.push(...validatePackAndSchedule(req.body));
+
   if (errors.length > 0) {
-    return res.status(400).json({ 
-      error: 'Validation failed', 
-      details: errors 
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: errors
     });
   }
 
@@ -131,10 +169,12 @@ exports.validateUpdateProduct = (req, res, next) => {
     errors.push('HSN code must be less than 20 characters');
   }
 
+  errors.push(...validatePackAndSchedule(req.body));
+
   if (errors.length > 0) {
-    return res.status(400).json({ 
-      error: 'Validation failed', 
-      details: errors 
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: errors
     });
   }
 

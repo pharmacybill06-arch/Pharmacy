@@ -87,7 +87,7 @@ function BatchRow({ batch }) {
 /**
  * Product card — new redesigned layout with expand-in-place batch list
  */
-const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress }) => {
+const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress, onSell }) => {
   const color = getExpiryColor(item.daysToEarliestExpiry);
   const searchMatch = item.batches.find((b) => b.matchedSearch);
 
@@ -132,6 +132,10 @@ const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLong
               <ThemedText style={styles.batchBadgeText}>{item.batchCount}</ThemedText>
               <ThemedText style={styles.batchBadgeLabel}>batch{item.batchCount === 1 ? '' : 'es'}</ThemedText>
             </View>
+            {/* Sell straight from the list — the counter path is never more than a tap away */}
+            <Pressable onPress={() => onSell?.(item)} hitSlop={8} style={styles.sellIconButton}>
+              <Ionicons name="cart-outline" size={16} color="#4F46E5" />
+            </Pressable>
             <Pressable onPress={() => onEdit(item)} hitSlop={8} style={styles.editIconButton}>
               <Ionicons name="create-outline" size={16} color="#64748B" />
             </Pressable>
@@ -379,7 +383,7 @@ const EmptyState = ({ hasActiveFilters, onClearFilters, onAddPress }) => (
  * Batch-aware product list: search across name/batch/invoice, distributor +
  * expiry-month + received-date filters, FEFO sort, expand-in-place batch view.
  */
-export default function ProductsListScreen({ userId, onBack, onProductPress, onAddPress }) {
+export default function ProductsListScreen({ userId, onBack, onProductPress, onAddPress, onSellPress }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ visible: false, product: null });
   const [expandedId, setExpandedId] = useState(null);
@@ -469,9 +473,10 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
         onToggleExpand={handleToggleExpand}
         onEdit={handleEdit}
         onLongPress={handleLongPress}
+        onSell={onSellPress}
       />
     ),
-    [expandedId, handleToggleExpand, handleEdit, handleLongPress]
+    [expandedId, handleToggleExpand, handleEdit, handleLongPress, onSellPress]
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
@@ -758,6 +763,11 @@ const styles = StyleSheet.create({
   batchBadgeText: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
   batchBadgeLabel: { fontSize: 9, color: '#64748B', textTransform: 'uppercase' },
   editIconButton: { padding: 2 },
+  sellIconButton: {
+    padding: 5,
+    borderRadius: 8,
+    backgroundColor: '#EEF2FF',
+  },
 
   batchListContainer: { borderTopWidth: 1, borderTopColor: '#E2E8F0', backgroundColor: '#F8FAFC' },
   batchRow: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },

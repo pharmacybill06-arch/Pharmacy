@@ -203,6 +203,11 @@ export default function BillsHomeScreen() {
     router.push('/explore');
   }, [router]);
 
+  // Straight into Quick Sell — the counter path must never be more than a tap away
+  const handleSell = useCallback(() => {
+    router.push('/sales?view=sell');
+  }, [router]);
+
   const handleBillPress = useCallback((bill) => {
     // Open bill in edit mode
     setEditingBill(bill);
@@ -320,6 +325,23 @@ export default function BillsHomeScreen() {
                 Scan distributor bills and catch batch expiry dates before stock becomes risky.
               </ThemedText>
 
+              {/* Sell — the 2-second counter path, kept above everything else */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.sellButton,
+                  pressed && styles.sellButtonPressed,
+                ]}
+                onPress={handleSell}
+              >
+                <View style={styles.scanButtonInner}>
+                  <MaterialIcons name="point-of-sale" size={22} color="#4F46E5" />
+                  <ThemedText style={styles.sellButtonText}>Sell</ThemedText>
+                </View>
+                <View style={styles.sellButtonArrow}>
+                  <MaterialIcons name="arrow-forward" size={18} color="#FFFFFF" />
+                </View>
+              </Pressable>
+
               {/* Scan Bill Button */}
               <Pressable
                 style={({ pressed }) => [
@@ -417,6 +439,38 @@ export default function BillsHomeScreen() {
           <View style={styles.quickActionsSection}>
             <ThemedText style={styles.sectionTitle}>Quick Actions</ThemedText>
 
+            {/* Sales */}
+            <ThemedText style={styles.quickActionsSubLabel}>Sales</ThemedText>
+            <View style={styles.quickActionsGrid}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/sales')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#ECFDF5' }]}>
+                  <MaterialIcons name="receipt-long" size={22} color="#059669" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Daily Sales</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Sale register</ThemedText>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/sales?view=sell')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#EEF2FF' }]}>
+                  <MaterialIcons name="point-of-sale" size={22} color="#4F46E5" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Quick Sell</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Record a sale</ThemedText>
+              </Pressable>
+            </View>
+
             {/* Inventory */}
             <ThemedText style={styles.quickActionsSubLabel}>Inventory</ThemedText>
             <View style={styles.quickActionsGrid}>
@@ -446,6 +500,20 @@ export default function BillsHomeScreen() {
                 </View>
                 <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Distributors</ThemedText>
                 <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Manage suppliers</ThemedText>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quickActionCard,
+                  pressed && styles.quickActionCardPressed,
+                ]}
+                onPress={() => router.push('/exports')}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: '#F0FDFA' }]}>
+                  <MaterialIcons name="file-download" size={22} color="#0D9488" />
+                </View>
+                <ThemedText style={styles.quickActionTitle} numberOfLines={1}>Export Data</ThemedText>
+                <ThemedText style={styles.quickActionSubtitle} numberOfLines={1}>Excel & CSV</ThemedText>
               </Pressable>
             </View>
 
@@ -710,6 +778,35 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     marginBottom: 24,
     lineHeight: 20,
+  },
+  sellButton: {
+    height: 54,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 20,
+    paddingRight: 6,
+    marginBottom: 12,
+  },
+  sellButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
+  },
+  sellButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#4F46E5',
+    letterSpacing: 0.2,
+  },
+  sellButtonArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#4F46E5',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scanButton: {
     height: 54,

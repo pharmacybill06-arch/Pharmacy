@@ -429,6 +429,19 @@ export default function BillFormScreen({
                 />
               </View>
             </View>
+            <View style={styles.row}>
+              <View style={styles.halfWidth}>
+                <FormInput
+                  label="Total Payment (₹)"
+                  value={formData.grandTotal}
+                  onChangeText={(text) =>
+                    onUpdateInvoiceMetadata({ grandTotal: text })
+                  }
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
           </CollapsibleSection>
 
           {/* Items Section */}

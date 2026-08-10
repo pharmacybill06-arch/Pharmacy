@@ -87,6 +87,12 @@ export default function ProductFormScreen({
     defaultRate: product?.defaultRate?.toString() || '',
     ptr: product?.ptr?.toString() || '',
     notes: product?.notes || '',
+    // Pack definition — drives every pack <-> base-unit conversion in Quick Sell
+    packSize: product?.packSize?.toString() || '1',
+    baseUnit: product?.baseUnit || 'unit',
+    packLabel: product?.packLabel || 'pack',
+    // Regulatory: h1/nrx force a billed sale with patient + doctor captured
+    scheduleFlag: product?.scheduleFlag || 'none',
   });
   
   // Validation errors
@@ -189,6 +195,10 @@ export default function ProductFormScreen({
         defaultRate: formData.defaultRate ? parseFloat(formData.defaultRate) : null,
         ptr: formData.ptr ? parseFloat(formData.ptr) : null,
         notes: formData.notes.trim() || null,
+        packSize: formData.packSize ? parseInt(formData.packSize, 10) : 1,
+        baseUnit: formData.baseUnit.trim() || 'unit',
+        packLabel: formData.packLabel.trim() || 'pack',
+        scheduleFlag: formData.scheduleFlag || 'none',
       };
       
       let savedProduct;
@@ -288,7 +298,84 @@ export default function ProductFormScreen({
                 </View>
               </View>
             </Card>
-            
+
+            <Card style={styles.formCard}>
+              <ThemedText style={styles.sectionTitle}>Pack & Schedule</ThemedText>
+
+              <View style={styles.row}>
+                <View style={styles.halfField}>
+                  <FormField
+                    label="Base units per pack"
+                    value={formData.packSize}
+                    onChangeText={(v) => updateField('packSize', v)}
+                    placeholder="e.g., 15"
+                    keyboardType="number-pad"
+                    error={errors.packSize}
+                  />
+                </View>
+                <View style={styles.halfField}>
+                  <FormField
+                    label="Base unit"
+                    value={formData.baseUnit}
+                    onChangeText={(v) => updateField('baseUnit', v)}
+                    placeholder="tablet / ml / unit"
+                  />
+                </View>
+              </View>
+
+              <FormField
+                label="Pack label"
+                value={formData.packLabel}
+                onChangeText={(v) => updateField('packLabel', v)}
+                placeholder="strip / bottle / vial / tube"
+              />
+
+              <ThemedText style={styles.scheduleHint}>
+                1 {formData.packLabel || 'pack'} = {formData.packSize || 1}{' '}
+                {formData.baseUnit || 'unit'}
+                {String(formData.packSize) === '1' ? '' : 's'}. Stock is always counted in{' '}
+                {formData.baseUnit || 'unit'}s.
+              </ThemedText>
+
+              {/* Schedule selector — drives the forced billing flow */}
+              <ThemedText style={styles.scheduleLabel}>Schedule</ThemedText>
+              <View style={styles.scheduleRow}>
+                {[
+                  { key: 'none', label: 'None' },
+                  { key: 'h1', label: 'H1' },
+                  { key: 'nrx', label: 'NRX' },
+                ].map((option) => {
+                  const selected = formData.scheduleFlag === option.key;
+                  const restricted = option.key !== 'none';
+                  return (
+                    <Pressable
+                      key={option.key}
+                      style={[
+                        styles.scheduleOption,
+                        selected && (restricted ? styles.scheduleOptionRestricted : styles.scheduleOptionActive),
+                      ]}
+                      onPress={() => updateField('scheduleFlag', option.key)}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.scheduleOptionText,
+                          selected && (restricted ? styles.scheduleOptionTextRestricted : styles.scheduleOptionTextActive),
+                        ]}
+                      >
+                        {option.label}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {formData.scheduleFlag !== 'none' && (
+                <ThemedText style={styles.scheduleWarning}>
+                  Sales of this medicine require the patient and doctor name, and are billed
+                  immediately — they cannot be saved as a quick sale.
+                </ThemedText>
+              )}
+            </Card>
+
             <Card style={styles.formCard}>
               <ThemedText style={styles.sectionTitle}>Pricing</ThemedText>
               
@@ -466,6 +553,63 @@ const styles = StyleSheet.create({
   },
   halfField: {
     flex: 1,
+  },
+
+  // Pack & Schedule
+  scheduleHint: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: -4,
+    marginBottom: 14,
+    lineHeight: 17,
+  },
+  scheduleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scheduleOption: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  scheduleOptionActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#4F46E5',
+  },
+  scheduleOptionRestricted: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#DC2626',
+  },
+  scheduleOptionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  scheduleOptionTextActive: {
+    color: '#4F46E5',
+  },
+  scheduleOptionTextRestricted: {
+    color: '#DC2626',
+  },
+  scheduleWarning: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#991B1B',
+    lineHeight: 17,
+    marginTop: 10,
   },
   notesInput: {
     backgroundColor: '#F8FAFC',

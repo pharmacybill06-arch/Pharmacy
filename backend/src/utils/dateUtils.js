@@ -33,6 +33,23 @@ function parseExpiryDate(value) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Parse an expiry string into a timezone-stable UTC calendar date, for columns that
+ * store expiry as a real DateTime (ProductBatch.expiryDate).
+ *
+ * parseExpiryDate builds dates at LOCAL midnight, which is correct for the day-math the
+ * expiry screens do, but writing one to a timestamp column shifts it a day backwards in
+ * any timezone east of UTC (local midnight 30-11-2027 IST => 29-11-2027T18:30Z). Expiry
+ * is a calendar date, not an instant, so we re-anchor the same Y/M/D at UTC midnight.
+ *
+ * "8/26" -> 2026-08-31T00:00:00Z (last day of that month).
+ */
+function parseExpiryToUtcDate(value) {
+  const local = parseExpiryDate(value);
+  if (!local) return null;
+  return new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()));
+}
+
 function daysUntil(date) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -46,4 +63,4 @@ function formatDDMMYYYY(date) {
   return `${d}-${m}-${y}`;
 }
 
-module.exports = { parseExpiryDate, daysUntil, formatDDMMYYYY };
+module.exports = { parseExpiryDate, parseExpiryToUtcDate, daysUntil, formatDDMMYYYY };

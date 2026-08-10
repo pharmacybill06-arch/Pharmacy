@@ -40,6 +40,19 @@ router.get('/:userId/stats', validateUserId, productController.getProductStats);
 router.post('/:userId/sync', validateUserId, productController.syncFromBill);
 
 // ============================================
+// BATCH ROUTES (batch-level stock — must precede the generic /:userId/:productId)
+// ============================================
+
+// POST /products/:userId/batches/:batchId/archive - Archive a batch (never delete)
+router.post('/:userId/batches/:batchId/archive', validateUserId, productController.archiveProductBatch);
+
+// GET /products/:userId/:productId/batches - Batches in FEFO order with remaining qty
+router.get('/:userId/:productId/batches', validateUserId, validateProductId, productController.getProductBatches);
+
+// POST /products/:userId/:productId/batches - Create/update a batch manually
+router.post('/:userId/:productId/batches', validateUserId, validateProductId, productController.upsertProductBatch);
+
+// ============================================
 // DYNAMIC ROUTES (:productId must be after specific ones)
 // ============================================
 

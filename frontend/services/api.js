@@ -1068,3 +1068,268 @@ export const expiryApi = {
     return apiFetch(`/expiry/user/${userId}/archive`);
   },
 };
+
+// ============================================================================
+// SALES API (Quick Sell + Daily Sale Register)
+// ============================================================================
+
+/**
+ * The register is a wall-clock day at the counter, but saleDate is stored as a true
+ * instant. Sending the device's UTC offset keeps a 12:30am sale on the day the
+ * pharmacist actually made it.
+ */
+function tzOffsetMinutes() {
+  return -new Date().getTimezoneOffset();
+}
+
+/** Local YYYY-MM-DD (never the UTC date, which can be a day off). */
+export function todayLocalIso() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+export const salesApi = {
+  /**
+   * Record a sale. Items may name their batch explicitly (pharmacist override) or omit
+   * it for server-side FEFO with auto-split.
+   * @param {string} userId
+   * @param {Object} data - { items: [{ productId, productBatchId?, quantityBase, pricePerBase? }],
+   *                          customerName?, doctorName?, customerPhone?, totalAmount?, saleDate?, notes? }
+   */
+  createSale: async (userId, data) => {
+    return apiFetch(`/sales/user/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Daily Sale Register for one day
+   * @param {string} userId
+   * @param {string} date - YYYY-MM-DD (defaults to today in the device's timezone)
+   */
+  getDailyRegister: async (userId, date) => {
+    const params = new URLSearchParams({
+      date: date || todayLocalIso(),
+      tzOffsetMinutes: String(tzOffsetMinutes()),
+    });
+    return apiFetch(`/sales/user/${userId}?${params.toString()}`);
+  },
+
+  /**
+   * Cross-date sale history for a medicine — "koi bhi day ki medicine dekh sakein"
+   * @param {string} userId
+   * @param {string} product - medicine name query
+   */
+  searchSales: async (userId, product) => {
+    return apiFetch(`/sales/user/${userId}/search?product=${encodeURIComponent(product)}`);
+  },
+
+  /**
+   * Convert-to-bill queue: quick (unbilled) sales, oldest first
+   * @param {string} userId
+   */
+  getPendingSales: async (userId) => {
+    return apiFetch(`/sales/user/${userId}/pending`);
+  },
+
+  /**
+   * Schedule H1/NRX register (the view a drug inspector asks for)
+   * @param {string} userId
+   * @param {Object} range - { from?, to? } ISO dates
+   */
+  getScheduleRegister: async (userId, range = {}) => {
+    const params = new URLSearchParams();
+    if (range.from) params.append('from', range.from);
+    if (range.to) params.append('to', range.to);
+    const qs = params.toString();
+    return apiFetch(`/sales/user/${userId}/schedule-register${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Preview how a quantity will be drawn from batches (the FEFO split shown before save)
+   * @param {string} productId
+   * @param {number} quantityBase
+   * @param {string} [preferredBatchId] - pharmacist's override
+   */
+  previewAllocation: async (productId, quantityBase, preferredBatchId = null) => {
+    const params = new URLSearchParams({ productId, quantityBase: String(quantityBase) });
+    if (preferredBatchId) params.append('preferredBatchId', preferredBatchId);
+    return apiFetch(`/sales/preview-allocation?${params.toString()}`);
+  },
+
+  /**
+   * Get a single sale
+   * @param {string} saleId
+   */
+  getSaleById: async (saleId) => {
+    return apiFetch(`/sales/${saleId}`);
+  },
+
+  /**
+   * Convert a quick sale to a Bill. Batch/quantity are locked; only prices and
+   * customer fields are editable.
+   * @param {string} saleId
+   * @param {Object} data - { customerName?, customerPhone?, doctorName?, invoiceNumber?,
+   *                          items?: [{ saleItemId, pricePerBase }], totalAmount? }
+   */
+  convertToBill: async (saleId, data = {}) => {
+    return apiFetch(`/sales/${saleId}/convert-to-bill`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Archive a sale (restores its stock). There is no delete — archive only.
+   * @param {string} saleId
+   */
+  archiveSale: async (saleId) => {
+    return apiFetch(`/sales/${saleId}/archive`, { method: 'POST' });
+  },
+
+  /**
+   * Restore an archived sale (deducts its stock again)
+   * @param {string} saleId
+   */
+  unarchiveSale: async (saleId) => {
+    return apiFetch(`/sales/${saleId}/unarchive`, { method: 'POST' });
+  },
+};
+
+// ============================================================================
+// PRODUCT BATCH API (batch-level stock)
+// ============================================================================
+
+export const batchApi = {
+  /**
+   * Batches for a product in FEFO order (earliest expiry first) with remaining qty.
+   * Empty batches are included — the pharmacist must see every batch on the shelf.
+   * @param {string} userId
+   * @param {string} productId
+   */
+  getProductBatches: async (userId, productId, includeArchived = false) => {
+    const qs = includeArchived ? '?includeArchived=true' : '';
+    return apiFetch(`/products/${userId}/${productId}/batches${qs}`);
+  },
+
+  /**
+   * Create or update a batch by hand (user override — always available)
+   * @param {string} userId
+   * @param {string} productId
+   * @param {Object} data - { batchNumber, expiryDate?, quantityBase?, mrp?, purchaseRate? }
+   */
+  upsertBatch: async (userId, productId, data) => {
+    return apiFetch(`/products/${userId}/${productId}/batches`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Archive a batch (never delete)
+   * @param {string} userId
+   * @param {string} batchId
+   */
+  archiveBatch: async (userId, batchId, isArchived = true) => {
+    return apiFetch(`/products/${userId}/batches/${batchId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ isArchived }),
+    });
+  },
+};
+
+// ============================================================================
+// EXPORT API (Excel / CSV data export)
+// ============================================================================
+
+export const exportApi = {
+  /**
+   * Row count before generating, e.g. "142 items from 9 bills"
+   * @param {string} userId
+   * @param {'purchases'|'expiry'|'sales'|'ledger'} type
+   * @param {Object} filters
+   */
+  preview: async (userId, type, filters = {}) => {
+    return apiFetch(`/exports/user/${userId}/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ type, filters }),
+    });
+  },
+
+  /**
+   * Generate an export and return it as base64 plus its server-chosen file name.
+   *
+   * The response is a binary file stream, not JSON, so this bypasses apiFetch.
+   * Base64 is what expo-file-system needs to write the file to disk before it can
+   * be handed to the native share sheet.
+   *
+   * @param {string} userId
+   * @param {'purchases'|'expiry'|'sales'|'ledger'} type
+   * @param {Object} filters
+   * @param {'xlsx'|'csv'} format
+   * @returns {Promise<{ base64: string, fileName: string, mimeType: string, rowCount: number }>}
+   */
+  generate: async (userId, type, filters = {}, format = 'xlsx') => {
+    const url = `${API_BASE_URL}/exports/user/${userId}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, filters, format }),
+    });
+
+    if (!response.ok) {
+      // Errors still come back as JSON — surface the server's message, which
+      // distinguishes "No data in this range" from a real failure
+      let message = `Export failed: ${response.status}`;
+      let code = null;
+      try {
+        const error = await response.json();
+        message = error.error || message;
+        code = error.code || null;
+      } catch {
+        // Non-JSON error body; keep the status-based message
+      }
+      const err = new Error(message);
+      err.code = code;
+      throw err;
+    }
+
+    const fileName =
+      response.headers.get('X-Export-File-Name') ||
+      `Setu_Export.${format}`;
+    const rowCount = parseInt(response.headers.get('X-Export-Row-Count'), 10) || 0;
+    const mimeType = response.headers.get('Content-Type') || 'application/octet-stream';
+
+    // React Native's fetch has no Buffer; go via arrayBuffer and encode manually
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = arrayBufferToBase64(arrayBuffer);
+
+    return { base64, fileName, mimeType, rowCount };
+  },
+
+  /**
+   * Past exports (audit trail)
+   * @param {string} userId
+   */
+  getHistory: async (userId, limit = 20) => {
+    return apiFetch(`/exports/user/${userId}/history?limit=${limit}`);
+  },
+};
+
+/**
+ * Encode an ArrayBuffer as base64 without Buffer (unavailable in the RN runtime).
+ * Chunked so a large workbook cannot blow the argument limit of String.fromCharCode.
+ */
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  // Hermes provides btoa; global.Buffer is the polyfill set up in global-polyfills.js
+  if (global.btoa) return global.btoa(binary);
+  return global.Buffer.from(binary, 'binary').toString('base64');
+}
