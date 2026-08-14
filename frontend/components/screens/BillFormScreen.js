@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   Pressable,
   Platform,
   TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -18,6 +19,8 @@ import SecondaryButton from '@/components/ui/SecondaryButton';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
 import GSTLookup from '@/components/ui/GSTLookup';
+import UnitPickerField from '@/components/ui/UnitPickerField';
+import { PACK_LABELS, BASE_UNITS, capitalize } from '@/constants/units';
 import { useAuth } from '@/contexts/AuthContext';
 
 const REVIEW_COLUMNS = [
@@ -36,8 +39,18 @@ const REVIEW_TABLE_WIDTH = REVIEW_COLUMNS.reduce((sum, column) => sum + column.w
 const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
   const isVerified = item.humanVerified === true;
   const needsReview = item.needsReview || !isVerified;
+  const [unitsExpanded, setUnitsExpanded] = useState(false);
+
+  // Dual-unit capture (P3) — confirmed value if the row's been touched, else the
+  // OCR auto-suggestion. Never silently trusted: the pharmacist opens this panel to
+  // see/confirm/edit it, same "one tap in the common case" the rest of the row follows.
+  const packLabel = item.packLabel || item.suggestedPackLabel || null;
+  const baseUnit = item.baseUnit || item.suggestedBaseUnit || null;
+  const packSize = item.packSize || item.suggestedPackSize || null;
+  const hasUnitSuggestion = !!(packLabel || baseUnit || packSize);
 
   return (
+    <View>
     <View
       style={[
         styles.reviewRow,
@@ -75,6 +88,12 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
                   >
                     {isVerified ? 'Done' : 'Check'}
                   </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.unitsToggleButton, hasUnitSuggestion && !unitsExpanded && styles.unitsToggleButtonHint]}
+                  onPress={() => setUnitsExpanded((v) => !v)}
+                >
+                  <Ionicons name="cube-outline" size={14} color={unitsExpanded ? '#4F46E5' : '#64748B'} />
                 </Pressable>
                 <Pressable style={styles.removeIconButton} onPress={() => onRemove(index)}>
                   <Ionicons name="trash-outline" size={15} color="#DC2626" />
@@ -140,6 +159,39 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
         );
       })}
     </View>
+
+    {unitsExpanded && (
+      <View style={styles.unitsPanel}>
+        <ThemedText style={styles.unitsPanelHint}>
+          {hasUnitSuggestion ? 'Auto-suggested from the item name — confirm or edit' : 'Not detected — pick manually if needed'}
+        </ThemedText>
+        <View style={styles.unitsPanelRow}>
+          <UnitPickerField
+            label="Unit 1 (pack)"
+            value={packLabel}
+            options={PACK_LABELS}
+            onChange={(v) => onUpdateCell(index, 'packLabel', v)}
+          />
+          <UnitPickerField
+            label="Unit 2 (base)"
+            value={baseUnit}
+            options={BASE_UNITS}
+            onChange={(v) => onUpdateCell(index, 'baseUnit', v)}
+          />
+          <View style={{ flex: 0.8 }}>
+            <ThemedText style={styles.unitsConversionLabel}>1 {packLabel ? capitalize(packLabel) : 'pack'} =</ThemedText>
+            <TextInput
+              style={styles.unitsConversionInput}
+              value={packSize ? String(packSize) : ''}
+              onChangeText={(v) => onUpdateCell(index, 'packSize', v)}
+              placeholder="10"
+              keyboardType="number-pad"
+            />
+          </View>
+        </View>
+      </View>
+    )}
+    </View>
   );
 };
 
@@ -192,9 +244,15 @@ export default function BillFormScreen({
       <SafeAreaView style={styles.safeArea}>
         <AppBar title="Edit Bill" onBack={onCancel} />
 
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Status Pills */}
           {geminiLoading && (
@@ -550,6 +608,7 @@ export default function BillFormScreen({
             </>
           )}
         </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
   );
@@ -563,6 +622,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingTop: Platform.OS === 'android' ? 25 : 0,
+  },
+  keyboardView: {
+    flex: 1,
   },
   scrollContent: {
     padding: 16,
@@ -760,6 +822,57 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA',
     flexShrink: 0,
+  },
+  unitsToggleButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexShrink: 0,
+  },
+  unitsToggleButtonHint: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+  },
+  unitsPanel: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  unitsPanelHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  unitsPanelRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  unitsConversionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  unitsConversionInput: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 13,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   itemRow: {
     flexDirection: 'row',

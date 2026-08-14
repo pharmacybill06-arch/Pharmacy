@@ -258,7 +258,12 @@ function ItemBuilder({ userId, product, onAdd, onCancel, fetchBatches, previewAl
         <>
           {/* Batch — never hidden; FEFO pre-selected, tap to change */}
           <ThemedText style={styles.fieldLabel}>Batch</ThemedText>
-          <Pressable style={styles.batchSelector} onPress={() => setPickerVisible(true)}>
+          <Pressable
+            style={styles.batchSelector}
+            onPress={() => setPickerVisible(true)}
+            android_ripple={{ color: '#E0E7FF' }}
+            hitSlop={4}
+          >
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.batchSelectorTitle}>
                 {selectedBatch?.batchNumber || 'Select batch'}
@@ -273,7 +278,10 @@ function ItemBuilder({ userId, product, onAdd, onCancel, fetchBatches, previewAl
                 <ThemedText style={styles.fefoBadgeText}>FEFO</ThemedText>
               </View>
             )}
-            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+            <View style={styles.batchChangeButton}>
+              <ThemedText style={styles.batchChangeButtonText}>Change</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color="#4F46E5" />
+            </View>
           </Pressable>
 
           {/* Quantity */}
@@ -686,6 +694,11 @@ const styles = StyleSheet.create({
   },
   batchSelectorTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
   batchSelectorMeta: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  batchChangeButton: {
+    flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#EEF2FF',
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5,
+  },
+  batchChangeButtonText: { fontSize: 12, fontWeight: '800', color: '#4F46E5' },
 
   fefoBadge: {
     backgroundColor: '#EEF2FF', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,

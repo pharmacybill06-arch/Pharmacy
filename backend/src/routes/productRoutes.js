@@ -39,6 +39,12 @@ router.get('/:userId/stats', validateUserId, productController.getProductStats);
 // POST /products/:userId/sync - Sync products from bill items
 router.post('/:userId/sync', validateUserId, productController.syncFromBill);
 
+// GET /products/:userId/merge-candidates - Heuristic duplicate-name suggestions
+router.get('/:userId/merge-candidates', validateUserId, productController.getMergeCandidates);
+
+// POST /products/:userId/merge - Merge a duplicate product into a survivor
+router.post('/:userId/merge', validateUserId, productController.mergeProducts);
+
 // ============================================
 // BATCH ROUTES (batch-level stock — must precede the generic /:userId/:productId)
 // ============================================

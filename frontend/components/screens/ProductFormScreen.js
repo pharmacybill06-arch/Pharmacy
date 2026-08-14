@@ -17,6 +17,8 @@ import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import DateField from '@/components/ui/DateField';
+import UnitPickerField from '@/components/ui/UnitPickerField';
+import { PACK_LABELS, BASE_UNITS } from '@/constants/units';
 import { useProductCRUD } from '@/hooks/useProducts';
 
 /**
@@ -136,16 +138,19 @@ export default function ProductFormScreen({
       newErrors.name = 'Item name is required';
     }
     
-    // Expiry date is required
-    if (!formData.expiryDate.trim()) {
-      newErrors.expiryDate = 'Expiry date is required';
-    }
-    
-    // Quantity validation
-    if (formData.quantity) {
-      const qty = parseFloat(formData.quantity);
-      if (isNaN(qty) || qty <= 0) {
-        newErrors.quantity = 'Quantity must be greater than 0';
+    // Expiry date / quantity are only captured here when creating the product's first
+    // batch — once a product exists, batch data is edited per-batch (see the read-only
+    // stock summary below), not as if it were a single product-level fact.
+    if (!isEditing) {
+      if (!formData.expiryDate.trim()) {
+        newErrors.expiryDate = 'Expiry date is required';
+      }
+
+      if (formData.quantity) {
+        const qty = parseFloat(formData.quantity);
+        if (isNaN(qty) || qty <= 0) {
+          newErrors.quantity = 'Quantity must be greater than 0';
+        }
       }
     }
     
@@ -175,7 +180,7 @@ export default function ProductFormScreen({
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [formData]);
+  }, [formData, isEditing]);
 
   // Handle form submission
   const handleSubmit = useCallback(async () => {
@@ -186,11 +191,18 @@ export default function ProductFormScreen({
     try {
       const productData = {
         name: formData.name.trim(),
-        batchNumber: formData.batchNumber.trim() || null,
-        expiryDate: formData.expiryDate.trim(),
         manufacturer: formData.manufacturer.trim() || null,
-        quantity: formData.quantity ? parseFloat(formData.quantity) : 1,
         purchaseDate: formData.purchaseDate.trim() || null,
+        // Batch number / expiry / quantity only apply to seeding the FIRST batch of a
+        // brand-new product — once the product exists, they're edited per-batch, not
+        // as a single product-level fact, so they're omitted from edit-mode payloads.
+        ...(isEditing
+          ? {}
+          : {
+              batchNumber: formData.batchNumber.trim() || null,
+              expiryDate: formData.expiryDate.trim(),
+              quantity: formData.quantity ? parseFloat(formData.quantity) : 1,
+            }),
         defaultMrp: formData.defaultMrp ? parseFloat(formData.defaultMrp) : null,
         defaultRate: formData.defaultRate ? parseFloat(formData.defaultRate) : null,
         ptr: formData.ptr ? parseFloat(formData.ptr) : null,
@@ -248,86 +260,110 @@ export default function ProductFormScreen({
                 onSubmitEditing={() => batchRef.current?.focus()}
               />
               
-              <FormField
-                label="Batch Number"
-                value={formData.batchNumber}
-                onChangeText={(v) => updateField('batchNumber', v)}
-                placeholder="e.g., B12345"
-                inputRef={batchRef}
-                onSubmitEditing={() => expiryRef.current?.focus()}
-              />
-              
-              <DateField
-                label="Expiry Date"
-                value={formData.expiryDate}
-                onChange={(v) => updateField('expiryDate', v)}
-                placeholder="Select expiry date"
-                required
-                error={errors.expiryDate}
-              />
-              
+              {isEditing ? (
+                <View style={styles.stockSummaryBox}>
+                  <Ionicons name="layers-outline" size={18} color="#4F46E5" />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={styles.stockSummaryText}>
+                      {product?.batchSummary
+                        ? `${product.batchSummary.batchCount} batch${product.batchSummary.batchCount === 1 ? '' : 'es'} · ${product.batchSummary.stockLabel} in stock`
+                        : 'Stock summary unavailable'}
+                    </ThemedText>
+                    <ThemedText style={styles.stockSummaryHint}>
+                      Batch number, expiry, and quantity are tracked per-batch — correct
+                      them from the purchase bill they came from, or Quick Sell.
+                    </ThemedText>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <FormField
+                    label="Batch Number"
+                    value={formData.batchNumber}
+                    onChangeText={(v) => updateField('batchNumber', v)}
+                    placeholder="e.g., B12345"
+                    inputRef={batchRef}
+                    onSubmitEditing={() => expiryRef.current?.focus()}
+                  />
+
+                  <DateField
+                    label="Expiry Date"
+                    value={formData.expiryDate}
+                    onChange={(v) => updateField('expiryDate', v)}
+                    placeholder="Select expiry date"
+                    required
+                    error={errors.expiryDate}
+                  />
+                </>
+              )}
+
               <FormField
                 label="Manufacturer"
                 value={formData.manufacturer}
                 onChangeText={(v) => updateField('manufacturer', v)}
                 placeholder="e.g., ABC Pharma"
                 inputRef={manufacturerRef}
-                onSubmitEditing={() => quantityRef.current?.focus()}
+                onSubmitEditing={() => (isEditing ? purchaseRef.current?.focus() : quantityRef.current?.focus())}
               />
-              
-              <View style={styles.row}>
-                <View style={styles.halfField}>
-                  <FormField
-                    label="Quantity"
-                    value={formData.quantity}
-                    onChangeText={(v) => updateField('quantity', v)}
-                    placeholder="1"
-                    keyboardType="decimal-pad"
-                    error={errors.quantity}
-                    inputRef={quantityRef}
-                    onSubmitEditing={() => purchaseRef.current?.focus()}
-                  />
+
+              {isEditing ? (
+                <DateField
+                  label="Purchase Date"
+                  value={formData.purchaseDate}
+                  onChange={(v) => updateField('purchaseDate', v)}
+                  placeholder="Select purchase date"
+                />
+              ) : (
+                <View style={styles.row}>
+                  <View style={styles.halfField}>
+                    <FormField
+                      label="Quantity"
+                      value={formData.quantity}
+                      onChangeText={(v) => updateField('quantity', v)}
+                      placeholder="1"
+                      keyboardType="decimal-pad"
+                      error={errors.quantity}
+                      inputRef={quantityRef}
+                      onSubmitEditing={() => purchaseRef.current?.focus()}
+                    />
+                  </View>
+                  <View style={styles.halfField}>
+                    <DateField
+                      label="Purchase Date"
+                      value={formData.purchaseDate}
+                      onChange={(v) => updateField('purchaseDate', v)}
+                      placeholder="Select purchase date"
+                    />
+                  </View>
                 </View>
-                <View style={styles.halfField}>
-                  <DateField
-                    label="Purchase Date"
-                    value={formData.purchaseDate}
-                    onChange={(v) => updateField('purchaseDate', v)}
-                    placeholder="Select purchase date"
-                  />
-                </View>
-              </View>
+              )}
             </Card>
 
             <Card style={styles.formCard}>
               <ThemedText style={styles.sectionTitle}>Pack & Schedule</ThemedText>
 
               <View style={styles.row}>
-                <View style={styles.halfField}>
-                  <FormField
-                    label="Base units per pack"
-                    value={formData.packSize}
-                    onChangeText={(v) => updateField('packSize', v)}
-                    placeholder="e.g., 15"
-                    keyboardType="number-pad"
-                    error={errors.packSize}
-                  />
-                </View>
-                <View style={styles.halfField}>
-                  <FormField
-                    label="Base unit"
-                    value={formData.baseUnit}
-                    onChangeText={(v) => updateField('baseUnit', v)}
-                    placeholder="tablet / ml / unit"
-                  />
-                </View>
+                <UnitPickerField
+                  label="Unit 1 (pack)"
+                  value={formData.packLabel}
+                  options={PACK_LABELS}
+                  onChange={(v) => updateField('packLabel', v)}
+                />
+                <UnitPickerField
+                  label="Unit 2 (base)"
+                  value={formData.baseUnit}
+                  options={BASE_UNITS}
+                  onChange={(v) => updateField('baseUnit', v)}
+                />
               </View>
 
               <FormField
-                label="Pack label"
-                value={formData.packLabel}
-                onChangeText={(v) => updateField('packLabel', v)}
-                placeholder="strip / bottle / vial / tube"
+                label={`Conversion — 1 ${formData.packLabel || 'pack'} = __ ${formData.baseUnit || 'unit'}(s)`}
+                value={formData.packSize}
+                onChangeText={(v) => updateField('packSize', v)}
+                placeholder="e.g., 15"
+                keyboardType="number-pad"
+                error={errors.packSize}
               />
 
               <ThemedText style={styles.scheduleHint}>
@@ -553,6 +589,28 @@ const styles = StyleSheet.create({
   },
   halfField: {
     flex: 1,
+  },
+
+  stockSummaryBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 12,
+    padding: 13,
+    marginBottom: 14,
+  },
+  stockSummaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  stockSummaryHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 3,
+    lineHeight: 16,
   },
 
   // Pack & Schedule

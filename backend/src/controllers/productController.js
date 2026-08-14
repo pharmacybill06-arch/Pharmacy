@@ -1,6 +1,7 @@
 const productService = require('../services/productService');
 const productAggregationService = require('../services/productAggregationService');
 const batchService = require('../services/batchService');
+const productMergeService = require('../services/productMergeService');
 
 /**
  * Product Controller
@@ -265,12 +266,23 @@ exports.searchProducts = async (req, res) => {
 exports.getProductById = async (req, res) => {
   try {
     const { userId, productId } = req.params;
-    
+
     const product = await productService.getProductById(productId, userId);
-    
+
+    // Live batch summary (ProductBatch is the source of truth for "what do I actually
+    // have" — Product.batchNumber/quantity are deprecated legacy fields that only ever
+    // reflect the last-synced purchase, not current stock).
+    const { batches } = await batchService.getProductBatches(productId, { includeArchived: false });
+    const totalStock = batches.reduce((sum, b) => sum + b.quantityBase, 0);
+    const batchSummary = {
+      batchCount: batches.length,
+      totalStock,
+      stockLabel: batchService.formatQuantity(totalStock, product),
+    };
+
     res.json({
       message: 'Product fetched successfully',
-      product
+      product: { ...product, batchSummary }
     });
     
   } catch (error) {
@@ -469,5 +481,63 @@ exports.syncFromBill = async (req, res) => {
   } catch (error) {
     console.error('[PRODUCT] Sync error:', error.message);
     res.status(500).json({ error: 'Failed to sync products' });
+  }
+};
+
+// ============================================
+// MERGE PRODUCTS
+// ============================================
+
+/**
+ * Heuristic duplicate-name suggestions to review (never auto-merged)
+ * GET /products/:userId/merge-candidates
+ */
+exports.getMergeCandidates = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const suggestions = await productMergeService.suggestMergeCandidates(userId);
+    res.json({ message: 'Merge candidates fetched', suggestions });
+  } catch (error) {
+    console.error('[PRODUCT] Merge candidates error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch merge candidates' });
+  }
+};
+
+/**
+ * Merge a duplicate product into a survivor — batches move, references remap,
+ * duplicate is archived (never deleted).
+ * POST /products/:userId/merge  body: { survivorId, duplicateId }
+ */
+exports.mergeProducts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { survivorId, duplicateId } = req.body;
+
+    if (!survivorId || !duplicateId) {
+      return res.status(400).json({ error: 'survivorId and duplicateId are required' });
+    }
+
+    const result = await productMergeService.mergeProducts(userId, survivorId, duplicateId);
+
+    console.log(
+      `[PRODUCT] Merged ${duplicateId} into ${survivorId}: ` +
+      `${result.stats.batchesMoved} batches moved, ${result.stats.batchesToppedUp} topped up, ` +
+      `${result.stats.billItemsRepointed} bill items repointed, ${result.stats.saleItemsRepointed} sale items repointed`
+    );
+
+    res.json({
+      message: 'Products merged successfully',
+      product: result.survivor,
+      stats: result.stats,
+    });
+  } catch (error) {
+    console.error('[PRODUCT] Merge error:', error.message);
+    if (error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error.message.includes('archived') || error.message.includes('itself')) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'Failed to merge products' });
   }
 };

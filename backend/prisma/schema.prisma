@@ -165,6 +165,16 @@ model Product {
   notes    String? // Additional notes
   isActive Boolean @default(true) // Soft delete flag
 
+  // ========== MERGE (Merge Products tool) ==========
+  // Set when this product was merged into another (a duplicate catalog entry, e.g. the
+  // same drug created twice from two distributors' differently-worded OCR text). Archive,
+  // never delete: the row stays queryable/traceable, isActive flips to false, and every
+  // batch/bill/sale reference is remapped to mergedInto at merge time.
+  mergedIntoProductId String?
+  mergedInto           Product?  @relation("ProductMergeHistory", fields: [mergedIntoProductId], references: [id], onDelete: SetNull)
+  mergedFrom           Product[] @relation("ProductMergeHistory")
+  mergedAt             DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -180,6 +190,7 @@ model Product {
   @@index([lastUsedAt])
   @@index([expiryDate])
   @@index([scheduleFlag])
+  @@index([mergedIntoProductId])
 }
 
 // ProductBatch: batch-level stock — the unit of truth for FEFO picking and recall traceability.
@@ -193,6 +204,13 @@ model ProductBatch {
   // Stored EXACTLY as entered/extracted. Never auto-corrected, auto-filled or "cleaned"
   // by any AI/OCR step — a user free-text override is always available.
   batchNumber String
+
+  // trim().toLowerCase() of batchNumber — matching/dedup key only, never displayed.
+  // Postgres unique constraints are case-sensitive by default, so without this a
+  // case/whitespace variant of the same physical batch (e.g. OCR read once as "V2600095"
+  // and once as "v2600095 ") would silently create a second ProductBatch row instead of
+  // topping up the existing one.
+  batchNumberNormalized String
 
   // Proper date type. Month-only inputs ("8/26") are parsed to the last day of that month.
   expiryDate DateTime?
@@ -215,7 +233,7 @@ model ProductBatch {
 
   saleItems SaleItem[]
 
-  @@unique([productId, batchNumber])
+  @@unique([productId, batchNumberNormalized])
   @@index([productId, expiryDate])
   @@index([sourceBillItemId])
 }
@@ -367,6 +385,7 @@ model Bill {
   items       BillItem[]
   allocations PaymentAllocation[] // Ledger: payments (or partial payments) settling this bill
   sale        Sale? // Set when this bill was created by converting a quick sale (billType = "sale")
+  editLogs    BillEditLog[] // Audit trail — archive-never-delete, one row per field per edit
 
   @@index([userId])
   @@index([billType])
@@ -376,6 +395,29 @@ model Bill {
   @@index([dueDate])
   @@index([pharmacyName])
   @@index([invoiceNumber])
+}
+
+// BillEditLog: append-only audit trail for edits to an already-saved Bill/BillItem.
+// One row per changed field per edit — archive-never-delete applies to history, so this
+// table is only ever inserted into, never updated or deleted.
+model BillEditLog {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  // Set when the edit was to a specific line item; null = bill header edit
+  billItemId String?
+  billItem   BillItem? @relation(fields: [billItemId], references: [id], onDelete: SetNull)
+
+  field    String // e.g. "invoiceDate", "batchNumber", "quantity", "distributorId"
+  oldValue String? // stringified before value
+  newValue String? // stringified after value
+  note     String? // optional context, e.g. a stock-mismatch warning raised by a qty edit
+
+  editedAt DateTime @default(now())
+
+  @@index([billId, editedAt])
+  @@index([billItemId])
 }
 
 // Payment model: Track payments made to distributors via UPI (Google Pay, PhonePe, Paytm, etc.)
@@ -476,7 +518,16 @@ model BillItem {
   // ========== QUANTITY ==========
   quantity     Float // Quantity purchased
   freeQuantity Float? // Free quantity (offers)
-  unit         String @default("units") // tabs, caps, ml, bottle, sachet, etc.
+  unit         String @default("units") // tabs, caps, ml, bottle, sachet, etc. — legacy display string, superseded by the trio below
+
+  // ========== DUAL-UNIT CAPTURE (Unit 1 / Unit 2 / conversion) ==========
+  // Auto-suggested from the extracted name/pack string ("TAB 20*10" -> strip/tablet/10),
+  // confirmed/edited by the user at bill-confirm time. Null on older bills saved before
+  // this existed. Feeds Product.packLabel/baseUnit/packSize on first sync for a new
+  // product — see productService.syncProductsFromBillItems.
+  packLabel String? // Unit 1 — strip, bottle, vial, tube, box, sachet, kit, pack
+  baseUnit  String? // Unit 2 — tablet, capsule, ml, gm, respule, ampoule, piece
+  packSize  Int? // conversion: 1 packLabel = packSize baseUnit
 
   // ========== PRICING ==========
   mrp  Float? // Maximum Retail Price per unit
@@ -509,6 +560,7 @@ model BillItem {
 
   // ========== RELATIONSHIPS ==========
   createdBatches ProductBatch[] // Batches this purchase line brought into stock
+  editLogs       BillEditLog[] // Audit trail for edits to this line item
 
   @@index([billId])
   @@index([productId])

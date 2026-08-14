@@ -131,7 +131,26 @@ async function createProduct(userId, productData) {
   });
   
   console.log('[PRODUCT CREATE] Created product:', product);
-  
+
+  // If an initial batch was captured on the form, it must exist as a real ProductBatch —
+  // otherwise the product would show stock here but 0 everywhere that reads ProductBatch
+  // (Quick Sell, the enriched catalog list), reproducing the exact P1 mismatch bug.
+  const initialBatchNumber = (productData.batchNumber || '').trim();
+  if (initialBatchNumber && product.quantity) {
+    // Lazy require: avoids a require cycle (batchService doesn't depend on productService
+    // today, but keeping this lazy matches the convention already used below in
+    // syncProductsFromBillItems).
+    const batchService = require('./batchService');
+    await batchService.upsertBatchManually(userId, product.id, {
+      batchNumber: initialBatchNumber,
+      expiryDate: productData.expiryDate?.trim() || null,
+      quantityBase: product.quantity,
+    });
+    // The batch upsert re-derives Product.stock — re-read so the response reflects it
+    // rather than returning the pre-batch snapshot with stock still at 0.
+    return prisma.product.findUnique({ where: { id: product.id } });
+  }
+
   return product;
 }
 
@@ -534,7 +553,16 @@ async function syncProductsFromBillItems(userId, items) {
         results.updated++;
       } else {
         console.log('[PRODUCT SYNC] Creating new product');
-        
+
+        // Pack/unit definition confirmed at bill-entry (P3 dual-unit capture) seeds the
+        // new product's pack definition — only on FIRST creation, never retroactively,
+        // since existing batches' stock math already depends on whatever packSize the
+        // product was created with (see batchService.upsertBatchesFromBillItems).
+        const { PACK_LABELS, BASE_UNITS } = require('../utils/unitInference');
+        const packLabel = PACK_LABELS.includes(item.packLabel) ? item.packLabel : undefined;
+        const baseUnit = BASE_UNITS.includes(item.baseUnit) ? item.baseUnit : undefined;
+        const packSize = Number.isInteger(item.packSize) && item.packSize > 0 ? item.packSize : undefined;
+
         const createData = {
           userId,
           name: item.name.trim(),
@@ -543,6 +571,9 @@ async function syncProductsFromBillItems(userId, items) {
           expiryDate: item.expiryDate || null,
           quantity: item.quantity ? parseFloat(item.quantity) : null,
           stock: item.quantity ? parseFloat(item.quantity) : 0,
+          ...(packLabel && { packLabel }),
+          ...(baseUnit && { baseUnit }),
+          ...(packSize && { packSize }),
           usageCount: 1,
           lastUsedAt: new Date(),
           isActive: true

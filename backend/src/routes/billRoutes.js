@@ -36,4 +36,17 @@ router.get('/:billId/items', billController.getBillItems);
 // Delete item from bill
 router.delete('/items/:itemId', billController.deleteBillItem);
 
+// ========== WHOLE-BILL EDIT (P5) ==========
+
+// Edit bill header (invoiceNumber, invoiceDate, dueDate, distributorId) — audit-logged.
+// Fast path for the most common edit: PATCH { invoiceDate: '...' }
+router.patch('/:billId/header', billController.updateBillHeaderFields);
+
+// Edit a line item (batchNumber, expiryDate, quantity, mrp, rate) — propagates to
+// ProductBatch, audit-logged
+router.patch('/items/:itemId', billController.updateBillItemFields);
+
+// Before/after audit trail for a bill
+router.get('/:billId/edit-history', billController.getBillEditHistory);
+
 module.exports = router;

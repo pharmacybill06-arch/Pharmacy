@@ -341,6 +341,35 @@ export const billApi = {
       method: 'DELETE',
     });
   },
+
+  /**
+   * Edit bill header (invoiceNumber, invoiceDate, dueDate, distributorId) — audit-logged.
+   * Fast path for the most common edit: updateBillHeader(billId, { invoiceDate: '...' })
+   */
+  updateBillHeader: async (billId, changes) => {
+    return apiFetch(`/bills/${billId}/header`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    });
+  },
+
+  /**
+   * Edit a line item (batchNumber, expiryDate, quantity, mrp, rate) — propagates to the
+   * linked ProductBatch, audit-logged. Response includes `warnings` (e.g. negative stock).
+   */
+  updateBillItemFields: async (itemId, changes) => {
+    return apiFetch(`/bills/items/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    });
+  },
+
+  /**
+   * Before/after audit trail for a bill (header + every line item edit)
+   */
+  getBillEditHistory: async (billId) => {
+    return apiFetch(`/bills/${billId}/edit-history`);
+  },
 };
 
 // ============================================================================
@@ -460,6 +489,28 @@ export const productApi = {
     const params = permanent ? '?permanent=true' : '';
     return apiFetch(`/products/${userId}/${productId}${params}`, {
       method: 'DELETE',
+    });
+  },
+
+  /**
+   * Heuristic duplicate-name suggestions to review (never auto-merged)
+   * @param {string} userId - User ID
+   */
+  getMergeCandidates: async (userId) => {
+    return apiFetch(`/products/${userId}/merge-candidates`);
+  },
+
+  /**
+   * Merge a duplicate product into a survivor — batches move, references remap,
+   * duplicate is archived (never deleted).
+   * @param {string} userId - User ID
+   * @param {string} survivorId - Product to keep
+   * @param {string} duplicateId - Product to merge away
+   */
+  mergeProducts: async (userId, survivorId, duplicateId) => {
+    return apiFetch(`/products/${userId}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ survivorId, duplicateId }),
     });
   },
 

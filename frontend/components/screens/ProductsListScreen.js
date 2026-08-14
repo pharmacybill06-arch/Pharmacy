@@ -10,6 +10,8 @@ import {
   Alert,
   Modal,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/themed-view';
@@ -87,18 +89,26 @@ function BatchRow({ batch }) {
 /**
  * Product card — new redesigned layout with expand-in-place batch list
  */
-const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress, onSell }) => {
+const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress, onSell, mergeMode, selected, onToggleSelect }) => {
   const color = getExpiryColor(item.daysToEarliestExpiry);
   const searchMatch = item.batches.find((b) => b.matchedSearch);
 
   return (
-    <Card style={styles.productCardInner} noPadding>
+    <Card style={[styles.productCardInner, mergeMode && selected && styles.productCardSelected]} noPadding>
       <Pressable
-        onPress={() => onToggleExpand(item.id)}
-        onLongPress={() => onLongPress(item)}
+        onPress={() => (mergeMode ? onToggleSelect(item) : onToggleExpand(item.id))}
+        onLongPress={() => !mergeMode && onLongPress(item)}
         style={({ pressed }) => pressed && styles.pressedOverlay}
       >
         <View style={styles.cardTopRow}>
+          {mergeMode && (
+            <Ionicons
+              name={selected ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={selected ? '#4F46E5' : '#94A3B8'}
+              style={styles.mergeCheckbox}
+            />
+          )}
           <View style={styles.cardTextCol}>
             <ThemedText style={styles.productName} numberOfLines={1}>
               {item.name}
@@ -132,19 +142,23 @@ const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLong
               <ThemedText style={styles.batchBadgeText}>{item.batchCount}</ThemedText>
               <ThemedText style={styles.batchBadgeLabel}>batch{item.batchCount === 1 ? '' : 'es'}</ThemedText>
             </View>
-            {/* Sell straight from the list — the counter path is never more than a tap away */}
-            <Pressable onPress={() => onSell?.(item)} hitSlop={8} style={styles.sellIconButton}>
-              <Ionicons name="cart-outline" size={16} color="#4F46E5" />
-            </Pressable>
-            <Pressable onPress={() => onEdit(item)} hitSlop={8} style={styles.editIconButton}>
-              <Ionicons name="create-outline" size={16} color="#64748B" />
-            </Pressable>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#94A3B8" />
+            {!mergeMode && (
+              <>
+                {/* Sell straight from the list — the counter path is never more than a tap away */}
+                <Pressable onPress={() => onSell?.(item)} hitSlop={8} style={styles.sellIconButton}>
+                  <Ionicons name="cart-outline" size={16} color="#4F46E5" />
+                </Pressable>
+                <Pressable onPress={() => onEdit(item)} hitSlop={8} style={styles.editIconButton}>
+                  <Ionicons name="create-outline" size={16} color="#64748B" />
+                </Pressable>
+                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#94A3B8" />
+              </>
+            )}
           </View>
         </View>
       </Pressable>
 
-      {expanded && (
+      {expanded && !mergeMode && (
         <View style={styles.batchListContainer}>
           {item.batches.map((b, idx) => (
             <BatchRow key={`${b.billId}-${idx}`} batch={b} />
@@ -243,38 +257,40 @@ function ReceivedRangeModal({ visible, from, to, onClose, onApply }) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.modalHeader}>
-            <ThemedText style={styles.modalTitle}>Received on</ThemedText>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#64748B" />
-            </Pressable>
-          </View>
-          <DateField label="From" value={fromLocal} onChange={setFromLocal} />
-          <DateField label="To" value={toLocal} onChange={setToLocal} />
-          <View style={styles.modalActionRow}>
-            <Pressable
-              style={styles.modalClearButton}
-              onPress={() => {
-                onApply(null, null);
-                onClose();
-              }}
-            >
-              <ThemedText style={styles.modalClearButtonText}>Clear</ThemedText>
-            </Pressable>
-            <Pressable
-              style={styles.modalApplyButton}
-              onPress={() => {
-                onApply(ddmmyyyyToIso(fromLocal), ddmmyyyyToIso(toLocal));
-                onClose();
-              }}
-            >
-              <ThemedText style={styles.modalApplyButtonText}>Apply</ThemedText>
-            </Pressable>
-          </View>
+      <KeyboardAvoidingView style={styles.modalKeyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <Pressable style={styles.modalOverlay} onPress={onClose}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <ThemedText style={styles.modalTitle}>Received on</ThemedText>
+              <Pressable onPress={onClose} hitSlop={8}>
+                <Ionicons name="close" size={22} color="#64748B" />
+              </Pressable>
+            </View>
+            <DateField label="From" value={fromLocal} onChange={setFromLocal} />
+            <DateField label="To" value={toLocal} onChange={setToLocal} />
+            <View style={styles.modalActionRow}>
+              <Pressable
+                style={styles.modalClearButton}
+                onPress={() => {
+                  onApply(null, null);
+                  onClose();
+                }}
+              >
+                <ThemedText style={styles.modalClearButtonText}>Clear</ThemedText>
+              </Pressable>
+              <Pressable
+                style={styles.modalApplyButton}
+                onPress={() => {
+                  onApply(ddmmyyyyToIso(fromLocal), ddmmyyyyToIso(toLocal));
+                  onClose();
+                }}
+              >
+                <ThemedText style={styles.modalApplyButtonText}>Apply</ThemedText>
+              </Pressable>
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -350,6 +366,92 @@ function DistributorModal({ visible, distributors, selectedIds, onClose, onApply
 }
 
 /**
+ * Merge confirmation — pick which of the two selected products survives.
+ * The other is archived (never deleted); its batches move to the survivor.
+ */
+function MergeConfirmModal({ visible, products, onClose, onConfirm, isMerging }) {
+  const [survivorId, setSurvivorId] = useState(null);
+
+  useEffect(() => {
+    if (visible && products.length === 2) {
+      // Default to whichever has more batches — usually the more "established" entry
+      const preferred = products[0].batchCount >= products[1].batchCount ? products[0] : products[1];
+      setSurvivorId(preferred.id);
+    }
+  }, [visible, products]);
+
+  if (products.length !== 2) return null;
+  const duplicate = products.find((p) => p.id !== survivorId);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>Merge Products</ThemedText>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748B" />
+            </Pressable>
+          </View>
+          <ThemedText style={styles.mergeHint}>Which one do you want to keep?</ThemedText>
+
+          {products.map((p) => {
+            const isSurvivor = p.id === survivorId;
+            return (
+              <Pressable
+                key={p.id}
+                style={[styles.mergeOptionRow, isSurvivor && styles.mergeOptionRowSelected]}
+                onPress={() => setSurvivorId(p.id)}
+              >
+                <Ionicons
+                  name={isSurvivor ? 'radio-button-on' : 'radio-button-off'}
+                  size={20}
+                  color={isSurvivor ? '#4F46E5' : '#94A3B8'}
+                />
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={styles.mergeOptionName} numberOfLines={2}>{p.name}</ThemedText>
+                  <ThemedText style={styles.mergeOptionMeta}>
+                    {p.batchCount} batch{p.batchCount === 1 ? '' : 'es'}
+                  </ThemedText>
+                </View>
+                {isSurvivor && (
+                  <View style={styles.mergeKeepTag}>
+                    <ThemedText style={styles.mergeKeepTagText}>Keep</ThemedText>
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
+
+          <View style={styles.mergeWarningBox}>
+            <Ionicons name="information-circle" size={16} color="#B45309" />
+            <ThemedText style={styles.mergeWarningText}>
+              "{duplicate?.name}" will be archived, not deleted. Its batches and purchase
+              history move to the product you keep.
+            </ThemedText>
+          </View>
+
+          <View style={styles.modalActionRow}>
+            <Pressable style={styles.modalClearButton} onPress={onClose} disabled={isMerging}>
+              <ThemedText style={styles.modalClearButtonText}>Cancel</ThemedText>
+            </Pressable>
+            <Pressable
+              style={styles.modalApplyButton}
+              onPress={() => onConfirm(survivorId, duplicate.id)}
+              disabled={isMerging}
+            >
+              <ThemedText style={styles.modalApplyButtonText}>
+                {isMerging ? 'Merging…' : 'Merge'}
+              </ThemedText>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
  * Empty State
  */
 const EmptyState = ({ hasActiveFilters, onClearFilters, onAddPress }) => (
@@ -392,6 +494,13 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
   const [rangeModalVisible, setRangeModalVisible] = useState(false);
   const [distributors, setDistributors] = useState([]);
 
+  // Merge Products tool
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSelection, setMergeSelection] = useState([]); // up to 2 product objects
+  const [mergeConfirmVisible, setMergeConfirmVisible] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeCandidateCount, setMergeCandidateCount] = useState(0);
+
   const {
     products,
     pagination,
@@ -432,6 +541,15 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
     }).catch(() => {});
   }, [userId]);
 
+  // Heuristic duplicate-name suggestions — surfaced as a banner nudging toward Merge mode,
+  // never auto-merged
+  useEffect(() => {
+    if (!userId) return;
+    productApi.getMergeCandidates(userId).then((res) => {
+      setMergeCandidateCount(res.suggestions?.length || 0);
+    }).catch(() => {});
+  }, [userId, products.length]);
+
   const distributorNameById = useMemo(
     () => new Map(distributors.map((d) => [d.id, d.name])),
     [distributors]
@@ -465,6 +583,37 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
     }
   }, [deleteDialog.product, deleteProduct, refresh]);
 
+  const toggleMergeMode = useCallback(() => {
+    setMergeMode((prev) => !prev);
+    setMergeSelection([]);
+    setExpandedId(null);
+  }, []);
+
+  const handleToggleSelect = useCallback((product) => {
+    setMergeSelection((prev) => {
+      const already = prev.find((p) => p.id === product.id);
+      if (already) return prev.filter((p) => p.id !== product.id);
+      if (prev.length >= 2) return [prev[1], product]; // rolling selection — keep it to 2
+      return [...prev, product];
+    });
+  }, []);
+
+  const handleMergeConfirm = useCallback(async (survivorId, duplicateId) => {
+    setIsMerging(true);
+    try {
+      await productApi.mergeProducts(userId, survivorId, duplicateId);
+      setMergeConfirmVisible(false);
+      setMergeMode(false);
+      setMergeSelection([]);
+      refresh();
+      Alert.alert('Merged', 'The duplicate product has been merged and archived.');
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to merge products. Please try again.');
+    } finally {
+      setIsMerging(false);
+    }
+  }, [userId, refresh]);
+
   const renderItem = useCallback(
     ({ item }) => (
       <ProductCard
@@ -474,9 +623,12 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
         onEdit={handleEdit}
         onLongPress={handleLongPress}
         onSell={onSellPress}
+        mergeMode={mergeMode}
+        selected={!!mergeSelection.find((p) => p.id === item.id)}
+        onToggleSelect={handleToggleSelect}
       />
     ),
-    [expandedId, handleToggleExpand, handleEdit, handleLongPress, onSellPress]
+    [expandedId, handleToggleExpand, handleEdit, handleLongPress, onSellPress, mergeMode, mergeSelection, handleToggleSelect]
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
@@ -606,7 +758,31 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
             <ThemedText style={styles.statsText}>
               {pagination.total} {pagination.total === 1 ? 'product' : 'products'}
             </ThemedText>
+            <Pressable onPress={toggleMergeMode} style={styles.mergeToggle} hitSlop={6}>
+              <Ionicons name="git-merge-outline" size={14} color={mergeMode ? '#4F46E5' : '#64748B'} />
+              <ThemedText style={[styles.mergeToggleText, mergeMode && styles.mergeToggleTextActive]}>
+                {mergeMode ? 'Cancel merge' : 'Merge duplicates'}
+              </ThemedText>
+            </Pressable>
           </View>
+
+          {!mergeMode && mergeCandidateCount > 0 && (
+            <Pressable style={styles.duplicateBanner} onPress={toggleMergeMode}>
+              <Ionicons name="alert-circle-outline" size={16} color="#B45309" />
+              <ThemedText style={styles.duplicateBannerText}>
+                {mergeCandidateCount} possible duplicate {mergeCandidateCount === 1 ? 'pair' : 'pairs'} found — tap to review
+              </ThemedText>
+              <Ionicons name="chevron-forward" size={14} color="#B45309" />
+            </Pressable>
+          )}
+
+          {mergeMode && (
+            <View style={styles.mergeModeHint}>
+              <ThemedText style={styles.mergeModeHintText}>
+                Select 2 products that are the same drug ({mergeSelection.length}/2 selected)
+              </ThemedText>
+            </View>
+          )}
 
           {error && (
             <View style={styles.errorContainer}>
@@ -633,6 +809,25 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
             }
           />
         </View>
+
+        {mergeMode && mergeSelection.length === 2 && (
+          <View style={styles.mergeActionBar}>
+            <ThemedText style={styles.mergeActionBarText} numberOfLines={1}>
+              {mergeSelection[0].name} + {mergeSelection[1].name}
+            </ThemedText>
+            <Pressable style={styles.mergeActionButton} onPress={() => setMergeConfirmVisible(true)}>
+              <ThemedText style={styles.mergeActionButtonText}>Merge these 2</ThemedText>
+            </Pressable>
+          </View>
+        )}
+
+        <MergeConfirmModal
+          visible={mergeConfirmVisible}
+          products={mergeSelection}
+          onClose={() => setMergeConfirmVisible(false)}
+          onConfirm={handleMergeConfirm}
+          isMerging={isMerging}
+        />
 
         <ConfirmDialog
           visible={deleteDialog.visible}
@@ -731,11 +926,51 @@ const styles = StyleSheet.create({
   clearAllChip: { paddingHorizontal: 10, paddingVertical: 5 },
   clearAllChipText: { fontSize: 11, fontWeight: '700', color: '#DC2626' },
 
-  statsBar: { paddingVertical: 6, paddingHorizontal: 4 },
+  statsBar: { paddingVertical: 6, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   statsText: { fontSize: 13, color: '#64748B', fontWeight: '500' },
   listContent: { paddingBottom: 100 },
 
+  mergeToggle: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4, paddingHorizontal: 6 },
+  mergeToggleText: { fontSize: 12, fontWeight: '600', color: '#64748B' },
+  mergeToggleTextActive: { color: '#4F46E5' },
+
+  duplicateBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFFBEB',
+    borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A', padding: 10, marginBottom: 8,
+  },
+  duplicateBannerText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#92400E' },
+
+  mergeModeHint: { paddingHorizontal: 4, paddingBottom: 8 },
+  mergeModeHintText: { fontSize: 12, fontWeight: '600', color: '#4F46E5' },
+
+  mergeActionBar: {
+    position: 'absolute', left: 16, right: 16, bottom: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#0F172A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 16,
+  },
+  mergeActionBarText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#E2E8F0' },
+  mergeActionButton: { backgroundColor: '#4F46E5', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  mergeActionButtonText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+
+  mergeHint: { fontSize: 13, color: '#64748B', marginBottom: 12 },
+  mergeOptionRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12,
+    borderWidth: 1.5, borderColor: '#E2E8F0', marginBottom: 8,
+  },
+  mergeOptionRowSelected: { borderColor: '#4F46E5', backgroundColor: '#EEF2FF' },
+  mergeOptionName: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  mergeOptionMeta: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  mergeKeepTag: { backgroundColor: '#4F46E5', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  mergeKeepTagText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF', textTransform: 'uppercase' },
+  mergeWarningBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFBEB',
+    borderRadius: 10, padding: 10, marginTop: 4,
+  },
+  mergeWarningText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 16 },
+
   productCardInner: { padding: 0, borderRadius: 18, marginBottom: 10, overflow: 'hidden' },
+  productCardSelected: { borderWidth: 2, borderColor: '#4F46E5' },
+  mergeCheckbox: { marginRight: 10, marginTop: 2 },
   pressedOverlay: { opacity: 0.7 },
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 14 },
   cardTextCol: { flex: 1, marginRight: 10 },
@@ -822,6 +1057,7 @@ const styles = StyleSheet.create({
   retryButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#DC2626', borderRadius: 6 },
   retryText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
 
+  modalKeyboardView: { flex: 1 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 24 },
   modalCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, maxHeight: '80%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },

@@ -15,6 +15,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
+import BillDetailsScreen from '@/components/screens/BillDetailsScreen';
 import Toast from '@/components/ui/Toast';
 import { billApi, ledgerApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -117,6 +118,7 @@ export default function BillsHomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
+  const [viewingBill, setViewingBill] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
   const [visibleStockCount, setVisibleStockCount] = useState(STOCK_PAGE_SIZE);
   const [overdueAlert, setOverdueAlert] = useState({ totalOverdue: 0, distributorsWithOverdue: 0 });
@@ -209,8 +211,10 @@ export default function BillsHomeScreen() {
   }, [router]);
 
   const handleBillPress = useCallback((bill) => {
-    // Open bill in edit mode
-    setEditingBill(bill);
+    // Open bill details — header + per-item quick edit, with a fast one-tap path for
+    // the most common correction (a wrong date). "Full Edit" inside drops into the
+    // full OCR-review-style form for heavier changes.
+    setViewingBill(bill);
   }, []);
 
   const handleSaveBill = useCallback(async (formData) => {
@@ -245,6 +249,26 @@ export default function BillsHomeScreen() {
     router.push('/explore');
   }, [router]);
 
+  // Bill details — header + per-item quick edit, audit history, fast date-fix path
+  if (viewingBill) {
+    return (
+      <View style={{ flex: 1 }}>
+        <BillDetailsScreen
+          bill={viewingBill}
+          userId={userId}
+          onBack={() => setViewingBill(null)}
+          onEdit={(bill) => {
+            setViewingBill(null);
+            setEditingBill(bill);
+          }}
+          onRefresh={(updatedBill) => {
+            setBills((prev) => prev.map((b) => (b.id === updatedBill.id ? updatedBill : b)));
+          }}
+        />
+      </View>
+    );
+  }
+
   // If editing a bill, show the bill form
   if (editingBill) {
     return (
@@ -254,7 +278,7 @@ export default function BillsHomeScreen() {
           onSubmit={handleSaveBill}
           onCancel={handleCancelEdit}
         />
-        
+
         {/* Toast Notifications */}
         <Toast
           visible={toast.visible}

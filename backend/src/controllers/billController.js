@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const productService = require('../services/productService');
 const distributorService = require('../services/distributorService');
+const billEditService = require('../services/billEditService');
+const { PACK_LABELS, BASE_UNITS } = require('../utils/unitInference');
 
 // Helper function to parse date string
 function parseDateString(dateStr) {
@@ -23,6 +25,20 @@ function parseAmount(value) {
 }
 
 function normalizeExpiryItem(item = {}, index = 0) {
+  // Dual-unit capture (P3): the pharmacist confirms/edits Unit 1 (pack) / Unit 2 (base) /
+  // conversion on the bill-confirm screen (pre-filled from the OCR auto-suggestion —
+  // suggestedPackLabel/suggestedBaseUnit/suggestedPackSize — but never trusted blindly).
+  // Falls back to the suggestion only if the item genuinely carries no confirmed value,
+  // so an explicit blank from the user isn't silently overridden.
+  const packLabel = PACK_LABELS.includes(item.packLabel)
+    ? item.packLabel
+    : PACK_LABELS.includes(item.suggestedPackLabel) ? item.suggestedPackLabel : null;
+  const baseUnit = BASE_UNITS.includes(item.baseUnit)
+    ? item.baseUnit
+    : BASE_UNITS.includes(item.suggestedBaseUnit) ? item.suggestedBaseUnit : null;
+  const packSizeRaw = item.packSize ?? item.suggestedPackSize;
+  const packSize = Number.isInteger(packSizeRaw) && packSizeRaw > 0 ? packSizeRaw : null;
+
   return {
     serialNumber: item.sn || item.serialNumber ? parseInt(item.sn || item.serialNumber) : index + 1,
     name: item.name || item.itemName || '',
@@ -31,7 +47,10 @@ function normalizeExpiryItem(item = {}, index = 0) {
     quantity: item.quantity ? parseFloat(item.quantity) : 0,
     rate: 0,
     itemTotal: 0,
-    confidence: item.confidence || 1.0
+    confidence: item.confidence || 1.0,
+    packLabel,
+    baseUnit,
+    packSize
   };
 }
 
@@ -667,5 +686,60 @@ exports.deleteBillItem = async (req, res) => {
   } catch (error) {
     console.error('Error deleting bill item:', error.message);
     res.status(500).json({ error: 'Failed to delete bill item' });
+  }
+};
+
+// ============================================
+// WHOLE-BILL EDIT (P5) — header + line items, audit-logged
+// ============================================
+
+// Edit bill header: invoiceNumber, invoiceDate, dueDate, distributorId.
+// The fastest path for the most common real-world edit — a wrong date — is just
+// PATCH { invoiceDate: '...' }.
+exports.updateBillHeaderFields = async (req, res) => {
+  try {
+    const { billId } = req.params;
+    const result = await billEditService.updateBillHeader(billId, req.body);
+    res.json({
+      message: result.diffs.length > 0 ? 'Bill updated' : 'No changes',
+      bill: result.bill,
+      changes: result.diffs,
+    });
+  } catch (error) {
+    console.error('[BILL EDIT] Header update error:', error.message);
+    if (error.message === 'Bill not found') return res.status(404).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to update bill' });
+  }
+};
+
+// Edit a single line item: batchNumber, expiryDate, quantity, mrp, rate.
+// Propagates batch/expiry corrections and quantity deltas to the linked ProductBatch.
+exports.updateBillItemFields = async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const result = await billEditService.updateBillItem(itemId, req.body);
+    res.json({
+      message: result.diffs.length > 0 ? 'Bill item updated' : 'No changes',
+      billItem: result.billItem,
+      changes: result.diffs,
+      warnings: result.warnings,
+    });
+  } catch (error) {
+    console.error('[BILL EDIT] Item update error:', error.message);
+    if (error.message === 'Bill item not found') return res.status(404).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to update bill item' });
+  }
+};
+
+// Full before/after audit trail for a bill (header + every line item edit)
+exports.getBillEditHistory = async (req, res) => {
+  try {
+    const { billId } = req.params;
+    const history = await billEditService.getBillEditHistory(billId);
+    res.json({ message: 'Edit history fetched', history });
+  } catch (error) {
+    console.error('[BILL EDIT] History fetch error:', error.message);
+    if (error.message === 'Bill not found') return res.status(404).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch edit history' });
   }
 };

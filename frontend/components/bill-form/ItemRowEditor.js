@@ -7,6 +7,8 @@ import {
 } from 'react-native';
 import EditableField from './EditableField';
 import ProductAutocomplete from '@/components/ui/ProductAutocomplete';
+import UnitPickerField from '@/components/ui/UnitPickerField';
+import { PACK_LABELS, BASE_UNITS } from '@/constants/units';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -36,6 +38,10 @@ export default function ItemRowEditor({
     sgstPercent: item.sgstPercent?.toString() || '',
     cgstPercent: item.cgstPercent?.toString() || '',
     gstPercent: item.gstPercent?.toString() || '',
+    // Dual-unit capture (P3) — pre-filled from the OCR auto-suggestion, always editable
+    packLabel: item.packLabel || item.suggestedPackLabel || '',
+    baseUnit: item.baseUnit || item.suggestedBaseUnit || '',
+    packSize: item.packSize?.toString() || item.suggestedPackSize?.toString() || '',
   });
 
   // Product match state
@@ -61,6 +67,9 @@ export default function ItemRowEditor({
       sgstPercent: item.sgstPercent?.toString() || '',
       cgstPercent: item.cgstPercent?.toString() || '',
       gstPercent: item.gstPercent?.toString() || '',
+      packLabel: item.packLabel || item.suggestedPackLabel || '',
+      baseUnit: item.baseUnit || item.suggestedBaseUnit || '',
+      packSize: item.packSize?.toString() || item.suggestedPackSize?.toString() || '',
     });
     setIsProductMatched(item.isProductMatched || false);
     setLinkedProductId(item.productId || null);
@@ -110,6 +119,9 @@ export default function ItemRowEditor({
         sgstPercent: updated.sgstPercent === '' ? 0 : parseFloat(updated.sgstPercent),
         cgstPercent: updated.cgstPercent === '' ? 0 : parseFloat(updated.cgstPercent),
         gstPercent: updated.gstPercent === '' ? 0 : parseFloat(updated.gstPercent),
+        packLabel: updated.packLabel || null,
+        baseUnit: updated.baseUnit || null,
+        packSize: updated.packSize === '' ? null : parseInt(updated.packSize, 10) || null,
         isProductMatched,
         productId: linkedProductId,
       };
@@ -157,6 +169,9 @@ export default function ItemRowEditor({
         sgstPercent: updated.sgstPercent === '' ? 0 : parseFloat(updated.sgstPercent),
         cgstPercent: updated.cgstPercent === '' ? 0 : parseFloat(updated.cgstPercent),
         gstPercent: updated.gstPercent === '' ? 0 : parseFloat(updated.gstPercent),
+        packLabel: updated.packLabel || null,
+        baseUnit: updated.baseUnit || null,
+        packSize: updated.packSize === '' ? null : parseInt(updated.packSize, 10) || null,
         isProductMatched: true,
         productId: product.id || null,
       };
@@ -330,6 +345,32 @@ export default function ItemRowEditor({
               value={fields.unit}
               onChangeText={(value) => handleChange('unit', value)}
               placeholder="tabs"
+              small
+            />
+          </View>
+        </View>
+
+        {/* Dual-unit capture (P3) — auto-suggested, one tap to confirm in the common case */}
+        <View style={styles.threeColumnRow}>
+          <UnitPickerField
+            label="Unit 1 (pack)"
+            value={fields.packLabel}
+            options={PACK_LABELS}
+            onChange={(value) => handleChange('packLabel', value)}
+          />
+          <UnitPickerField
+            label="Unit 2 (base)"
+            value={fields.baseUnit}
+            options={BASE_UNITS}
+            onChange={(value) => handleChange('baseUnit', value)}
+          />
+          <View style={[styles.column, { flex: 0.7 }]}>
+            <EditableField
+              label={`1 ${fields.packLabel || 'pack'} =`}
+              value={fields.packSize}
+              onChangeText={(value) => handleChange('packSize', value)}
+              placeholder="10"
+              keyboardType="number-pad"
               small
             />
           </View>

@@ -1041,6 +1041,17 @@ function formatItems(items) {
       ...(!item.expiryDate ? ['Missing expiry date'] : []),
       ...(!item.quantity ? ['Missing quantity'] : []),
     ],
+    // Dual-unit capture (P3) — Unit 1 (pack) / Unit 2 (base) / conversion. `packLabel`/
+    // `baseUnit`/`packSize` are the user-confirmed values (set once the row is edited or
+    // re-opened from a saved bill); `suggestedX` are the OCR auto-suggestion, kept
+    // alongside so the row can pre-fill from it without the user having to touch it —
+    // the backend falls back to the suggestion itself if the confirmed value is absent.
+    packLabel: item.packLabel || undefined,
+    baseUnit: item.baseUnit || undefined,
+    packSize: item.packSize || undefined,
+    suggestedPackLabel: item.suggestedPackLabel || undefined,
+    suggestedBaseUnit: item.suggestedBaseUnit || undefined,
+    suggestedPackSize: item.suggestedPackSize || undefined,
   }));
 }
 

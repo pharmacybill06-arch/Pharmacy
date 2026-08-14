@@ -19,6 +19,11 @@ function round3(n) {
   return Math.round((n + Number.EPSILON) * 1000) / 1000;
 }
 
+// Matching/dedup key only — never displayed. batchNumber itself always stays verbatim.
+function normalizeBatchNumber(batchNumber) {
+  return (batchNumber || '').trim().toLowerCase();
+}
+
 /**
  * FEFO order: earliest expiry first, undated batches last (they can't be ranked, so
  * they must never jump ahead of a batch with a known expiry), oldest row as tiebreak.
@@ -254,9 +259,10 @@ async function upsertBatchesFromBillItems(userId, billItems) {
       const free = Number(item.freeQuantity) || 0;
       const quantityBase = round3((packs + free) * (product.packSize || 1));
       const expiryDate = parseExpiryToUtcDate(item.expiryDate);
+      const batchNumberNormalized = normalizeBatchNumber(batchNumber);
 
       const existing = await prisma.productBatch.findUnique({
-        where: { productId_batchNumber: { productId: product.id, batchNumber } },
+        where: { productId_batchNumberNormalized: { productId: product.id, batchNumberNormalized } },
       });
 
       if (existing) {
@@ -277,6 +283,7 @@ async function upsertBatchesFromBillItems(userId, billItems) {
           data: {
             productId: product.id,
             batchNumber, // verbatim
+            batchNumberNormalized,
             expiryDate,
             quantityBase,
             mrp: item.mrp ?? null,
@@ -309,15 +316,17 @@ async function upsertBatchManually(userId, productId, data) {
 
   const batchNumber = (data.batchNumber || '').trim();
   if (!batchNumber) throw new Error('Batch number is required');
+  const batchNumberNormalized = normalizeBatchNumber(batchNumber);
 
   const expiryDate = data.expiryDate ? parseExpiryToUtcDate(data.expiryDate) : null;
   const quantityBase = data.quantityBase !== undefined ? round3(Number(data.quantityBase) || 0) : 0;
 
   const batch = await prisma.productBatch.upsert({
-    where: { productId_batchNumber: { productId, batchNumber } },
+    where: { productId_batchNumberNormalized: { productId, batchNumberNormalized } },
     create: {
       productId,
       batchNumber,
+      batchNumberNormalized,
       expiryDate,
       quantityBase,
       mrp: data.mrp != null ? Number(data.mrp) : null,
@@ -354,6 +363,7 @@ async function archiveBatch(batchId, isArchived = true) {
 
 module.exports = {
   round3,
+  normalizeBatchNumber,
   compareFefo,
   formatQuantity,
   getProductBatches,

@@ -243,6 +243,7 @@ export default function BillFormRedesigned({
 
   const numericItemFields = new Set([
     'quantity',
+    'packSize',
   ]);
 
   const formatExpiryDateInput = (value) => {

@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { inferPackUnits } = require('./unitInference');
 
 // Initialize Gemini AI
 let geminiModel = null;
@@ -384,12 +385,20 @@ function normalizeBillData(parsed, sourceText = '') {
       adjustPriority += 1;
     }
 
+    const itemName = it.name || it.itemNamePacking || it.itemName || '';
+    // Auto-suggest Unit 1 (pack) / Unit 2 (base) / conversion for the bill-confirm screen
+    // — a suggestion only, the pharmacist always confirms/edits before it's saved.
+    const packSuggestion = inferPackUnits(`${itemName} ${it.itemNamePacking || ''}`);
+
     return {
       sn: toNumber(it.sn) || idx + 1,
-      name: it.name || it.itemNamePacking || it.itemName || '',
+      name: itemName,
       quantity: qty,
       freeQuantity: toNumber(it.freeQuantity ?? it.free),
-      unit: it.unit || inferUnit(it.name || it.itemNamePacking || ''),
+      unit: it.unit || inferUnit(itemName),
+      suggestedPackLabel: packSuggestion.packLabel,
+      suggestedBaseUnit: packSuggestion.baseUnit,
+      suggestedPackSize: packSuggestion.packSize,
 
       // Preserve medicine identity fields
       manufacturer: it.manufacturer || it.mfr || undefined,
@@ -512,7 +521,12 @@ function normalizeBillData(parsed, sourceText = '') {
     if (item._uncertain_quantity)    { uncertainFields.push('quantity');     reasons.push('Quantity uncertain — verify in image'); }
     if (item._uncertain_rate)        { uncertainFields.push('rate');         reasons.push('Rate uncertain — verify in image'); }
 
+    // Preserve every field normalizeBillData already computed for this item (unit,
+    // freeQuantity, manufacturer, hsnCode, discount/GST fields, the pack-unit
+    // suggestion, etc.) — this step only ADDS the needsReview/reviewReason/
+    // uncertainFields annotations, it must never silently drop the rest.
     return {
+      ...item,
       sn: item.sn || index + 1,
       name: item.name || '',
       batchNumber: item.batchNumber || undefined,
