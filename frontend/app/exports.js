@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
 import { useAuth } from '@/contexts/AuthContext';
 import { DistributorProvider, useDistributors } from '@/contexts/DistributorContext';
 import { exportApi } from '@/services/api';
@@ -60,6 +59,18 @@ function ExportScreenContent() {
       await FileSystem.writeAsStringAsync(fileUri, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
+
+      // Loaded lazily (not at module top-level) so a build whose native module
+      // registry predates this dependency fails only when Export is actually used,
+      // instead of crashing expo-router's route scan for every screen in the app.
+      let Sharing;
+      try {
+        Sharing = await import('expo-sharing');
+      } catch (moduleError) {
+        console.error('[Export] expo-sharing native module unavailable:', moduleError);
+        showToast(`Saved to ${fileName}, but sharing isn't available in this build — update the app to enable it.`, 'warning', 'Saved');
+        return;
+      }
 
       if (!(await Sharing.isAvailableAsync())) {
         showToast(`Saved to ${fileName}, but sharing is not available on this device.`, 'warning', 'Saved');

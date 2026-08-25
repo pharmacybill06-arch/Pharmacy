@@ -4,6 +4,7 @@ import {
   StyleSheet,
   TextInput,
   FlatList,
+  ScrollView,
   Pressable,
   ActivityIndicator,
   Keyboard,
@@ -130,16 +131,6 @@ export default function ProductAutocomplete({
     }, 200);
   }, []);
 
-  const renderSuggestion = useCallback(({ item, index }) => (
-    <SuggestionItem
-      item={item}
-      onSelect={handleProductSelect}
-      isSelected={index === selectedIndex}
-    />
-  ), [handleProductSelect, selectedIndex]);
-
-  const keyExtractor = useCallback((item) => item.id, []);
-
   return (
     <View style={[styles.container, style]}>
       <View style={styles.inputContainer}>
@@ -174,15 +165,26 @@ export default function ProductAutocomplete({
               Suggestions ({results.length})
             </ThemedText>
           </View>
-          <FlatList
-            data={results}
-            renderItem={renderSuggestion}
-            keyExtractor={keyExtractor}
+          {/* A plain ScrollView, not a FlatList — this dropdown is often nested inside a
+              parent ScrollView (e.g. bill-item edit modals), and a VirtualizedList in
+              that position trips RN's "VirtualizedLists should never be nested inside
+              plain ScrollViews" warning. Suggestions are capped at a handful of items,
+              so virtualization buys nothing here anyway. */}
+          <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             style={styles.suggestionsList}
             nestedScrollEnabled
-          />
+          >
+            {results.map((item, index) => (
+              <SuggestionItem
+                key={item.id}
+                item={item}
+                onSelect={handleProductSelect}
+                isSelected={index === selectedIndex}
+              />
+            ))}
+          </ScrollView>
         </View>
       )}
     </View>

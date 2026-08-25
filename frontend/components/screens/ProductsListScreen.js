@@ -795,6 +795,7 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
           )}
 
           <FlatList
+            style={styles.productList}
             data={products}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
@@ -880,10 +881,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    flexShrink: 0,
   },
   searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: '#0F172A', fontWeight: '500' },
 
-  filterRow: { flexGrow: 0, marginBottom: 8 },
+  // flexShrink: 0 pins these to their natural height — without it, Yoga's default
+  // flexShrink:1 lets the FlatList below squeeze them when its own content grows,
+  // which read as the filter row "collapsing" while data was loading in.
+  filterRow: { flexGrow: 0, flexShrink: 0, marginBottom: 8 },
   filterRowContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
   filterChip: {
     paddingHorizontal: 12,
@@ -909,7 +914,7 @@ const styles = StyleSheet.create({
   sortChipText: { fontSize: 12, fontWeight: '600', color: '#64748B' },
   sortChipTextActive: { color: '#FFFFFF' },
 
-  activeChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  activeChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8, flexShrink: 0 },
   activeChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -926,8 +931,9 @@ const styles = StyleSheet.create({
   clearAllChip: { paddingHorizontal: 10, paddingVertical: 5 },
   clearAllChipText: { fontSize: 11, fontWeight: '700', color: '#DC2626' },
 
-  statsBar: { paddingVertical: 6, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  statsBar: { paddingVertical: 6, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 },
   statsText: { fontSize: 13, color: '#64748B', fontWeight: '500' },
+  productList: { flex: 1 },
   listContent: { paddingBottom: 100 },
 
   mergeToggle: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4, paddingHorizontal: 6 },
@@ -937,10 +943,11 @@ const styles = StyleSheet.create({
   duplicateBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFFBEB',
     borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A', padding: 10, marginBottom: 8,
+    flexShrink: 0,
   },
   duplicateBannerText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#92400E' },
 
-  mergeModeHint: { paddingHorizontal: 4, paddingBottom: 8 },
+  mergeModeHint: { paddingHorizontal: 4, paddingBottom: 8, flexShrink: 0 },
   mergeModeHintText: { fontSize: 12, fontWeight: '600', color: '#4F46E5' },
 
   mergeActionBar: {
@@ -1052,6 +1059,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 12,
     gap: 8,
+    flexShrink: 0,
   },
   errorText: { flex: 1, fontSize: 13, color: '#DC2626' },
   retryButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#DC2626', borderRadius: 6 },

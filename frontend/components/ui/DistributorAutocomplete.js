@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   TextInput,
-  FlatList,
+  ScrollView,
   Pressable,
   ActivityIndicator,
   Keyboard,
@@ -181,23 +181,6 @@ export default function DistributorAutocomplete({
     }, 200);
   }, []);
 
-  const renderSuggestion = useCallback(({ item, index }) => (
-    <SuggestionItem
-      item={item}
-      onSelect={handleDistributorSelect}
-      isSelected={index === selectedIndex}
-    />
-  ), [handleDistributorSelect, selectedIndex]);
-
-  const keyExtractor = useCallback((item) => item.id, []);
-
-  const ListFooter = useCallback(() => {
-    if (query.length >= 2 && !isSearching) {
-      return <AddNewItem query={query} onPress={handleAddNew} />;
-    }
-    return null;
-  }, [query, isSearching, handleAddNew]);
-
   return (
     <View style={[styles.container, style]}>
       <View style={styles.inputContainer}>
@@ -226,25 +209,35 @@ export default function DistributorAutocomplete({
         )}
       </View>
       
-      {/* Suggestions dropdown */}
+      {/* Suggestions dropdown — a plain ScrollView, not a FlatList, since this is often
+          nested inside a parent ScrollView (e.g. the bill-header edit modal) and a
+          VirtualizedList in that position trips RN's "VirtualizedLists should never be
+          nested inside plain ScrollViews" warning. Results are a short, capped list, so
+          virtualization buys nothing here anyway. */}
       {showSuggestions && (
         <View style={styles.suggestionsContainer}>
-          <FlatList
-            data={results}
-            renderItem={renderSuggestion}
-            keyExtractor={keyExtractor}
+          <ScrollView
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={
-              !isSearching && query.length >= 2 ? (
-                <ThemedText style={styles.emptyText}>
-                  No distributors found
-                </ThemedText>
-              ) : null
-            }
-            ListFooterComponent={ListFooter}
             style={styles.suggestionsList}
             nestedScrollEnabled
-          />
+          >
+            {results.map((item, index) => (
+              <SuggestionItem
+                key={item.id}
+                item={item}
+                onSelect={handleDistributorSelect}
+                isSelected={index === selectedIndex}
+              />
+            ))}
+            {results.length === 0 && !isSearching && query.length >= 2 && (
+              <ThemedText style={styles.emptyText}>
+                No distributors found
+              </ThemedText>
+            )}
+            {query.length >= 2 && !isSearching && (
+              <AddNewItem query={query} onPress={handleAddNew} />
+            )}
+          </ScrollView>
         </View>
       )}
       
