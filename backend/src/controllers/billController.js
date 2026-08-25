@@ -712,8 +712,10 @@ exports.updateBillHeaderFields = async (req, res) => {
   }
 };
 
-// Edit a single line item: batchNumber, expiryDate, quantity, mrp, rate.
-// Propagates batch/expiry corrections and quantity deltas to the linked ProductBatch.
+// Edit a single line item: name, productId (re-link to a different catalog product),
+// batchNumber, expiryDate, quantity, mrp, rate.
+// Propagates batch/expiry corrections, quantity deltas, and product re-links to the
+// linked ProductBatch.
 exports.updateBillItemFields = async (req, res) => {
   try {
     const { itemId } = req.params;

@@ -354,8 +354,9 @@ export const billApi = {
   },
 
   /**
-   * Edit a line item (batchNumber, expiryDate, quantity, mrp, rate) — propagates to the
-   * linked ProductBatch, audit-logged. Response includes `warnings` (e.g. negative stock).
+   * Edit a line item (name, productId re-link, batchNumber, expiryDate, quantity, mrp,
+   * rate) — propagates to the linked ProductBatch, audit-logged. Response includes
+   * `warnings` (e.g. negative stock).
    */
   updateBillItemFields: async (itemId, changes) => {
     return apiFetch(`/bills/items/${itemId}`, {

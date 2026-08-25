@@ -4,10 +4,12 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDistributors, DistributorProvider } from '@/contexts/DistributorContext';
 import { PaymentProvider } from '@/contexts/PaymentContext';
-import { paymentApi } from '@/services/api';
+import { paymentApi, billApi } from '@/services/api';
 import DistributorsListScreen from '@/components/screens/DistributorsListScreen';
 import DistributorFormScreen from '@/components/screens/DistributorFormScreen';
 import DistributorDetailScreen from '@/components/screens/DistributorDetailScreen';
+import BillDetailsScreen from '@/components/screens/BillDetailsScreen';
+import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
 
 /**
@@ -34,6 +36,8 @@ function DistributorsScreenContent() {
 
   const [currentView, setCurrentView] = useState('list'); // 'list' | 'form' | 'detail'
   const [editingDistributor, setEditingDistributor] = useState(null);
+  const [viewingBill, setViewingBill] = useState(null);
+  const [editingBill, setEditingBill] = useState(null);
   const [distributorBills, setDistributorBills] = useState([]);
   const [billsPage, setBillsPage] = useState(1);
   const [hasMoreBills, setHasMoreBills] = useState(false);
@@ -177,10 +181,39 @@ function DistributorsScreenContent() {
     setHasMoreBills(distributorBills.length + (billsResult.bills?.length || 0) < (billsResult.total || 0));
   }, [selectedDistributor, hasMoreBills, billsPage, distributorBills.length, getDistributorBills]);
 
-  // Handle bill press (navigate to bill detail)
+  // Handle bill press — open bill details with whole-bill edit (header + per-item,
+  // including re-linking a line to a different catalog product)
   const handleBillPress = useCallback((bill) => {
-    // TODO: Navigate to bill detail
-    console.log('Bill pressed:', bill.id);
+    setViewingBill(bill);
+  }, []);
+
+  // Drop into the full OCR-review-style form for heavier changes
+  const handleBillEdit = useCallback((bill) => {
+    setViewingBill(null);
+    setEditingBill(bill);
+  }, []);
+
+  const refreshDistributorBills = useCallback(async () => {
+    if (!selectedDistributor?.id) return;
+    const billsResult = await getDistributorBills(selectedDistributor.id, { page: 1, limit: 10 });
+    setDistributorBills(billsResult.bills || []);
+    setBillsPage(1);
+    setHasMoreBills((billsResult.bills?.length || 0) < (billsResult.total || 0));
+  }, [selectedDistributor, getDistributorBills]);
+
+  const handleSaveBillEdit = useCallback(async (formData) => {
+    try {
+      await billApi.updateBill(editingBill.id, formData);
+      setEditingBill(null);
+      showToast('Bill updated successfully', 'success', 'Updated');
+      await refreshDistributorBills();
+    } catch (err) {
+      showToast(err.message || 'Failed to save bill', 'error', 'Error');
+    }
+  }, [editingBill, refreshDistributorBills]);
+
+  const handleCancelBillEdit = useCallback(() => {
+    setEditingBill(null);
   }, []);
 
   // Navigate to payments screen filtered by this distributor
@@ -194,6 +227,48 @@ function DistributorsScreenContent() {
   }, [selectedDistributor, router]);
 
   // Render based on current view
+  if (editingBill) {
+    return (
+      <View style={{ flex: 1 }}>
+        <BillFormRedesigned
+          initialData={editingBill}
+          onSubmit={handleSaveBillEdit}
+          onCancel={handleCancelBillEdit}
+        />
+        <Toast
+          visible={toast.visible}
+          message={toast.message}
+          type={toast.type}
+          title={toast.title}
+          onHide={hideToast}
+        />
+      </View>
+    );
+  }
+
+  if (viewingBill) {
+    return (
+      <View style={{ flex: 1 }}>
+        <BillDetailsScreen
+          bill={viewingBill}
+          userId={userId}
+          onBack={() => setViewingBill(null)}
+          onEdit={handleBillEdit}
+          onRefresh={(updatedBill) => {
+            setDistributorBills((prev) => prev.map((b) => (b.id === updatedBill.id ? { ...b, ...updatedBill } : b)));
+          }}
+        />
+        <Toast
+          visible={toast.visible}
+          message={toast.message}
+          type={toast.type}
+          title={toast.title}
+          onHide={hideToast}
+        />
+      </View>
+    );
+  }
+
   if (currentView === 'form') {
     return (
       <View style={{ flex: 1 }}>

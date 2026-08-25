@@ -21,6 +21,7 @@ import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import DateField from '@/components/ui/DateField';
 import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
+import ProductAutocomplete from '@/components/ui/ProductAutocomplete';
 import { billApi } from '@/services/api';
 
 function ddmmyyyyToIso(value) {
@@ -143,10 +144,13 @@ function HeaderEditModal({ visible, bill, userId, onClose, onSave, saving }) {
 }
 
 /**
- * Line-item edit modal — batch number, expiry, quantity, MRP, rate. Qty/batch edits are
- * stock-aware server-side (propagate to the linked ProductBatch, warn on negative stock).
+ * Line-item edit modal — product (search to re-link to a different catalog entry),
+ * batch number, expiry, quantity, MRP, rate. Product/qty/batch edits are stock-aware
+ * server-side (move/propagate on the linked ProductBatch, warn on negative stock).
  */
-function ItemEditModal({ visible, item, onClose, onSave, saving }) {
+function ItemEditModal({ visible, item, userId, onClose, onSave, saving }) {
+  const [itemName, setItemName] = useState('');
+  const [productId, setProductId] = useState(null);
   const [batchNumber, setBatchNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -155,6 +159,8 @@ function ItemEditModal({ visible, item, onClose, onSave, saving }) {
 
   useEffect(() => {
     if (visible && item) {
+      setItemName(item.itemName || item.name || '');
+      setProductId(item.productId || null);
       setBatchNumber(item.batchNumber || '');
       setExpiryDate(item.expiryDate || '');
       setQuantity(item.quantity?.toString() || '');
@@ -164,6 +170,11 @@ function ItemEditModal({ visible, item, onClose, onSave, saving }) {
   }, [visible, item]);
 
   if (!item) return null;
+
+  const handleProductSelect = (product, autofill) => {
+    setItemName(autofill.name);
+    setProductId(product.id);
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -178,6 +189,23 @@ function ItemEditModal({ visible, item, onClose, onSave, saving }) {
             </View>
 
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <ThemedText style={styles.fieldLabel}>Product</ThemedText>
+              <ProductAutocomplete
+                userId={userId}
+                value={itemName}
+                onChangeText={setItemName}
+                onProductSelect={handleProductSelect}
+                placeholder="Search to re-link this line to a product"
+              />
+              {productId && productId !== item.productId && (
+                <View style={styles.editWarningBox}>
+                  <Ionicons name="swap-horizontal-outline" size={14} color="#4F46E5" />
+                  <ThemedText style={[styles.editWarningText, { color: '#4F46E5' }]}>
+                    This will move this line's stock onto the newly picked product.
+                  </ThemedText>
+                </View>
+              )}
+
               <ThemedText style={styles.fieldLabel}>Batch Number</ThemedText>
               <TextInput style={styles.textInput} value={batchNumber} onChangeText={setBatchNumber} placeholder="Batch" placeholderTextColor="#94A3B8" />
 
@@ -208,7 +236,15 @@ function ItemEditModal({ visible, item, onClose, onSave, saving }) {
 
               <PrimaryButton
                 title={saving ? 'Saving…' : 'Save Changes'}
-                onPress={() => onSave({ batchNumber, expiryDate, quantity, mrp, rate })}
+                onPress={() => onSave({
+                  name: itemName,
+                  ...(productId !== item.productId && { productId }),
+                  batchNumber,
+                  expiryDate,
+                  quantity,
+                  mrp,
+                  rate,
+                })}
                 disabled={saving}
               />
             </ScrollView>
@@ -584,6 +620,7 @@ export default function BillDetailsScreen({
         <ItemEditModal
           visible={!!editingItem}
           item={editingItem}
+          userId={userId}
           onClose={() => setEditingItem(null)}
           onSave={handleItemSave}
           saving={saving}

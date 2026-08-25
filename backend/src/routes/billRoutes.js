@@ -42,8 +42,8 @@ router.delete('/items/:itemId', billController.deleteBillItem);
 // Fast path for the most common edit: PATCH { invoiceDate: '...' }
 router.patch('/:billId/header', billController.updateBillHeaderFields);
 
-// Edit a line item (batchNumber, expiryDate, quantity, mrp, rate) — propagates to
-// ProductBatch, audit-logged
+// Edit a line item (name, productId re-link, batchNumber, expiryDate, quantity, mrp,
+// rate) — propagates to ProductBatch, audit-logged
 router.patch('/items/:itemId', billController.updateBillItemFields);
 
 // Before/after audit trail for a bill

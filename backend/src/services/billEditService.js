@@ -77,7 +77,8 @@ async function updateBillHeader(billId, changes) {
 }
 
 /**
- * Edit a single BillItem — batchNumber, expiryDate, quantity, mrp, rate.
+ * Edit a single BillItem — name, productId (re-link to a different catalog product),
+ * batchNumber, expiryDate, quantity, mrp, rate.
  * Propagates batch/expiry corrections and quantity deltas to the linked ProductBatch
  * (matched via the item's CURRENT batch number, before the edit) inside one transaction.
  */
@@ -89,30 +90,182 @@ async function updateBillItem(billItemId, changes) {
   if (!billItem) throw new Error('Bill item not found');
 
   const data = {};
+  if ('name' in changes) data.name = changes.name?.trim() || billItem.name;
+  if ('manufacturer' in changes) data.manufacturer = changes.manufacturer?.trim() || null;
+  if ('productId' in changes) data.productId = changes.productId || null;
   if ('batchNumber' in changes) data.batchNumber = changes.batchNumber?.trim() || null;
   if ('expiryDate' in changes) data.expiryDate = changes.expiryDate?.trim() || null;
   if ('quantity' in changes) data.quantity = changes.quantity != null ? parseFloat(changes.quantity) : billItem.quantity;
   if ('mrp' in changes) data.mrp = changes.mrp != null ? parseFloat(changes.mrp) : null;
   if ('rate' in changes) data.rate = changes.rate != null ? parseFloat(changes.rate) : billItem.rate;
 
-  const diffs = diffFields(billItem, data, ['batchNumber', 'expiryDate', 'quantity', 'mrp', 'rate']);
+  let newProduct = null;
+  if ('productId' in changes && data.productId) {
+    newProduct = await prisma.product.findFirst({
+      where: { id: data.productId, userId: billItem.bill.userId },
+    });
+    if (!newProduct) throw new Error('Selected product not found');
+  }
+
+  const diffs = diffFields(billItem, data, ['name', 'manufacturer', 'productId', 'batchNumber', 'expiryDate', 'quantity', 'mrp', 'rate']);
   if (diffs.length === 0) {
     return { billItem, diffs: [], warnings: [] };
   }
 
+  // Log the product re-link by name, not by cuid — that's what a human reads in the
+  // edit history.
+  const productDiff = diffs.find((d) => d.field === 'productId');
+  if (productDiff) {
+    productDiff.oldValue = billItem.product?.name || '(no linked product)';
+    productDiff.newValue = newProduct?.name || '(unlinked)';
+  }
+
   const warnings = [];
+  const productChanged = 'productId' in changes && data.productId !== billItem.productId;
   const batchChanged = 'batchNumber' in changes && data.batchNumber !== billItem.batchNumber;
   const expiryChanged = 'expiryDate' in changes && data.expiryDate !== billItem.expiryDate;
   const quantityChanged = 'quantity' in changes && data.quantity !== billItem.quantity;
 
   const result = await prisma.$transaction(async (tx) => {
-    // ── Propagate to the linked ProductBatch, matched via the item's batch number
-    // BEFORE this edit (that's the physical batch this purchase line actually fed) ──
-    if (billItem.productId && (batchChanged || expiryChanged || quantityChanged)) {
+    // ── Re-link to a different catalog product: move this line's own contribution off
+    // the old product's batch and onto the new product's (matching) batch. Mirrors
+    // productMergeService's batch-move convention, scoped to just this one purchase line. ──
+    let workingProductId = billItem.productId;
+    if (productChanged) {
+      const oldNormalized = normalizeBatchNumber(billItem.batchNumber);
+      const oldProduct = billItem.product;
+      const itemBaseQty = round3((billItem.quantity || 0) * (oldProduct?.packSize || 1));
+
+      const oldLinkedBatch = billItem.productId && oldNormalized
+        ? await tx.productBatch.findUnique({
+            where: { productId_batchNumberNormalized: { productId: billItem.productId, batchNumberNormalized: oldNormalized } },
+          })
+        : null;
+
+      if (oldLinkedBatch) {
+        const ownedSolelyByThisItem = oldLinkedBatch.sourceBillItemId === billItem.id;
+
+        if (data.productId) {
+          const destBatch = oldNormalized
+            ? await tx.productBatch.findUnique({
+                where: { productId_batchNumberNormalized: { productId: data.productId, batchNumberNormalized: oldNormalized } },
+              })
+            : null;
+
+          if (ownedSolelyByThisItem) {
+            // Whole batch is this item's own purchase — reparent it entirely.
+            if (destBatch) {
+              await tx.saleItem.updateMany({
+                where: { productBatchId: oldLinkedBatch.id },
+                data: { productId: data.productId, productBatchId: destBatch.id },
+              });
+              await tx.productBatch.update({
+                where: { id: destBatch.id },
+                data: {
+                  quantityBase: { increment: oldLinkedBatch.quantityBase },
+                  expiryDate: destBatch.expiryDate ?? oldLinkedBatch.expiryDate,
+                  mrp: destBatch.mrp ?? oldLinkedBatch.mrp,
+                  purchaseRate: destBatch.purchaseRate ?? oldLinkedBatch.purchaseRate,
+                },
+              });
+              await tx.productBatch.update({
+                where: { id: oldLinkedBatch.id },
+                data: { isArchived: true, quantityBase: 0, sourceBillItemId: null },
+              });
+            } else {
+              await tx.productBatch.update({ where: { id: oldLinkedBatch.id }, data: { productId: data.productId } });
+              await tx.saleItem.updateMany({ where: { productBatchId: oldLinkedBatch.id }, data: { productId: data.productId } });
+            }
+          } else {
+            // Shared batch — pull only this item's own contribution across.
+            const projected = round3(oldLinkedBatch.quantityBase - itemBaseQty);
+            await tx.productBatch.update({ where: { id: oldLinkedBatch.id }, data: { quantityBase: projected } });
+            if (projected < 0) {
+              warnings.push(
+                `Moving "${billItem.name}" off batch ${oldLinkedBatch.batchNumber} pushed the old product's stock below zero ` +
+                `(${projected}) — it was already sold from beyond this line's share. Stock is not blocked, but review it.`
+              );
+            }
+
+            if (destBatch) {
+              await tx.productBatch.update({
+                where: { id: destBatch.id },
+                data: {
+                  quantityBase: { increment: itemBaseQty },
+                  expiryDate: destBatch.expiryDate ?? oldLinkedBatch.expiryDate,
+                  mrp: destBatch.mrp ?? oldLinkedBatch.mrp,
+                  purchaseRate: destBatch.purchaseRate ?? oldLinkedBatch.purchaseRate,
+                },
+              });
+            } else {
+              await tx.productBatch.create({
+                data: {
+                  productId: data.productId,
+                  batchNumber: oldLinkedBatch.batchNumber,
+                  batchNumberNormalized: oldNormalized,
+                  expiryDate: oldLinkedBatch.expiryDate,
+                  quantityBase: itemBaseQty,
+                  mrp: oldLinkedBatch.mrp,
+                  purchaseRate: oldLinkedBatch.purchaseRate,
+                  sourceBillItemId: billItem.id,
+                },
+              });
+            }
+          }
+        } else if (ownedSolelyByThisItem) {
+          // Unlinking entirely (productId cleared) and this item owned the batch outright.
+          await tx.productBatch.update({ where: { id: oldLinkedBatch.id }, data: { isArchived: true, quantityBase: 0 } });
+        } else {
+          const projected = round3(oldLinkedBatch.quantityBase - itemBaseQty);
+          await tx.productBatch.update({ where: { id: oldLinkedBatch.id }, data: { quantityBase: projected } });
+        }
+      } else if (data.productId && billItem.batchNumber?.trim()) {
+        // Item wasn't linked to a batch before (e.g. no product was linked at all) —
+        // bring its existing batch/expiry/qty onto the newly-selected product.
+        const destBatch = oldNormalized
+          ? await tx.productBatch.findUnique({
+              where: { productId_batchNumberNormalized: { productId: data.productId, batchNumberNormalized: oldNormalized } },
+            })
+          : null;
+
+        if (destBatch) {
+          await tx.productBatch.update({
+            where: { id: destBatch.id },
+            data: {
+              quantityBase: { increment: itemBaseQty },
+              expiryDate: destBatch.expiryDate ?? parseExpiryToUtcDate(billItem.expiryDate),
+              mrp: destBatch.mrp ?? billItem.mrp,
+              purchaseRate: destBatch.purchaseRate ?? billItem.rate,
+            },
+          });
+        } else {
+          await tx.productBatch.create({
+            data: {
+              productId: data.productId,
+              batchNumber: billItem.batchNumber.trim(),
+              batchNumberNormalized: oldNormalized,
+              expiryDate: parseExpiryToUtcDate(billItem.expiryDate),
+              quantityBase: itemBaseQty,
+              mrp: billItem.mrp ?? null,
+              purchaseRate: billItem.rate || null,
+              sourceBillItemId: billItem.id,
+            },
+          });
+        }
+      }
+
+      await syncProductStock(tx, [billItem.productId, data.productId].filter(Boolean));
+      workingProductId = data.productId;
+    }
+
+    // ── Propagate batch-number/expiry/quantity corrections to the linked ProductBatch,
+    // matched via the item's batch number BEFORE this edit (that's the physical batch
+    // this purchase line actually fed) — using the product it now belongs to. ──
+    if (workingProductId && (batchChanged || expiryChanged || quantityChanged)) {
       const oldNormalized = normalizeBatchNumber(billItem.batchNumber);
       const linkedBatch = oldNormalized
         ? await tx.productBatch.findUnique({
-            where: { productId_batchNumberNormalized: { productId: billItem.productId, batchNumberNormalized: oldNormalized } },
+            where: { productId_batchNumberNormalized: { productId: workingProductId, batchNumberNormalized: oldNormalized } },
           })
         : null;
 
@@ -120,6 +273,9 @@ async function updateBillItem(billItemId, changes) {
         const batchUpdate = {};
 
         if (quantityChanged) {
+          // Use the ORIGINAL product's pack size for both sides of the delta — the
+          // physical unit count already moved (in the re-link step above, if any) was
+          // computed the same way, so this must stay consistent with it.
           const product = billItem.product;
           const oldBase = round3((billItem.quantity || 0) * (product?.packSize || 1));
           const newBase = round3((data.quantity || 0) * (product?.packSize || 1));
@@ -142,7 +298,7 @@ async function updateBillItem(billItemId, changes) {
           const newNormalized = normalizeBatchNumber(data.batchNumber);
           const collision = newNormalized
             ? await tx.productBatch.findUnique({
-                where: { productId_batchNumberNormalized: { productId: billItem.productId, batchNumberNormalized: newNormalized } },
+                where: { productId_batchNumberNormalized: { productId: workingProductId, batchNumberNormalized: newNormalized } },
               })
             : null;
 
@@ -170,7 +326,7 @@ async function updateBillItem(billItemId, changes) {
           await tx.productBatch.update({ where: { id: linkedBatch.id }, data: batchUpdate });
         }
 
-        await syncProductStock(tx, [billItem.productId]);
+        await syncProductStock(tx, [workingProductId]);
       } else {
         warnings.push(`No matching batch found for "${billItem.name}" — only the bill line was corrected, stock was not adjusted.`);
       }
@@ -179,7 +335,7 @@ async function updateBillItem(billItemId, changes) {
     // rate/mrp: only refresh the batch's own pricing if this line item is what created
     // it (sourceBillItemId match) — otherwise the batch's aggregate price may reflect a
     // different purchase and must not be silently overwritten.
-    if (('mrp' in changes || 'rate' in changes) && billItem.productId) {
+    if (('mrp' in changes || 'rate' in changes) && workingProductId) {
       const sourcedBatch = await tx.productBatch.findFirst({ where: { sourceBillItemId: billItem.id } });
       if (sourcedBatch) {
         await tx.productBatch.update({
