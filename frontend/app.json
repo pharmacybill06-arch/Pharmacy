@@ -82,7 +82,6 @@
       "router": {
         "origin": false
       },
-      "EXPO_PUBLIC_ENABLE_GEMINI": true,
       "eas": {
         "projectId": "80d2ae2d-e764-4692-9a10-1e768c35b713"
       }

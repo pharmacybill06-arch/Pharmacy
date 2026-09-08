@@ -1,5 +1,5 @@
 
-const { parseOcrWithGemini, parseImageWithVision } = require('../utils/geminiService');
+const { parseOcrText, parseImageWithVision } = require('../utils/aiService');
 const { extractTextFromImage } = require('../utils/ocrService');
 const { parseInvoiceWithNanonets } = require('../utils/nanonetsService');
 const {
@@ -179,7 +179,7 @@ exports.parseOcr = async (req, res) => {
 
     console.log('[AIController] Parsing OCR text...');
     logOcrHint('Request body', ocrText);
-    const parsedData = await parseOcrWithGemini(ocrText);
+    const parsedData = await parseOcrText(ocrText);
     logAiResponse('parse-ocr', parsedData);
 
     const responseBody = {
@@ -251,7 +251,7 @@ exports.parseImage = async (req, res) => {
           ocrTextHint = pdfData.text.trim();
           console.log(`[AIController] PDF text extracted: ${ocrTextHint.length} chars`);
         } else {
-          console.log('[AIController] PDF appears image-based, will rely on Gemini Vision directly');
+          console.log('[AIController] PDF appears image-based, will rely on Vision AI directly');
         }
       } catch (pdfErr) {
         console.warn('[AIController] pdf-parse failed, proceeding with Vision AI:', pdfErr.message);
@@ -295,13 +295,13 @@ exports.parseImage = async (req, res) => {
         methodUsed = 'nanonets';
         logAiResponse('nanonets', parsedData);
       } catch (nanonetsErr) {
-        console.warn('[AIController] Nanonets parsing failed, falling back to Gemini Vision:', nanonetsErr.message);
+        console.warn('[AIController] Nanonets parsing failed, falling back to Vision AI:', nanonetsErr.message);
       }
     }
 
     if (!parsedData) {
       try {
-        console.log('[AIController] Parsing bill image with Gemini Vision...');
+        console.log('[AIController] Parsing bill image with Vision AI...');
         parsedData = await parseImageWithVision(base64Image, mimeType, ocrTextHint);
         methodUsed = 'vision';
         logAiResponse('vision', parsedData);
@@ -309,7 +309,7 @@ exports.parseImage = async (req, res) => {
         console.warn('[AIController] Vision AI parsing failed, falling back to OCR text parsing:', visionErr.message);
         if (ocrTextHint && ocrTextHint.trim().length > 50) {
           console.log('[AIController] Falling back: Parsing OCR text with AI...');
-          parsedData = await parseOcrWithGemini(ocrTextHint);
+          parsedData = await parseOcrText(ocrTextHint);
           methodUsed = 'ocr+ai';
           logAiResponse('ocr+ai', parsedData);
         } else {
@@ -403,7 +403,7 @@ exports.ocrImage = async (req, res) => {
     const shouldParse = req.body.parseWithAI === 'true' || req.body.parseWithAI === true;
     if (shouldParse && ocrResult.text.length > 10) {
       console.log('[AIController] OCR done, now parsing with AI...');
-      const parsedData = await parseOcrWithGemini(ocrResult.text);
+      const parsedData = await parseOcrText(ocrResult.text);
       logAiResponse('ocr+ai', parsedData);
       const responseBody = {
         success: true,

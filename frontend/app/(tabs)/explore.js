@@ -41,7 +41,7 @@ export default function ExploreScreen() {
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState([]); // Multiple camera photos
   const [parsedFileData, setParsedFileData] = useState(null); // For CSV/Excel pre-parsed data
-  const [fileOcrText, setFileOcrText] = useState(''); // CSV text for Gemini fallback
+  const [fileOcrText, setFileOcrText] = useState(''); // CSV text for the AI parser fallback
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
   const cameraRef = useRef(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
@@ -198,7 +198,7 @@ export default function ExploreScreen() {
 
       console.log('[Spreadsheet] Parsed items:', parsedData.items?.length, 'Grand total:', parsedData.grandTotal);
 
-      // Set pre-parsed data so BillFormRedesigned skips Gemini OCR
+      // Set pre-parsed data so BillFormRedesigned skips AI parsing
       setParsedFileData(parsedData);
       setFileOcrText(''); // No OCR text needed for spreadsheets
       setRawOcrText('');  // Clear any previous OCR text

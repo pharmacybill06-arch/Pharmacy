@@ -371,7 +371,7 @@ export default function ScanBillPage() {
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 300, margin: '0 auto' }}>
                     <button className="btn btn-primary btn-lg" onClick={parseWithVision} disabled={processing} style={{ background: '#7c3aed' }}>
-                      <Eye size={18} /> Smart Scan (Gemini Vision)
+                      <Eye size={18} /> Smart Scan (Vision AI)
                       <span style={{ fontSize: 11, marginLeft: 4, opacity: 0.8 }}>(best accuracy)</span>
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={runOCRAndParse} disabled={processing}>

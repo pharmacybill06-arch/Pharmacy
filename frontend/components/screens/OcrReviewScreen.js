@@ -37,7 +37,7 @@ export default function OcrReviewScreen({
           <View style={styles.statusPill}>
             <Ionicons name="sparkles-outline" size={16} color="#4F46E5" />
             <ThemedText style={styles.statusText}>
-              Gemini Parsed • {confidence}% confidence
+              AI Parsed • {confidence}% confidence
             </ThemedText>
           </View>
 

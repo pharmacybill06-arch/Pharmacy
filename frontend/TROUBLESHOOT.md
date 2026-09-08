@@ -156,7 +156,7 @@ Watch for these logs:
 - **Migrations:** ✅ Applied
 
 ### AI Integration
-- **Gemini API:** ✅ Configured
+- **OpenAI API:** ✅ Configured
 - **Google Vision:** ✅ Configured
 
 ---

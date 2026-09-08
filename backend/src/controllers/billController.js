@@ -139,7 +139,7 @@ exports.uploadBill = async (req, res) => {
         // ========== OCR & PROCESSING ==========
         rawOcrText: ocrText || null,
         ocrEngine: ocrEngine || 'vision-ai',
-        aiParser: 'gemini-ai',
+        aiParser: 'openai',
         processedAt: new Date(),
         status: 'completed',
         
@@ -503,7 +503,7 @@ exports.saveDraft = async (req, res) => {
         // OCR data
         rawOcrText: ocrText || null,
         ocrEngine: ocrEngine || 'vision-ai',
-        aiParser: 'gemini-ai',
+        aiParser: 'openai',
 
         // Items
         items: parsedData?.items ? {

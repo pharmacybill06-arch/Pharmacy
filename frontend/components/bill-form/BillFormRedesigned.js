@@ -11,8 +11,8 @@ import {
   calculateParseConfidence,
   formatParsedDataForForm,
   getItemsNeedingReview,
-  parseOcrWithGemini,
-} from './gemini-integration';
+  parseOcrText,
+} from './bill-parser';
 
 /**
  * BillFormRedesigned Component
@@ -112,9 +112,9 @@ export default function BillFormRedesigned({
     items: initialData?.items || [],
   });
 
-  const [geminiLoading, setGeminiLoading] = useState(false);
-  const [, setGeminiError] = useState(null);
-  const [geminiConfidence, setGeminiConfidence] = useState(null);
+  const [parseLoading, setParseLoading] = useState(false);
+  const [, setParseError] = useState(null);
+  const [parseConfidence, setParseConfidence] = useState(null);
   const [itemsNeedingManualReview, setItemsNeedingManualReview] = useState(0);
   const [imageQualityWarning, setImageQualityWarning] = useState(null);
   const [headerUncertainFields, setHeaderUncertainFields] = useState([]);
@@ -144,11 +144,11 @@ export default function BillFormRedesigned({
     setToast({ ...toast, visible: false });
   };
 
-  // Parse OCR text with Gemini when provided
+  // Parse OCR text via the backend AI parser when provided
   useEffect(() => {
-    // If initialData already has items (e.g. from CSV/Excel import), skip Gemini parsing
+    // If initialData already has items (e.g. from CSV/Excel import), skip AI parsing
     if (initialData && initialData.items && initialData.items.length > 0) {
-      console.log('[BillFormRedesigned] Using pre-parsed initialData (CSV/Excel or edit mode), skipping Gemini');
+      console.log('[BillFormRedesigned] Using pre-parsed initialData (CSV/Excel or edit mode), skipping AI parse');
       // Still filter out the user's own shop name from pre-parsed data
       const filteredData = filterShopNameFromData(initialData);
       if (filteredData.pharmacyName !== initialData.pharmacyName) {
@@ -159,24 +159,24 @@ export default function BillFormRedesigned({
     }
 
     if (!ocrText || ocrText.trim().length === 0) {
-      console.log('[BillFormRedesigned] No OCR text provided, skipping Gemini parsing');
+      console.log('[BillFormRedesigned] No OCR text provided, skipping AI parsing');
       return;
     }
 
-    const parseOcrWithGeminiIntegration = async () => {
+    const parseOcrTextIntegration = async () => {
       try {
-        console.log(`[BillFormRedesigned] Starting Gemini parsing - OCR text length: ${ocrText.length} characters`);
-        setGeminiLoading(true);
-        setGeminiError(null);
+        console.log(`[BillFormRedesigned] Starting AI parsing - OCR text length: ${ocrText.length} characters`);
+        setParseLoading(true);
+        setParseError(null);
 
-        const parsedData = await parseOcrWithGemini(ocrText);
+        const parsedData = await parseOcrText(ocrText);
         const formattedData = formatParsedDataForForm(parsedData);
         // Filter out the user's own shop name from extracted data
         const filteredData = filterShopNameFromData(formattedData);
         const confidence = calculateParseConfidence(parsedData);
         const reviewItems = getItemsNeedingReview(filteredData.items);
 
-        setGeminiConfidence(confidence);
+        setParseConfidence(confidence);
         setItemsNeedingManualReview(reviewItems.length);
 
         // Surface validation signals from parsed response
@@ -198,9 +198,9 @@ export default function BillFormRedesigned({
           items: filteredData.items,
         }));
 
-        console.log('[BillFormRedesigned] Gemini parsing successful. Items:', formattedData.items.length);
+        console.log('[BillFormRedesigned] AI parsing successful. Items:', formattedData.items.length);
 
-        setGeminiLoading(false);
+        setParseLoading(false);
         
         // Show success toast
         showToast(
@@ -213,9 +213,9 @@ export default function BillFormRedesigned({
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        console.error('[BillFormRedesigned] Gemini parsing failed:', errorMessage, error);
-        setGeminiError(errorMessage);
-        setGeminiLoading(false);
+        console.error('[BillFormRedesigned] AI parsing failed:', errorMessage, error);
+        setParseError(errorMessage);
+        setParseLoading(false);
 
         // Show error toast
         showToast(
@@ -226,7 +226,7 @@ export default function BillFormRedesigned({
       }
     };
 
-    parseOcrWithGeminiIntegration();
+    parseOcrTextIntegration();
   }, [ocrText]);
 
   const updatePharmacyDetails = (details) => {
@@ -516,8 +516,8 @@ export default function BillFormRedesigned({
         onSubmit={handleSubmit}
         onSaveDraft={onSaveDraft ? handleSaveDraft : undefined}
         onCancel={onCancel}
-        geminiLoading={geminiLoading}
-        geminiConfidence={geminiConfidence}
+        parseLoading={parseLoading}
+        parseConfidence={parseConfidence}
         itemsNeedingManualReview={itemsNeedingManualReview}
         imageQualityWarning={imageQualityWarning}
         headerUncertainFields={headerUncertainFields}
@@ -534,9 +534,9 @@ export default function BillFormRedesigned({
         onDistributorModeChange={handleDistributorModeChange}
       />
 
-      {/* Loading Overlay for Gemini Parsing */}
+      {/* Loading Overlay for AI parsing */}
       <LoadingOverlay
-        visible={geminiLoading}
+        visible={parseLoading}
         message="Analyzing Invoice"
         submessage="AI is extracting data from your bill..."
         icon="sparkles"

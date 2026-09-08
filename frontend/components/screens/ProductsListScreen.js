@@ -89,7 +89,7 @@ function BatchRow({ batch }) {
 /**
  * Product card — new redesigned layout with expand-in-place batch list
  */
-const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress, onSell, mergeMode, selected, onToggleSelect }) => {
+const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLongPress, onSell, onIdentify, mergeMode, selected, onToggleSelect }) => {
   const color = getExpiryColor(item.daysToEarliestExpiry);
   const searchMatch = item.batches.find((b) => b.matchedSearch);
 
@@ -147,6 +147,10 @@ const ProductCard = React.memo(({ item, expanded, onToggleExpand, onEdit, onLong
                 {/* Sell straight from the list — the counter path is never more than a tap away */}
                 <Pressable onPress={() => onSell?.(item)} hitSlop={8} style={styles.sellIconButton}>
                   <Ionicons name="cart-outline" size={16} color="#4F46E5" />
+                </Pressable>
+                {/* "What is this?" — for products auto-created from a garbled OCR name */}
+                <Pressable onPress={() => onIdentify?.(item)} hitSlop={8} style={styles.identifyIconButton}>
+                  <Ionicons name="sparkles-outline" size={16} color="#7C3AED" />
                 </Pressable>
                 <Pressable onPress={() => onEdit(item)} hitSlop={8} style={styles.editIconButton}>
                   <Ionicons name="create-outline" size={16} color="#64748B" />
@@ -451,6 +455,200 @@ function MergeConfirmModal({ visible, products, onClose, onConfirm, isMerging })
   );
 }
 
+const VERDICT_STYLES = {
+  match: { icon: 'checkmark-circle', color: '#047857', bg: '#ECFDF5', title: 'This looks like a product you already have' },
+  unsure: { icon: 'help-circle', color: '#B45309', bg: '#FFFBEB', title: 'Possible matches — your call' },
+  new: { icon: 'add-circle', color: '#1D4ED8', bg: '#EFF6FF', title: 'Looks like a genuinely new medicine' },
+};
+
+/**
+ * "What is this product?" — AI identification for a catalog entry that was auto-created
+ * from a distributor invoice's OCR text (see productIdentifyService on the backend).
+ * When OCR misreads a medicine name, syncProductsFromBillItems finds no catalog match and
+ * creates a brand-new product, so the pharmacy ends up with a ghost entry like
+ * "DURENGE 500 MG TAB" for a drug it has always stocked under its real name.
+ *
+ * The AI only ever suggests. From here the pharmacist either merges the ghost into the
+ * real product, or confirms it is new — optionally accepting the corrected spelling and
+ * the salt/manufacturer the AI filled in. Nothing happens without a tap.
+ */
+function IdentifyProductModal({ visible, product, result, isLoading, error, isApplying, onClose, onMerge, onSaveAsNew }) {
+  if (!product) return null;
+
+  const ai = result?.ai;
+  const verdict = ai ? VERDICT_STYLES[ai.verdict] || VERDICT_STYLES.unsure : null;
+  const correctedName =
+    ai?.likelyRealName && ai.likelyRealName.toLowerCase() !== product.name.toLowerCase()
+      ? ai.likelyRealName
+      : null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>What is this product?</ThemedText>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748B" />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <ThemedText style={styles.identifySubject} numberOfLines={3}>{product.name}</ThemedText>
+
+            {isLoading && (
+              <View style={styles.identifyLoading}>
+                <ActivityIndicator size="small" color="#7C3AED" />
+                <ThemedText style={styles.identifyLoadingText}>
+                  Checking this against your catalog and its purchase history…
+                </ThemedText>
+              </View>
+            )}
+
+            {!!error && !isLoading && (
+              <View style={styles.identifyErrorBox}>
+                <Ionicons name="alert-circle" size={16} color="#B91C1C" />
+                <ThemedText style={styles.identifyErrorText}>{error}</ThemedText>
+              </View>
+            )}
+
+            {ai && !isLoading && (
+              <>
+                <View style={[styles.verdictBanner, { backgroundColor: verdict.bg }]}>
+                  <Ionicons name={verdict.icon} size={18} color={verdict.color} />
+                  <ThemedText style={[styles.verdictTitle, { color: verdict.color }]}>{verdict.title}</ThemedText>
+                </View>
+
+                {!!ai.reasoning && <ThemedText style={styles.aiReasoning}>{ai.reasoning}</ThemedText>}
+
+                {ai.matches.length > 0 && (
+                  <>
+                    <ThemedText style={styles.identifySectionLabel}>
+                      {ai.matches.length === 1 ? 'Suggested match' : 'Suggested matches'}
+                    </ThemedText>
+                    {ai.matches.map((match) => (
+                      <View key={match.productId} style={styles.matchRow}>
+                        <View style={styles.matchRowTop}>
+                          <ThemedText style={styles.matchName} numberOfLines={2}>{match.name}</ThemedText>
+                          <View
+                            style={[
+                              styles.confidenceBadge,
+                              { backgroundColor: match.confidence >= 0.7 ? '#D1FAE5' : '#FEF3C7' },
+                            ]}
+                          >
+                            <ThemedText
+                              style={[
+                                styles.confidenceBadgeText,
+                                { color: match.confidence >= 0.7 ? '#047857' : '#B45309' },
+                              ]}
+                            >
+                              {Math.round(match.confidence * 100)}%
+                            </ThemedText>
+                          </View>
+                        </View>
+                        <ThemedText style={styles.matchMeta} numberOfLines={1}>
+                          {[match.manufacturer, match.salt, `stock ${match.stock}`].filter(Boolean).join(' · ')}
+                        </ThemedText>
+                        {!!match.reason && <ThemedText style={styles.matchReason}>{match.reason}</ThemedText>}
+                        <Pressable
+                          style={styles.mergeIntoButton}
+                          onPress={() => onMerge(match)}
+                          disabled={isApplying}
+                        >
+                          <Ionicons name="git-merge-outline" size={15} color="#FFFFFF" />
+                          <ThemedText style={styles.mergeIntoButtonText}>
+                            {isApplying ? 'Merging…' : `Merge into "${match.name}"`}
+                          </ThemedText>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </>
+                )}
+
+                {/* The AI's corrected spelling would collide with a different catalog entry —
+                    that entry IS the product, so offer the merge rather than a failing rename. */}
+                {result.nameCollision && (
+                  <View style={styles.collisionBox}>
+                    <Ionicons name="information-circle" size={16} color="#B45309" />
+                    <View style={{ flex: 1 }}>
+                      <ThemedText style={styles.collisionText}>
+                        You already have a product named "{result.nameCollision.name}". Renaming would
+                        clash with it — merge into it instead.
+                      </ThemedText>
+                      <Pressable
+                        style={styles.collisionMergeButton}
+                        onPress={() => onMerge({ productId: result.nameCollision.id, name: result.nameCollision.name })}
+                        disabled={isApplying}
+                      >
+                        <ThemedText style={styles.collisionMergeButtonText}>
+                          Merge into "{result.nameCollision.name}"
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+
+                <ThemedText style={styles.identifySectionLabel}>Or keep it as its own product</ThemedText>
+                {(correctedName || ai.salt || ai.manufacturer) && !result.nameCollision ? (
+                  <View style={styles.suggestionBox}>
+                    <ThemedText style={styles.suggestionIntro}>Saving will also apply what the AI worked out:</ThemedText>
+                    {!!correctedName && (
+                      <ThemedText style={styles.suggestionLine}>
+                        Name: <ThemedText style={styles.suggestionValue}>{correctedName}</ThemedText>
+                      </ThemedText>
+                    )}
+                    {!!ai.salt && (
+                      <ThemedText style={styles.suggestionLine}>
+                        Salt: <ThemedText style={styles.suggestionValue}>{ai.salt}</ThemedText>
+                      </ThemedText>
+                    )}
+                    {!!ai.manufacturer && (
+                      <ThemedText style={styles.suggestionLine}>
+                        Manufacturer: <ThemedText style={styles.suggestionValue}>{ai.manufacturer}</ThemedText>
+                      </ThemedText>
+                    )}
+                  </View>
+                ) : (
+                  <ThemedText style={styles.identifyHint}>
+                    Keeps "{product.name}" exactly as it is, with its batches and stock untouched.
+                  </ThemedText>
+                )}
+
+                <Pressable
+                  style={styles.saveAsNewButton}
+                  onPress={() => onSaveAsNew({ name: correctedName, salt: ai.salt, manufacturer: ai.manufacturer })}
+                  disabled={isApplying}
+                >
+                  <Ionicons name="bookmark-outline" size={15} color="#4F46E5" />
+                  <ThemedText style={styles.saveAsNewButtonText}>
+                    {isApplying
+                      ? 'Saving…'
+                      : correctedName && !result.nameCollision
+                      ? 'Save as a new product (corrected)'
+                      : 'Save as a new product'}
+                  </ThemedText>
+                </Pressable>
+
+                <ThemedText style={styles.aiFootnote}>
+                  AI suggestion from {result.candidatesConsidered} catalog{' '}
+                  {result.candidatesConsidered === 1 ? 'entry' : 'entries'} and this product's invoice
+                  history. Always check against the physical pack before merging.
+                </ThemedText>
+              </>
+            )}
+          </ScrollView>
+
+          <View style={styles.modalActionRow}>
+            <Pressable style={styles.modalClearButton} onPress={onClose} disabled={isApplying}>
+              <ThemedText style={styles.modalClearButtonText}>Close</ThemedText>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 /**
  * Empty State
  */
@@ -500,6 +698,16 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
   const [mergeConfirmVisible, setMergeConfirmVisible] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
   const [mergeCandidateCount, setMergeCandidateCount] = useState(0);
+
+  // "What is this product?" — AI identification for OCR-created catalog entries
+  const [identify, setIdentify] = useState({
+    visible: false,
+    product: null,
+    result: null,
+    isLoading: false,
+    error: null,
+    isApplying: false,
+  });
 
   const {
     products,
@@ -614,6 +822,65 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
     }
   }, [userId, refresh]);
 
+  const handleIdentify = useCallback(async (product) => {
+    setIdentify({ visible: true, product, result: null, isLoading: true, error: null, isApplying: false });
+    try {
+      const res = await productApi.identifyProduct(userId, product.id);
+      setIdentify((prev) => (prev.product?.id === product.id ? { ...prev, result: res, isLoading: false } : prev));
+    } catch (err) {
+      setIdentify((prev) =>
+        prev.product?.id === product.id
+          ? { ...prev, isLoading: false, error: err.message || 'Could not identify this product right now.' }
+          : prev
+      );
+    }
+  }, [userId]);
+
+  // The OCR ghost is always the duplicate; the established catalog entry survives.
+  const handleIdentifyMerge = useCallback(async (match) => {
+    const ghost = identify.product;
+    setIdentify((prev) => ({ ...prev, isApplying: true }));
+    try {
+      await productApi.mergeProducts(userId, match.productId, ghost.id);
+      setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
+      refresh();
+      Alert.alert('Merged', `"${ghost.name}" was merged into "${match.name}" and archived.`);
+    } catch (err) {
+      setIdentify((prev) => ({ ...prev, isApplying: false }));
+      Alert.alert('Error', err.message || 'Failed to merge products. Please try again.');
+    }
+  }, [identify.product, userId, refresh]);
+
+  const handleIdentifySaveAsNew = useCallback(async ({ name, salt, manufacturer }) => {
+    const product = identify.product;
+    const updates = {};
+    if (name) updates.name = name;
+    if (salt) updates.salt = salt;
+    if (manufacturer) updates.manufacturer = manufacturer;
+
+    // Nothing the AI could add — the product is already saved and correct as it stands.
+    if (Object.keys(updates).length === 0) {
+      setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
+      Alert.alert('Kept', `"${product.name}" stays in your catalog as its own product.`);
+      return;
+    }
+
+    setIdentify((prev) => ({ ...prev, isApplying: true }));
+    try {
+      await productApi.updateProduct(userId, product.id, updates);
+      setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
+      refresh();
+      Alert.alert('Saved', `Saved as "${updates.name || product.name}" in your product catalog.`);
+    } catch (err) {
+      setIdentify((prev) => ({ ...prev, isApplying: false }));
+      Alert.alert('Error', err.message || 'Failed to save the product. Please try again.');
+    }
+  }, [identify.product, userId, refresh]);
+
+  const closeIdentify = useCallback(() => {
+    setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
+  }, []);
+
   const renderItem = useCallback(
     ({ item }) => (
       <ProductCard
@@ -623,12 +890,13 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
         onEdit={handleEdit}
         onLongPress={handleLongPress}
         onSell={onSellPress}
+        onIdentify={handleIdentify}
         mergeMode={mergeMode}
         selected={!!mergeSelection.find((p) => p.id === item.id)}
         onToggleSelect={handleToggleSelect}
       />
     ),
-    [expandedId, handleToggleExpand, handleEdit, handleLongPress, onSellPress, mergeMode, mergeSelection, handleToggleSelect]
+    [expandedId, handleToggleExpand, handleEdit, handleLongPress, onSellPress, handleIdentify, mergeMode, mergeSelection, handleToggleSelect]
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
@@ -830,6 +1098,18 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
           isMerging={isMerging}
         />
 
+        <IdentifyProductModal
+          visible={identify.visible}
+          product={identify.product}
+          result={identify.result}
+          isLoading={identify.isLoading}
+          error={identify.error}
+          isApplying={identify.isApplying}
+          onClose={closeIdentify}
+          onMerge={handleIdentifyMerge}
+          onSaveAsNew={handleIdentifySaveAsNew}
+        />
+
         <ConfirmDialog
           visible={deleteDialog.visible}
           title="Delete Product"
@@ -974,6 +1254,57 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 10, marginTop: 4,
   },
   mergeWarningText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 16 },
+
+  // "What is this product?" — AI identification
+  identifyIconButton: { padding: 5, borderRadius: 8, backgroundColor: '#F5F3FF' },
+  identifySubject: { fontSize: 15, fontWeight: '700', color: '#0F172A', marginBottom: 12 },
+  identifyLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 20 },
+  identifyLoadingText: { flex: 1, fontSize: 13, color: '#64748B', lineHeight: 18 },
+  identifyErrorBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FEF2F2',
+    borderRadius: 10, padding: 10,
+  },
+  identifyErrorText: { flex: 1, fontSize: 12, color: '#B91C1C', lineHeight: 16 },
+  verdictBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, padding: 10 },
+  verdictTitle: { flex: 1, fontSize: 13, fontWeight: '700' },
+  aiReasoning: { fontSize: 13, color: '#475569', lineHeight: 19, marginTop: 10 },
+  identifySectionLabel: {
+    fontSize: 11, fontWeight: '800', color: '#94A3B8', textTransform: 'uppercase',
+    letterSpacing: 0.5, marginTop: 18, marginBottom: 8,
+  },
+  identifyHint: { fontSize: 12, color: '#64748B', lineHeight: 17 },
+  matchRow: { borderWidth: 1.5, borderColor: '#E2E8F0', borderRadius: 12, padding: 12, marginBottom: 8 },
+  matchRowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  matchName: { flex: 1, fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  confidenceBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  confidenceBadgeText: { fontSize: 11, fontWeight: '800' },
+  matchMeta: { fontSize: 12, color: '#64748B', marginTop: 3 },
+  matchReason: { fontSize: 12, color: '#475569', lineHeight: 17, marginTop: 6 },
+  mergeIntoButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#4F46E5', borderRadius: 10, paddingVertical: 10, marginTop: 10,
+  },
+  mergeIntoButtonText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  collisionBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFBEB',
+    borderRadius: 10, padding: 10, marginTop: 8,
+  },
+  collisionText: { fontSize: 12, color: '#92400E', lineHeight: 16 },
+  collisionMergeButton: {
+    backgroundColor: '#B45309', borderRadius: 8, paddingVertical: 8,
+    paddingHorizontal: 10, alignItems: 'center', marginTop: 8,
+  },
+  collisionMergeButtonText: { fontSize: 12, fontWeight: '700', color: '#FFFFFF' },
+  suggestionBox: { backgroundColor: '#F8FAFC', borderRadius: 10, padding: 10 },
+  suggestionIntro: { fontSize: 12, color: '#64748B', marginBottom: 6 },
+  suggestionLine: { fontSize: 12, color: '#64748B', lineHeight: 19 },
+  suggestionValue: { fontWeight: '700', color: '#0F172A' },
+  saveAsNewButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1.5, borderColor: '#4F46E5', borderRadius: 10, paddingVertical: 11, marginTop: 10,
+  },
+  saveAsNewButtonText: { fontSize: 13, fontWeight: '700', color: '#4F46E5' },
+  aiFootnote: { fontSize: 11, color: '#94A3B8', lineHeight: 15, marginTop: 14 },
 
   productCardInner: { padding: 0, borderRadius: 18, marginBottom: 10, overflow: 'hidden' },
   productCardSelected: { borderWidth: 2, borderColor: '#4F46E5' },

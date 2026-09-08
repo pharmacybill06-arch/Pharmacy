@@ -113,6 +113,6 @@ If you see `http://localhost:5000/api` instead, the app wasn't reloaded properly
 1. **Reload the app:** Press `r` in Expo terminal
 2. **Check the logs:** Should show the correct API URL
 3. **Try uploading:** Go to Explore → Upload Bill
-4. **Watch the magic:** OCR + Gemini AI processing!
+4. **Watch the magic:** OCR + AI processing!
 
 Good luck! 🎉

@@ -5,7 +5,7 @@
  * NANONETS_MODEL_ID. Auth is HTTP Basic with the API key as username, blank password.
  */
 
-const { normalizeBillData } = require('./geminiService');
+const { normalizeBillData } = require('./aiService');
 
 const API_BASE = 'https://app.nanonets.com/api/v2/OCR/Model';
 const MAX_LOG_CHARS = Number(process.env.NANONETS_LOG_MAX_CHARS || 12000);
@@ -138,7 +138,7 @@ function mapNanonetsResultToBillShape(prediction) {
 
 /**
  * Parse a bill image/PDF using Nanonets.
- * Returns data normalized to the same shape as the Gemini/Groq parsers.
+ * Returns data normalized to the same shape as the AI parsers.
  */
 async function parseInvoiceWithNanonets(buffer, mimeType = 'image/jpeg', filename = 'invoice') {
   const apiKey = process.env.NANONETS_API_KEY;

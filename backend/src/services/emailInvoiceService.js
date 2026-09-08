@@ -17,7 +17,7 @@ const { getZohoMailClientForUser, isAttachmentContentType } = require('./zohoMai
 const productService = require('./productService');
 const distributorService = require('./distributorService');
 const { extractTextFromImage } = require('../utils/ocrService');
-const { parseOcrWithGemini, parseImageWithVision } = require('../utils/geminiService');
+const { parseOcrText, parseImageWithVision } = require('../utils/aiService');
 
 // Supported attachment types
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff'];
@@ -530,7 +530,7 @@ async function processEmailBodyText(bodyText, subject) {
   const fullText = `Email Subject: ${subject}\n\n${bodyText}`;
 
   try {
-    const parsedData = await parseOcrWithGemini(fullText);
+    const parsedData = await parseOcrText(fullText);
     console.log(`[EmailInvoice] ✓ AI parsed email body: ${parsedData?.items?.length || 0} items`);
     return { parsedData, ocrText: fullText };
   } catch (err) {
@@ -992,7 +992,7 @@ async function processAttachment(fileBuffer, fileName, mimeType) {
 
   if (ocrText.length > 20 && !parsedData) {
     try {
-      parsedData = await parseOcrWithGemini(ocrText);
+      parsedData = await parseOcrText(ocrText);
       console.log(`[EmailInvoice] ✓ AI parsed OCR text: ${parsedData?.items?.length || 0} items`);
     } catch (aiErr) {
       console.error('[EmailInvoice] AI parsing failed:', aiErr.message);
@@ -1063,7 +1063,7 @@ async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'ema
 
       rawOcrText: ocrText || null,
       ocrEngine: 'email-import',
-      aiParser: 'gemini-ai',
+      aiParser: 'openai',
       processedAt: new Date(),
       status: 'completed',
 

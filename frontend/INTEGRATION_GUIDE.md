@@ -1,7 +1,7 @@
 # Frontend-Backend Integration Guide
 
 ## Overview
-Your pharmacy bill app is now integrated with the backend! The Gemini AI integration has been moved to the backend for better security and performance.
+Your pharmacy bill app is now integrated with the backend! AI parsing runs on the backend (OpenAI) for security and performance — the app holds no model API keys.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ API Service (services/api.js)
 Backend (Node.js/Express)
     ↓
 ├─ Google Cloud Vision (OCR)
-├─ Gemini AI (Intelligent Parsing)
+├─ OpenAI (Intelligent Parsing)
 └─ PostgreSQL Database (Data Storage)
 ```
 
@@ -28,7 +28,7 @@ npm install
 ```
 
 This will install:
-- `@google/generative-ai` - Gemini AI SDK
+- OpenAI via the Chat Completions API (no SDK dependency)
 - `@google-cloud/vision` - Google Cloud Vision for OCR
 - `@prisma/client` - Database ORM
 - `express`, `cors`, `multer`, `sharp` - Server dependencies
@@ -37,7 +37,7 @@ This will install:
 
 The backend `.env` file is already configured with:
 - `DATABASE_URL` - PostgreSQL connection
-- `GEMINI_API_KEY` - Your Gemini API key (moved from frontend)
+- `OPENAI_API_KEY` - Your OpenAI API key (the app holds no model keys)
 - `GROQ_API_KEY` - Fallback API key
 - `GOOGLE_APPLICATION_CREDENTIALS` - Google Cloud Vision credentials
 - `PORT=5000` - Backend server port
@@ -114,7 +114,7 @@ npx expo start
 3. **Backend processes image**
    - **Step 1:** Image preprocessing with Sharp (enhance quality)
    - **Step 2:** OCR with Google Cloud Vision (extract text)
-   - **Step 3:** AI parsing with Gemini (structure data)
+   - **Step 3:** AI parsing with OpenAI (structure data)
    - **Step 4:** Save as draft in database
 
 4. **Frontend receives parsed data**
@@ -148,21 +148,21 @@ npx expo start
 
 ### Backend Changes
 
-1. **Created `backend/src/utils/geminiService.js`**
-   - Gemini AI integration for intelligent bill parsing
+1. **Created `backend/src/utils/aiService.js`**
+   - AI integration for intelligent bill parsing (OpenAI via openaiService)
    - Normalizes and validates parsed data
    - Handles errors gracefully
 
 2. **Updated `backend/src/controllers/billController.js`**
-   - Added Gemini parsing to upload workflow
+   - Added AI parsing to upload workflow
    - Pre-fills bill metadata from AI parsing
-   - Stores both OCR and Gemini data
+   - Stores both OCR and AI-parsed data
 
 3. **Updated `backend/package.json`**
    - Added `@google/generative-ai` dependency
 
 4. **Updated `backend/.env`**
-   - Added GEMINI_API_KEY and GROQ_API_KEY
+   - Added OPENAI_API_KEY and GROQ_API_KEY
 
 ### Frontend Changes
 
@@ -173,7 +173,7 @@ npx expo start
 
 2. **Updated `app/(tabs)/explore.js`**
    - Removed local ML Kit OCR processing
-   - Removed local Gemini integration
+   - Removed the client-side model integration
    - Now calls backend API for processing
    - Better error handling with user feedback
 
@@ -221,7 +221,7 @@ npx expo start
 4. Watch the processing:
    - Image upload to backend
    - OCR extraction with Google Vision
-   - AI parsing with Gemini
+   - AI parsing with OpenAI
    - Parsed data displayed in form
 
 ## Troubleshooting
@@ -235,14 +235,14 @@ npx expo start
 2. Verify `EXPO_PUBLIC_BACKEND_URL` in frontend `.env`
 3. For mobile device, use computer's IP address instead of localhost
 
-### Gemini API Errors
+### AI API Errors
 
-**Error:** "Gemini AI is not configured"
+**Error:** "AI is not configured"
 
 **Solutions:**
-1. Check `GEMINI_API_KEY` in `backend/.env`
+1. Check `OPENAI_API_KEY` in `backend/.env`
 2. Verify API key is valid
-3. Check Gemini API quota/billing
+3. Check OpenAI API quota/billing
 
 ### Database Errors
 
@@ -271,7 +271,7 @@ npx expo start
 ### Bill
 - File info: fileName, filePath, fileSize, mimeType
 - Metadata: pharmacyName, billNumber, billDate, totalAmount
-- OCR data: ocrData (JSON with raw text + Gemini parsed data)
+- OCR data: ocrData (JSON with raw text + AI-parsed data)
 - Status: draft → completed
 - Relationships: User (many-to-one), BillItems (one-to-many)
 

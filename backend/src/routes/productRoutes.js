@@ -45,6 +45,9 @@ router.get('/:userId/merge-candidates', validateUserId, productController.getMer
 // POST /products/:userId/merge - Merge a duplicate product into a survivor
 router.post('/:userId/merge', validateUserId, productController.mergeProducts);
 
+// GET /products/:userId/:productId/identify - Ask AI what this OCR-created product really is
+router.get('/:userId/:productId/identify', validateUserId, validateProductId, productController.identifyProduct);
+
 // ============================================
 // BATCH ROUTES (batch-level stock — must precede the generic /:userId/:productId)
 // ============================================

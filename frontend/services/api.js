@@ -516,6 +516,17 @@ export const productApi = {
   },
 
   /**
+   * Ask the AI what an auto-created (probably OCR-garbled) product really is — an
+   * existing catalog product under a misread name, or a genuinely new medicine.
+   * Read-only: returns a suggestion, acted on via mergeProducts or updateProduct.
+   * @param {string} userId - User ID
+   * @param {string} productId - Product to identify
+   */
+  identifyProduct: async (userId, productId) => {
+    return apiFetch(`/products/${userId}/${productId}/identify`);
+  },
+
+  /**
    * Get product statistics
    * @param {string} userId - User ID
    */

@@ -209,8 +209,8 @@ export default function BillFormScreen({
   onSubmit,
   onSaveDraft,
   onCancel,
-  geminiLoading = false,
-  geminiConfidence = null,
+  parseLoading = false,
+  parseConfidence = null,
   itemsNeedingManualReview = 0,
   imageQualityWarning = null,
   headerUncertainFields = [],
@@ -255,7 +255,7 @@ export default function BillFormScreen({
           keyboardShouldPersistTaps="handled"
         >
           {/* Status Pills */}
-          {geminiLoading && (
+          {parseLoading && (
             <View style={styles.statusPill}>
               <Ionicons name="sync-outline" size={16} color="#4F46E5" />
               <ThemedText style={styles.statusText}>
@@ -264,11 +264,11 @@ export default function BillFormScreen({
             </View>
           )}
 
-          {geminiConfidence !== null && !geminiLoading && (
+          {parseConfidence !== null && !parseLoading && (
             <View style={styles.statusPill}>
               <Ionicons name="sparkles-outline" size={16} color="#4F46E5" />
               <ThemedText style={styles.statusText}>
-                Expiry Parse • {(geminiConfidence * 100).toFixed(1)}% confidence
+                Expiry Parse • {(parseConfidence * 100).toFixed(1)}% confidence
                 {itemsNeedingManualReview > 0 &&
                   ` • ${itemsNeedingManualReview} items need review`}
               </ThemedText>
@@ -276,7 +276,7 @@ export default function BillFormScreen({
           )}
 
           {/* Blur warning banner */}
-          {imageQualityWarning && !geminiLoading && (
+          {imageQualityWarning && !parseLoading && (
             <View style={styles.warnBanner}>
               <Ionicons name="warning-outline" size={16} color="#92400E" />
               <ThemedText style={styles.warnBannerText}>{imageQualityWarning}</ThemedText>
@@ -284,7 +284,7 @@ export default function BillFormScreen({
           )}
 
           {/* Uncertain header fields banner */}
-          {headerUncertainFields.length > 0 && !geminiLoading && (
+          {headerUncertainFields.length > 0 && !parseLoading && (
             <View style={styles.warnBanner}>
               <Ionicons name="alert-circle-outline" size={16} color="#92400E" />
               <ThemedText style={styles.warnBannerText}>

@@ -1,75 +1,67 @@
-# Free AI Fallback Setup
+# AI Parsing & Fallback Setup
 
 ## Overview
-The app now supports a **free fallback** using Groq API when Gemini fails or is unavailable.
+
+Bill parsing runs on the **backend only**, using OpenAI. The mobile/web app never holds a
+model API key.
+
+> **Why this matters:** anything read from an `EXPO_PUBLIC_*` variable is inlined into the
+> shipped JS bundle, so a key placed there is published to everyone who installs the app.
+> The project previously called Gemini directly from the client this way, and that key was
+> flagged as leaked by Google and revoked. Do not reintroduce a client-side model key.
 
 ## How It Works
 
-### Priority Order:
-1. **Gemini API** (Primary - Paid but more accurate)
-2. **Groq API** (Fallback - FREE with generous limits)
-3. **Local Parser** (Last resort - basic regex-based parsing)
+### Priority order
 
-## Setup Groq Free API
+1. **Backend AI parse** (`POST /api/ai/parse-ocr`) — OpenAI, the only AI provider.
+2. **Local parser** (`fallbackParseOcrText` in `components/bill-form/bill-parser.js`) —
+   regex-based, no network. Used when the backend is unreachable, so a pharmacist can
+   still get a filled-in form offline.
 
-### Step 1: Get Free API Key
-1. Visit: https://console.groq.com
-2. Sign up for a free account
-3. Go to API Keys section
-4. Create a new API key
+Vision parsing (`POST /api/ai/parse-image`) runs a metadata pass plus an item-table pass
+read twice and reconciled, so disagreements surface as "needs review" rather than being
+silently resolved to one possibly-wrong value.
 
-### Step 2: Add to Environment
-Open `.env` file and add your Groq API key:
+## Setup
+
+The only key you need is on the backend. In `backend/.env`:
 
 ```env
-EXPO_PUBLIC_GROQ_API_KEY=gsk_your_api_key_here
+OPENAI_API_KEY=sk-your_api_key_here
+
+# Optional model overrides
+OPENAI_VISION_MODEL=gpt-4o
+OPENAI_TEXT_MODEL=gpt-4o-mini
 ```
 
-### Step 3: Restart App
+The app just needs to know where the backend is. In `frontend/.env`:
+
+```env
+EXPO_PUBLIC_BACKEND_URL=https://your-backend-host/api
+```
+
+Then restart:
+
 ```bash
 npx expo start -c
 ```
 
-## Groq Free Tier Benefits
+## Groq
 
-✅ **Completely FREE** - No credit card required  
-✅ **Fast inference** - Often faster than Gemini  
-✅ **Generous limits** - 14,400 requests/day on free tier  
-✅ **Multiple models** - Using Llama 3.3 70B (very capable)  
-✅ **High quality** - Comparable accuracy to paid services  
-
-## Usage
-
-The app automatically:
-1. Tries Gemini first (if API key available)
-2. Falls back to Groq if Gemini fails
-3. Uses local parser if both fail
-
-No code changes needed - it's all automatic!
-
-## Cost Comparison
-
-| Service | Cost | Speed | Accuracy |
-|---------|------|-------|----------|
-| Gemini | $0.15-0.60/1M tokens | Fast | Excellent |
-| Groq | **FREE** (14.4k req/day) | Very Fast | Very Good |
-| Local Parser | FREE | Instant | Basic |
-
-## Recommendations
-
-For best results:
-- Add both Gemini AND Groq API keys
-- Gemini will be used primarily
-- Groq provides reliable free backup
-- Local parser handles edge cases
+Groq is still used on the backend for email bill *detection* (deciding whether an incoming
+email contains an invoice), not for bill parsing. It is optional — set `GROQ_API_KEY` in
+`backend/.env` if you want it. Like every model key, it belongs on the backend only.
 
 ## Troubleshooting
 
-**Issue**: Groq not working  
-**Solution**: Check API key in .env file, ensure it starts with `gsk_`
+**Issue**: Always getting local-parser results
+**Solution**: The app can't reach the backend. Check `EXPO_PUBLIC_BACKEND_URL` and that the
+backend is running; look for `[BillParser] Backend parse failed` in the app logs.
 
-**Issue**: Both APIs failing  
-**Solution**: Check internet connection, verify API keys are valid
+**Issue**: Backend returns "AI is not configured"
+**Solution**: `OPENAI_API_KEY` is missing from `backend/.env`.
 
-**Issue**: Getting local parser results  
-**Solution**: Both API keys missing or invalid - add at least Groq key
+**Issue**: Backend returns 401/403 from OpenAI
+**Solution**: The key is invalid, revoked, or out of quota. Rotate it in the OpenAI
+dashboard and update `backend/.env` (and your host's environment settings).

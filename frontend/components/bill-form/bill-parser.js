@@ -1,36 +1,18 @@
-// NOTE: GoogleGenerativeAI is not imported here because it uses Web Workers which are not available in React Native
-// Instead, we use the backend API or the HTTP fallback method
+/**
+ * Bill parser (client side).
+ *
+ * AI parsing happens ONLY on the backend (/api/ai/parse-ocr, which runs OpenAI). The app
+ * never holds a model API key: anything read from EXPO_PUBLIC_* is inlined into the
+ * shipped JS bundle, so a key here is a published key — that is exactly how the old
+ * Gemini key ended up leaked and revoked.
+ *
+ * Order: backend AI parse → local regex parser (fallbackParseOcrText) if the backend is
+ * unreachable, so the pharmacist still gets a filled-in form offline.
+ */
 
 import Constants from 'expo-constants';
 
-// ✅ FIX: Read keys directly from Constants at module load time
-// This works reliably in both dev (process.env) and built APK (Constants.expoConfig.extra)
 const _extra = Constants.expoConfig?.extra || Constants.manifest?.extra || {};
-
-const GEMINI_API_KEY =
-  process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
-  _extra.EXPO_PUBLIC_GEMINI_API_KEY ||
-  '';
-
-const GROQ_API_KEY =
-  process.env.EXPO_PUBLIC_GROQ_API_KEY ||
-  _extra.EXPO_PUBLIC_GROQ_API_KEY ||
-  '';
-
-const ENABLE_GEMINI = (() => {
-  const val =
-    process.env.EXPO_PUBLIC_ENABLE_GEMINI ??
-    _extra.EXPO_PUBLIC_ENABLE_GEMINI ??
-    true;
-  if (typeof val === 'boolean') return val;
-  return ['true', '1', 'yes', 'on'].includes(String(val).toLowerCase());
-})();
-
-// Debug log on load (remove after confirming fix)
-console.log('[Config] Gemini key length:', GEMINI_API_KEY.length);
-console.log('[Config] Groq key length:', GROQ_API_KEY.length);
-console.log('[Config] Enable Gemini:', ENABLE_GEMINI);
-console.log('[Config] expoConfig.extra keys:', Object.keys(_extra));
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -177,83 +159,9 @@ function normalizeBill(parsed) {
   };
 }
 
-function extractJson(text) {
-  if (!text) return null;
-  text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  return text.slice(start, end + 1);
-}
-
 // ─────────────────────────────────────────────
-// AI API callers
+// Backend AI parser
 // ─────────────────────────────────────────────
-
-async function generateViaHttpFallback(apiKey, prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json',
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    }),
-  });
-
-  const json = await res.json();
-  console.log('[Gemini] API response status:', res.status, '- has candidates:', !!json?.candidates?.[0]);
-
-  if (!res.ok) {
-    console.warn('[Gemini] request failed:', json);
-    return null;
-  }
-
-  const text =
-    json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-  return text.trim() || null;
-}
-
-async function generateViaGroqFallback(apiKey, prompt) {
-  const url = 'https://api.groq.com/openai/v1/chat/completions';
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 4096,
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    const json = await res.json();
-    console.log('[Groq] API response status:', res.status, '- has choices:', !!json?.choices?.[0]);
-
-    if (!res.ok) {
-      console.warn('[Groq] request failed:', json);
-      return null;
-    }
-
-    const text = json?.choices?.[0]?.message?.content || '';
-    return text.trim() || null;
-  } catch (error) {
-    console.error('[Groq] Error:', error);
-    return null;
-  }
-}
 
 async function callBackendParser(ocrText, backendUrl) {
   try {
@@ -277,7 +185,7 @@ async function callBackendParser(ocrText, backendUrl) {
     if (json?.success && json?.data) return json.data;
     throw new Error(json?.error || 'Unexpected backend response');
   } catch (err) {
-    console.warn('[Gemini] Backend call failed:', err?.message || err);
+    console.warn('[BillParser] Backend call failed:', err?.message || err);
     throw err;
   }
 }
@@ -814,197 +722,27 @@ function extractTotals(text) {
 // Main export
 // ─────────────────────────────────────────────
 
-const GEMINI_PROMPT = (ocrText) => `
-You are an expert Indian pharmacy invoice parser. Parse the OCR text below into structured JSON.
 
-Return ONLY valid JSON (no markdown, no extra text). If a value is missing, return null or 0.
 
-IMPORTANT: "pharmacyName" must be the SELLER/DISTRIBUTOR/SUPPLIER name (the company who issued the invoice), NOT the buyer/customer.
-Indian pharmacy invoices have two parties: the SELLER at the top and the BUYER (often after "To:", "M/s", "Ship To:", "Bill To:"). Extract only the SELLER name as pharmacyName.
+/**
+ * Parse OCR text into structured bill data via the backend's AI endpoint, falling back
+ * to the local regex parser when the backend can't be reached.
+ */
+export async function parseOcrText(ocrText, backendUrl) {
+  const configuredBackend =
+    backendUrl ||
+    process.env.EXPO_PUBLIC_BACKEND_URL ||
+    _extra.EXPO_PUBLIC_BACKEND_URL;
 
-Schema:
-{
-  "pharmacyName": string|null,
-  "shopAddress": string|null,
-  "phoneNumbers": string[]|null,
-  "gstin": string|null,
-  "dlNumber": string|null,
-  "invoiceNumber": string|null,
-  "invoiceDate": "DD-MM-YYYY"|null,
-  "dueDate": "DD-MM-YYYY"|null,
-  "paymentType": "cash"|"credit"|null,
+  if (!configuredBackend) {
+    console.warn('[BillParser] No backend URL configured — using local parser.');
+    return fallbackParseOcrText(ocrText);
+  }
 
-  "items": [
-    {
-      "sn": number|null,
-      "name": string|null,
-      "quantity": number|null,
-      "freeQuantity": number|null,
-      "unit": string|null,
-      "manufacturer": string|null,
-      "batchNumber": string|null,
-      "expiryDate": "DD-MM-YYYY"|null,
-      "hsnCode": string|null,
-      "mrp": number|null,
-      "rate": number|null,
-      "discount": number|null,
-      "discountPercent": number|null,
-      "gstPercent": number|null,
-      "sgstPercent": number|null,
-      "cgstPercent": number|null,
-      "itemTotal": number|null
-    }
-  ],
-
-  "subtotal": number|null,
-  "discountPercent": number|null,
-  "discountAmount": number|null,
-  "cgst": number|null,
-  "sgst": number|null,
-  "totalGst": number|null,
-  "roundOff": number|null,
-  "grandTotal": number|null
-}
-
-=== CRITICAL COLUMN-TO-FIELD ALIGNMENT RULES ===
-
-STEP 1 - IDENTIFY THE TABLE HEADER ROW:
-- Find the header row containing column keywords like: S.No, Item/Product/Particular, Pack/Packing, HSN, Batch, Expiry, Mfg, Qty, Free, Schm, MRP, Rate, Disc/Dis%, GST%, CGST, SGST, Amount/Amt/Net Amt/Value/Total
-- The POSITION of each header determines which DATA VALUE goes into which field for EVERY item row
-- Map each header to the correct field name:
-  * "S.No" / "SN" / "Sr" / "#" → sn (serial number)
-  * "Item" / "Product" / "Particular" / "Description" / "Medicine" → name
-  * "Pack" / "Packing" / "Pkg" → unit (e.g. "10T" means strip of 10 tablets)
-  * "HSN" / "HSN Code" → hsnCode
-  * "Batch" / "B.No" / "Batch No" / "Lot" → batchNumber
-  * "Expiry" / "Exp" / "Exp Dt" / "Exp." → expiryDate
-  * "Mfg" / "Manufacturer" / "Company" / "Mfr" → manufacturer
-  * "Qty" / "Quantity" / "Q" → quantity
-  * "Free" / "Fre" / "Fr" / "Schm" / "Scheme" → freeQuantity
-  * "MRP" / "M.R.P" → mrp (Maximum Retail Price per unit)
-  * "Rate" / "Rt" / "Price" / "P.Rate" / "PRate" / "Pur Rate" / "Net Rate" → rate (per-unit selling/purchase price)
-  * "Dis" / "Dis%" / "Disc" / "Disc%" / "Discount" → discountPercent (if %) or discount (if amount)
-  * "GST%" / "Tax%" / "GST" → gstPercent
-  * "CGST" / "CGST%" → cgstPercent
-  * "SGST" / "SGST%" → sgstPercent
-  * "Amt" / "Amount" / "Net Amt" / "Value" / "Total" / "Net" → itemTotal (total amount for that line item)
-
-STEP 2 - FOR EACH ITEM ROW, READ VALUES BY COLUMN POSITION:
-- Read each value in the SAME column position as its header
-- DO NOT guess or shuffle values between columns
-- If OCR merged two columns, use context to separate (e.g. "100.00 12%" → rate=100.00, gstPercent=12)
-- Multi-line items: sometimes the item name continues on the next line. Merge it with the previous item.
-
-STEP 3 - DISTINGUISH PRICE FIELDS PRECISELY (THIS IS THE MOST IMPORTANT STEP):
-- MRP and Rate are TWO COMPLETELY DIFFERENT AND INDEPENDENT fields. NEVER mix them up.
-- MRP = Maximum Retail Price (government-regulated price printed on medicine packaging). Read EXACTLY from the "MRP" column.
-- Rate = Purchase/selling price per unit (the actual price charged by distributor). Read EXACTLY from the "Rate" / "P.Rate" / "Net Rate" column.
-- MRP and Rate CAN have any relationship: MRP > Rate, MRP < Rate, or MRP = Rate. Do NOT assume MRP >= Rate.
-- itemTotal = Line total amount from the "Amount" / "Amt" / "Net Amt" / "Value" column. This is the total for that line item.
-- CRITICAL: Read each value from its OWN column. If the header says "MRP" → put that column's value in mrp. If it says "Rate" → put in rate. If it says "Amt" → put in itemTotal.
-- If the bill has BOTH MRP and Rate columns, populate BOTH fields separately with the exact values from each column.
-- If only ONE price column exists labeled "MRP" → put in mrp field AND copy to rate field.
-- If only ONE price column exists labeled "Rate" / "Price" → put in rate field only.
-- If only ONE price column labeled "Amount" / "Amt" / "Value" → put in itemTotal only.
-- NEVER put the line total (Amount column) into mrp or rate fields.
-- NEVER put mrp or rate values into the itemTotal field.
-- NEVER swap MRP and Rate values based on which is larger.
-
-STEP 4 - QUANTITY RULES:
-- quantity must be the number from the "Qty" column (usually a small integer: 1-500)
-- If quantity appears as 0 or null but there is a rate and itemTotal, calculate: quantity = itemTotal / rate (round to nearest integer)
-- freeQuantity is from "Free" or "Scheme" column (bonus items given free)
-- NEVER confuse freeQuantity with quantity
-
-STEP 5 - TOTALS (extract EXACTLY as printed, do NOT recalculate):
-- subtotal: look for "Sub Total" / "Subtotal" / "Taxable Amount" / "Taxable Value"
-- cgst: look for "CGST" amount (not percentage)
-- sgst: look for "SGST" amount (not percentage)
-- totalGst: "Total Tax" / "GST Amount" or cgst + sgst
-- discountAmount: "Discount" / "Dis Amt" in the totals section
-- roundOff: "Round Off" / "Adj" / "Adjustment"
-- grandTotal: "Grand Total" / "Net Amount" / "Bill Amount" / "Total" (the final amount)
-
-STEP 6 - PAYMENT TYPE: lowercase "cash" or "credit"
-
-STEP 7 - PHONE NUMBERS: extract as array ["9876543210"]
-
-OCR TEXT:
-${ocrText}
-`;
-
-export async function parseOcrWithGemini(ocrText, backendUrl) {
   try {
-    // ✅ Try backend first
-    const configuredBackend =
-      backendUrl ||
-      process.env.EXPO_PUBLIC_BACKEND_URL ||
-      _extra.EXPO_PUBLIC_BACKEND_URL;
-
-    if (configuredBackend) {
-      try {
-        return await callBackendParser(ocrText, configuredBackend);
-      } catch (e) {
-        // Backend failed, fall through to direct AI
-        console.log('[Gemini] Backend unavailable, trying direct AI...');
-      }
-    }
-
-    // ✅ Check AI keys (already resolved at module load)
-    if (!GEMINI_API_KEY && !GROQ_API_KEY) {
-      console.warn('[Gemini] No API keys found. Using fallback parser.');
-      return fallbackParseOcrText(ocrText);
-    }
-
-    if (!ENABLE_GEMINI) {
-      console.log('[Gemini] AI parsing disabled. Using fallback parser.');
-      return fallbackParseOcrText(ocrText);
-    }
-
-    const prompt = GEMINI_PROMPT(ocrText);
-
-    // ✅ Try Gemini first
-    let httpText = null;
-    if (GEMINI_API_KEY) {
-      try {
-        httpText = await generateViaHttpFallback(GEMINI_API_KEY, prompt);
-      } catch (e) {
-        console.warn('[Gemini] Direct Gemini failed:', e?.message);
-      }
-    }
-
-    // ✅ Try Groq if Gemini failed
-    if (!httpText && GROQ_API_KEY) {
-      try {
-        console.log('[Gemini] Trying Groq fallback...');
-        httpText = await generateViaGroqFallback(GROQ_API_KEY, prompt);
-      } catch (e) {
-        console.warn('[Gemini] Groq also failed:', e?.message);
-      }
-    }
-
-    if (!httpText) {
-      console.warn('[Gemini] All AI services failed, using local parser.');
-      return fallbackParseOcrText(ocrText);
-    }
-
-    const jsonText = extractJson(httpText);
-    if (!jsonText) {
-      console.warn('[Gemini] No valid JSON found in response');
-      return fallbackParseOcrText(ocrText);
-    }
-
-    const parsed = JSON.parse(jsonText);
-    if (parsed.items) {
-      parsed.items = parsed.items.map((item, index) => ({
-        id: `${Date.now()}${index}`,
-        ...item,
-      }));
-    }
-
-    return normalizeBill(parsed);
+    return await callBackendParser(ocrText, configuredBackend);
   } catch (error) {
-    console.warn('[Gemini] Error during generation, using fallback:', error);
+    console.warn('[BillParser] Backend parse failed, using local parser:', error?.message);
     return fallbackParseOcrText(ocrText);
   }
 }
@@ -1085,7 +823,7 @@ export function calculateParseConfidence(data) {
 }
 
 export default {
-  parseOcrWithGemini,
+  parseOcrText,
   formatParsedDataForForm,
   getItemsNeedingReview,
   calculateParseConfidence,

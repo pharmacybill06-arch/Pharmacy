@@ -1,11 +1,16 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+/**
+ * AI Service — provider-neutral bill parsing.
+ *
+ * Owns the prompts, the response normalization (normalizeBillData and its repair helpers)
+ * and the two-pass reconciliation logic. The actual model calls all go through
+ * openaiService; this module is what the rest of the app talks to, so swapping or adding
+ * a provider later means touching openaiService and the three delegating functions at the
+ * bottom of this file, nothing else.
+ */
+
 const { inferPackUnits } = require('./unitInference');
 
-// Initialize Gemini AI
-let geminiModel = null;
-let geminiTextModel = null;
 const MAX_AI_LOG_CHARS = Number(process.env.AI_LOG_MAX_CHARS || 20000);
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 function truncateForLog(value, maxChars = MAX_AI_LOG_CHARS) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -76,57 +81,8 @@ function extractJsonObject(text) {
   return JSON.parse(jsonText);
 }
 
-function initializeGeminiVision() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn('[AIService] ⚠️ GEMINI_API_KEY not found — Gemini Vision disabled');
-    return false;
-  }
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    geminiModel = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-      },
-    });
-    console.log(`[AIService] Gemini Vision (${GEMINI_MODEL}) initialized`);
-    return true;
-  } catch (error) {
-    console.error('[AIService] ✗ Failed to initialize Gemini Vision:', error.message);
-    return false;
-  }
-}
-
-function initializeGeminiText() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn('[AIService] GEMINI_API_KEY not found - Gemini text parser disabled');
-    return false;
-  }
-
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    geminiTextModel = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-      },
-    });
-    console.log(`[AIService] Gemini text parser (${GEMINI_MODEL}) initialized`);
-    return true;
-  } catch (error) {
-    console.error('[AIService] Failed to initialize Gemini text parser:', error.message);
-    return false;
-  }
-}
-
 /**
- * The standard OCR-text-to-JSON prompt, shared by every text-based parser (Gemini, Groq, OpenAI).
+ * The standard OCR-text-to-JSON prompt used by the text parser.
  */
 function getOcrTextPrompt(ocrText) {
   return `
@@ -245,38 +201,11 @@ ${ocrText}
 }
 
 /**
- * Parse OCR text using Gemini AI to extract structured bill data
+ * Parse OCR text into structured bill data.
  * @param {string} ocrText - Raw OCR text from bill image
  * @returns {Promise<Object>} Parsed bill data
  */
-async function parseOcrWithGemini(ocrText) {
-  const prompt = getOcrTextPrompt(ocrText);
-
-  if (!geminiTextModel) {
-    initializeGeminiText();
-  }
-
-  if (geminiTextModel) {
-    try {
-      console.log(`[AIService] Sending request to Gemini text parser (${GEMINI_MODEL})...`);
-      const result = await geminiTextModel.generateContent(prompt);
-      const text = result.response.text();
-      console.log('[AIService] Received response from Gemini text parser');
-      logAiRawResponse('Gemini text parser', text);
-
-      const parsed = extractJsonObject(text);
-      const normalized = normalizeBillData(parsed, ocrText);
-
-      console.log('[AIService] Successfully parsed bill data with Gemini text parser');
-      console.log(`[AIService] Extracted: ${normalized.items?.length || 0} items`);
-      logAiFilledData('Gemini text parser', normalized);
-
-      return normalized;
-    } catch (error) {
-      console.warn('[AIService] Gemini text parser failed, trying OpenAI fallback:', error.message);
-    }
-  }
-
+async function parseOcrText(ocrText) {
   try {
     const { parseTextWithOpenAI } = require('./openaiService');
     const normalized = await parseTextWithOpenAI(ocrText);
@@ -288,6 +217,22 @@ async function parseOcrWithGemini(ocrText) {
     console.error('[AIService] ✗ Parsing failed:', error.message);
     throw new Error(`AI parsing failed: ${error.message}`);
   }
+}
+
+/**
+ * Generic "prompt in, JSON out" call for non-bill AI features (product identity lookup,
+ * etc). Goes through the same provider as the bill parsers, so AI availability is a
+ * single question everywhere: is OPENAI_API_KEY set and working.
+ * @param {string} prompt - Full prompt; must instruct the model to return JSON only
+ * @param {Object} options
+ * @param {string} options.label - Label used in logs
+ * @param {number} options.temperature - Sampling temperature (default 0)
+ * @returns {Promise<{ data: Object, source: 'openai' }>}
+ */
+async function generateStructuredJson(prompt, { label = 'structured JSON', temperature = 0 } = {}) {
+  const { generateJsonWithOpenAI } = require('./openaiService');
+  const data = await generateJsonWithOpenAI(prompt, { label, temperature });
+  return { data, source: 'openai' };
 }
 
 /**
@@ -850,38 +795,28 @@ function inferUnit(name = '') {
 }
 
 /**
- * Parse bill image directly using Gemini Vision (PRIMARY — best for documents)
- * Falls back to Groq Vision if Gemini fails.
+ * Parse a bill image with OpenAI Vision (metadata pass + double-read item-table pass).
+ * If vision fails outright but OCR text is available, drop to the cheaper text parser
+ * rather than failing the upload.
  */
 async function parseImageWithVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
-  // Try Gemini Vision first (much better for document/table parsing)
-  try {
-    const result = await parseImageWithGeminiVision(base64Image, mimeType, ocrTextHint);
-    return result;
-  } catch (geminiErr) {
-    console.warn('[AIService] Gemini Vision failed, trying Groq Vision:', geminiErr.message);
-  }
-
-  // Fallback to OpenAI Vision (replaces Groq Vision as the fallback)
   try {
     const { parseImageWithOpenAIVision } = require('./openaiService');
-    const result = await parseImageWithOpenAIVision(base64Image, mimeType, ocrTextHint);
-    return result;
+    return await parseImageWithOpenAIVision(base64Image, mimeType, ocrTextHint);
   } catch (openaiErr) {
     console.warn('[AIService] OpenAI Vision failed:', openaiErr.message);
   }
 
-  // Final fallback: if we have OCR text, use text model
   if (ocrTextHint && ocrTextHint.trim().length > 10) {
-    console.log('[AIService] All vision models failed — falling back to text model with OCR text...');
-    return parseOcrWithGemini(ocrTextHint);
+    console.log('[AIService] Vision failed — falling back to the text parser with OCR text...');
+    return parseOcrText(ocrTextHint);
   }
 
   throw new Error('All vision parsing methods failed. Try a clearer image.');
 }
 
 /**
- * The standard vision prompt for both Gemini and Groq
+ * The standard vision prompt
  */
 function getVisionPrompt(ocrTextHint) {
   return `You are an expert Indian pharmacy/medical invoice parser with 100% precision.
@@ -1127,85 +1062,13 @@ function reconcileItemPasses(itemsA = [], itemsB = []) {
   return reconciled;
 }
 
-/**
- * Parse with Gemini Vision (gemini-2.0-flash) — best for document/table parsing
- */
-async function parseImageWithGeminiVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
-  if (!geminiModel) {
-    const initialized = initializeGeminiVision();
-    if (!initialized) {
-      throw new Error('Gemini Vision not configured. Set GEMINI_API_KEY in .env');
-    }
-  }
-
-  console.log('[AIService] Sending image to Gemini Vision metadata pass...');
-
-  const metadataResult = await geminiModel.generateContent([
-    getVisionMetadataPrompt(ocrTextHint),
-    {
-      inlineData: {
-        mimeType,
-        data: base64Image,
-      },
-    },
-  ]);
-
-  const response = metadataResult.response;
-  const text = response.text();
-  console.log('[AIService] ✓ Received Gemini Vision response');
-  logAiRawResponse('Gemini Vision metadata pass', text);
-
-  // Extract JSON from response
-  let jsonText = text.trim();
-  if (jsonText.startsWith('```json')) {
-    jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
-  } else if (jsonText.startsWith('```')) {
-    jsonText = jsonText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
-  }
-
-  const start = jsonText.indexOf('{');
-  const end = jsonText.lastIndexOf('}');
-  if (start !== -1 && end !== -1) {
-    jsonText = jsonText.slice(start, end + 1);
-  }
-
-  const metadata = JSON.parse(jsonText);
-  console.log(`[AIService] Gemini Vision metadata fields:\n${truncateForLog(metadata)}`);
-
-  console.log('[AIService] Sending image to Gemini Vision item-table pass (2 independent reads for reconciliation)...');
-  const itemsPromptContent = [
-    getVisionItemsPrompt(ocrTextHint),
-    {
-      inlineData: {
-        mimeType,
-        data: base64Image,
-      },
-    },
-  ];
-  const [itemsResultA, itemsResultB] = await Promise.all([
-    geminiModel.generateContent(itemsPromptContent),
-    geminiModel.generateContent(itemsPromptContent),
-  ]);
-  const itemsTextA = itemsResultA.response.text();
-  const itemsTextB = itemsResultB.response.text();
-  logAiRawResponse('Gemini Vision item-table pass A', itemsTextA);
-  logAiRawResponse('Gemini Vision item-table pass B', itemsTextB);
-  const itemResultA = parseJsonResponse(itemsTextA);
-  const itemResultB = parseJsonResponse(itemsTextB);
-  const reconciledItems = reconcileItemPasses(itemResultA?.items, itemResultB?.items);
-  console.log(`[AIService] Gemini Vision reconciled item-table fields:\n${truncateForLog(reconciledItems)}`);
-  const parsed = mergeParsedBill(metadata, { items: reconciledItems });
-  const normalized = normalizeBillData(parsed, ocrTextHint);
-
-  console.log(`[AIService] ✓ Gemini Vision parsed: ${normalized.items?.length || 0} items`);
-  logAiFilledData('Gemini Vision final', normalized);
-  return normalized;
-}
-
 module.exports = {
-  parseOcrWithGemini,
+  // Entry points — provider-agnostic, delegate to openaiService
+  parseOcrText,
   parseImageWithVision,
-  initializeGeminiVision,
+  generateStructuredJson,
+
+  // Shared prompts + normalization, used by openaiService and nanonetsService
   normalizeBillData,
   getOcrTextPrompt,
   getVisionMetadataPrompt,
@@ -1213,4 +1076,5 @@ module.exports = {
   mergeParsedBill,
   parseJsonResponse,
   reconcileItemPasses,
+  logAiFilledData,
 };

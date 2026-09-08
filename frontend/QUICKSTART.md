@@ -57,7 +57,7 @@ The backend `.env` file is already configured with:
 ```env
 DATABASE_URL="postgresql://postgres:Abhi@1234@localhost:5432/pharmacy_db"
 PORT=5000
-GEMINI_API_KEY=your_gemini_key_here
+OPENAI_API_KEY=your_openai_key_here
 GOOGLE_APPLICATION_CREDENTIALS=./credentials.json
 ```
 
@@ -124,7 +124,7 @@ You should see:
 4. Watch the magic happen:
    - 📤 Image uploaded to backend
    - 🔍 OCR extraction with Google Cloud Vision
-   - 🤖 AI parsing with Gemini
+   - 🤖 AI parsing with OpenAI
    - ✅ Structured data displayed in the form
 
 ### 3. Review and Save
@@ -163,7 +163,7 @@ pharmacy-bill-app/
 │   │   ├── models/              # Database models
 │   │   ├── utils/
 │   │   │   ├── billExtractor.js    # OCR processing
-│   │   │   └── geminiService.js    # Gemini AI ⭐ (NEW)
+│   │   │   └── aiService.js    # AI parsing ⭐ (NEW)
 │   │   └── middleware/
 │   ├── prisma/
 │   │   └── schema.prisma       # Database schema
@@ -188,7 +188,7 @@ pharmacy-bill-app/
    ↓
 5. OCR extraction (Google Cloud Vision)
    ↓
-6. AI parsing (Gemini AI)
+6. AI parsing (OpenAI)
    ↓
 7. Save as draft in PostgreSQL
    ↓
@@ -238,10 +238,10 @@ DELETE /api/bills/:billId           # Delete bill
 2. Verify `EXPO_PUBLIC_BACKEND_URL` in `.env`
 3. For mobile device, use computer's IP address
 
-### "Gemini AI is not configured"
+### "AI is not configured"
 
 **Solution:**
-1. Check `GEMINI_API_KEY` in `backend/.env`
+1. Check `OPENAI_API_KEY` in `backend/.env`
 2. Verify API key is valid
 3. Check quota/billing on Google AI Studio
 
@@ -282,7 +282,7 @@ DELETE /api/bills/:billId           # Delete bill
 
 - 📸 Camera and gallery upload
 - 🔍 OCR text extraction (Google Cloud Vision)
-- 🤖 AI-powered bill parsing (Gemini)
+- 🤖 AI-powered bill parsing (OpenAI)
 - 📝 Editable bill form
 - 💾 PostgreSQL database storage
 - 🔐 API key security (server-side only)
@@ -333,7 +333,7 @@ DELETE /api/bills/:billId           # Delete bill
 - Node.js + Express
 - PostgreSQL + Prisma ORM
 - Google Cloud Vision API
-- Gemini AI API
+- OpenAI API
 - Multer (file uploads)
 - Sharp (image processing)
 

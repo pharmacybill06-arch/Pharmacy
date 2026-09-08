@@ -2,6 +2,7 @@ const productService = require('../services/productService');
 const productAggregationService = require('../services/productAggregationService');
 const batchService = require('../services/batchService');
 const productMergeService = require('../services/productMergeService');
+const productIdentifyService = require('../services/productIdentifyService');
 
 /**
  * Product Controller
@@ -539,5 +540,36 @@ exports.mergeProducts = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
     res.status(500).json({ error: 'Failed to merge products' });
+  }
+};
+
+// ============================================
+// IDENTIFY PRODUCT (AI)
+// ============================================
+
+/**
+ * Ask the AI what an auto-created (probably OCR-garbled) catalog product really is:
+ * an existing catalog product under a misread name, or a genuinely new medicine.
+ * Read-only — returns a suggestion for the pharmacist to act on via /merge or PUT.
+ * GET /products/:userId/:productId/identify
+ */
+exports.identifyProduct = async (req, res) => {
+  try {
+    const { userId, productId } = req.params;
+
+    const result = await productIdentifyService.identifyProduct(userId, productId);
+
+    res.json({ message: 'Product identified', ...result });
+  } catch (error) {
+    console.error('[PRODUCT] Identify error:', error.message);
+    if (error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error.message.includes('not configured') || error.message.includes('API_KEY')) {
+      return res.status(503).json({
+        error: 'AI is not configured on the server. Set OPENAI_API_KEY.',
+      });
+    }
+    res.status(502).json({ error: 'Could not identify this product right now. Please try again.' });
   }
 };

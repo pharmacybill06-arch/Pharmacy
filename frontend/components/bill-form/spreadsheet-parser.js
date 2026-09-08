@@ -1,6 +1,6 @@
 /**
  * Spreadsheet Parser for CSV and Excel files
- * Converts CSV/XLSX data into the same bill format as Gemini OCR output
+ * Converts CSV/XLSX data into the same bill format as the AI OCR parser output
  */
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
@@ -370,7 +370,7 @@ function extractTotals(items, allRows, headerRowIndex) {
  * Parse a CSV or Excel file into structured bill data
  * @param {string} fileUri - The local file URI
  * @param {string} mimeType - The MIME type of the file
- * @returns {Object} Parsed bill data in the same format as Gemini output
+ * @returns {Object} Parsed bill data in the same format as the AI parser output
  */
 export async function parseSpreadsheetFile(fileUri, mimeType) {
   console.log('[SpreadsheetParser] Starting parse:', fileUri);
@@ -404,7 +404,7 @@ export async function parseSpreadsheetFile(fileUri, mimeType) {
   // Extract totals
   const totals = extractTotals(items, allRows, headerRowIndex);
 
-  // Build result in same format as Gemini parsed output
+  // Build result in same format as the AI parsed output
   const result = {
     pharmacyName: metadata.pharmacyName || '',
     shopAddress: metadata.shopAddress || '',
@@ -432,10 +432,10 @@ export async function parseSpreadsheetFile(fileUri, mimeType) {
 }
 
 /**
- * Convert spreadsheet data to a text representation (for Gemini AI refinement)
+ * Convert spreadsheet data to a text representation (for AI refinement)
  */
 export function spreadsheetToText(fileUri, mimeType) {
-  // This sends the raw text to Gemini for more intelligent parsing if needed
+  // This sends the raw text to the AI parser for more intelligent parsing if needed
   return readFileToWorkbook(fileUri, mimeType).then((workbook) => {
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];

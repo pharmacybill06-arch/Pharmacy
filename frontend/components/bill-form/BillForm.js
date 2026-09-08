@@ -9,7 +9,7 @@ import {
   StyleSheet,
   View
 } from 'react-native';
-import { calculateParseConfidence, formatParsedDataForForm, getItemsNeedingReview, parseOcrWithGemini } from './gemini-integration';
+import { calculateParseConfidence, formatParsedDataForForm, getItemsNeedingReview, parseOcrText } from './bill-parser';
 import InvoiceMetadataSection from './sections/InvoiceMetadataSection';
 import ItemListSection from './sections/ItemListSection';
 import OcrReferenceSection from './sections/OcrReferenceSection';
@@ -42,9 +42,9 @@ export default function BillForm({
     grandTotal: 0,
   });
 
-  const [geminiLoading, setGeminiLoading] = useState(false);
-  const [geminiError, setGeminiError] = useState(null);
-  const [geminiConfidence, setGeminiConfidence] = useState(null);
+  const [parseLoading, setParseLoading] = useState(false);
+  const [parseError, setParseError] = useState(null);
+  const [parseConfidence, setParseConfidence] = useState(null);
   const [itemsNeedingManualReview, setItemsNeedingManualReview] = useState(0);
 
   useEffect(() => {
@@ -53,19 +53,19 @@ export default function BillForm({
 
   useEffect(() => {
     if (!ocrText || ocrText.trim().length === 0) {
-      console.log('[BillForm] No OCR text provided, skipping Gemini parsing');
+      console.log('[BillForm] No OCR text provided, skipping AI parsing');
       return;
     }
 
-    const parseOcrWithGeminiIntegration = async () => {
+    const parseOcrTextIntegration = async () => {
       try {
-        console.log(`[BillForm] Starting Gemini parsing - OCR text length: ${ocrText.length} characters`);
-        setGeminiLoading(true);
-        setGeminiError(null);
+        console.log(`[BillForm] Starting AI parsing - OCR text length: ${ocrText.length} characters`);
+        setParseLoading(true);
+        setParseError(null);
 
-        console.log('[BillForm] Calling parseOcrWithGemini function...');
-        const parsedData = await parseOcrWithGemini(ocrText);
-        console.log('[BillForm] Gemini parse completed successfully', parsedData);
+        console.log('[BillForm] Calling parseOcrText function...');
+        const parsedData = await parseOcrText(ocrText);
+        console.log('[BillForm] AI parse completed successfully', parsedData);
 
         console.log('[BillForm] Formatting parsed data for form...');
         const formattedData = formatParsedDataForForm(parsedData);
@@ -73,7 +73,7 @@ export default function BillForm({
 
         const confidence = calculateParseConfidence(parsedData);
         console.log(`[BillForm] Parse confidence score: ${(confidence * 100).toFixed(1)}%`);
-        setGeminiConfidence(confidence);
+        setParseConfidence(confidence);
 
         const reviewItems = getItemsNeedingReview(formattedData.items);
         console.log(`[BillForm] Items flagged for manual review: ${reviewItems.length}`, reviewItems);
@@ -86,23 +86,23 @@ export default function BillForm({
           items: formattedData.items,
         }));
 
-        console.log('[BillForm] Gemini integration working! Data auto-populated.');
+        console.log('[BillForm] AI parse working! Data auto-populated.');
         Alert.alert(
-          'Gemini OCR Parse Complete ✅',
+          'AI Parse Complete ✅',
           `Confidence: ${(confidence * 100).toFixed(1)}%\n` +
           `Items requiring review: ${reviewItems.length}\n\n` +
           'Data has been auto-populated. Please review carefully!'
         );
 
-        setGeminiLoading(false);
+        setParseLoading(false);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        console.error('[BillForm] Gemini parsing failed:', errorMessage, error);
-        setGeminiError(errorMessage);
-        setGeminiLoading(false);
+        console.error('[BillForm] AI parsing failed:', errorMessage, error);
+        setParseError(errorMessage);
+        setParseLoading(false);
 
         Alert.alert(
-          'Gemini OCR Parse Failed ❌',
+          'AI Parse Failed ❌',
           `Error: ${errorMessage}\n\n` +
           'Please check the backend server is running and try again.\n' +
           'You can still edit the bill manually.'
@@ -110,7 +110,7 @@ export default function BillForm({
       }
     };
 
-    parseOcrWithGeminiIntegration();
+    parseOcrTextIntegration();
   }, [ocrText]);
 
   const calculateTotals = () => {
@@ -214,22 +214,22 @@ export default function BillForm({
           </ThemedText>
         </View>
 
-        {geminiLoading && (
+        {parseLoading && (
           <View style={[styles.statusBox, styles.loadingBox]}>
-            <ThemedText style={styles.statusText}>🔄 Gemini AI is parsing your invoice...</ThemedText>
+            <ThemedText style={styles.statusText}>🔄 AI is parsing your invoice...</ThemedText>
           </View>
         )}
 
-        {geminiError && (
+        {parseError && (
           <View style={[styles.statusBox, styles.errorBox]}>
-            <ThemedText style={styles.errorStatusText}>❌ Parse Error: {geminiError}</ThemedText>
+            <ThemedText style={styles.errorStatusText}>❌ Parse Error: {parseError}</ThemedText>
           </View>
         )}
 
-        {geminiConfidence !== null && !geminiLoading && (
-          <View style={[styles.statusBox, geminiConfidence > 0.7 ? styles.successBox : styles.warningBox]}>
+        {parseConfidence !== null && !parseLoading && (
+          <View style={[styles.statusBox, parseConfidence > 0.7 ? styles.successBox : styles.warningBox]}>
             <ThemedText style={styles.successStatusText}>
-              {geminiConfidence > 0.7 ? '✅' : '⚠️'} Gemini Parse: {(geminiConfidence * 100).toFixed(1)}% confidence
+              {parseConfidence > 0.7 ? '✅' : '⚠️'} AI Parse: {(parseConfidence * 100).toFixed(1)}% confidence
               {itemsNeedingManualReview > 0 && ` • ${itemsNeedingManualReview} items need review`}
             </ThemedText>
           </View>

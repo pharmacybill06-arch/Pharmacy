@@ -1,7 +1,7 @@
 /**
- * OpenAI (GPT-4o) fallback parser — replaces Groq as the fallback used when
- * Gemini fails (vision or text). Reuses the same prompts/schema as Gemini so
- * output shape stays identical, via normalizeBillData.
+ * OpenAI (GPT-4o / GPT-4o-mini) — the app's only AI provider. This module owns the
+ * transport (auth, request shape, retries at the caller's level); the prompts and the
+ * response normalization live in aiService, which is what the rest of the app calls.
  */
 
 const {
@@ -12,7 +12,7 @@ const {
   mergeParsedBill,
   parseJsonResponse,
   reconcileItemPasses,
-} = require('./geminiService');
+} = require('./aiService');
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
@@ -25,7 +25,7 @@ function truncateForLog(value, maxChars = MAX_LOG_CHARS) {
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
-async function chatCompletion(messages, model, maxTokens = 4096) {
+async function chatCompletion(messages, model, maxTokens = 4096, temperature = 0) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OpenAI is not configured. Set OPENAI_API_KEY in .env');
@@ -39,7 +39,7 @@ async function chatCompletion(messages, model, maxTokens = 4096) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0,
+      temperature,
       max_tokens: maxTokens,
       response_format: { type: 'json_object' },
       messages,
@@ -55,8 +55,9 @@ async function chatCompletion(messages, model, maxTokens = 4096) {
 }
 
 /**
- * Parse bill image with GPT-4o vision — same two-pass approach as Gemini Vision
- * (metadata pass, then item-table pass), merged and normalized identically.
+ * Parse bill image with GPT-4o vision: a metadata pass, then an item-table pass read
+ * twice independently and reconciled so disagreements surface as needsReview instead of
+ * silently picking one possibly-wrong value.
  */
 async function parseImageWithOpenAIVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
   console.log(`[OpenAIService] Sending image to OpenAI Vision (${VISION_MODEL}) metadata pass...`);
@@ -125,4 +126,15 @@ async function parseTextWithOpenAI(ocrText) {
   return normalizeBillData(parsed, ocrText);
 }
 
-module.exports = { parseImageWithOpenAIVision, parseTextWithOpenAI };
+/**
+ * Generic "prompt in, JSON out" call, reached via aiService.generateStructuredJson and
+ * used by non-bill AI features (product identity lookup, etc).
+ */
+async function generateJsonWithOpenAI(prompt, { label = 'structured JSON', temperature = 0, maxTokens = 4096 } = {}) {
+  console.log(`[OpenAIService] Sending ${label} request to OpenAI (${TEXT_MODEL})...`);
+  const text = await chatCompletion([{ role: 'user', content: prompt }], TEXT_MODEL, maxTokens, temperature);
+  console.log(`[OpenAIService] ${label} raw response:\n${truncateForLog(text)}`);
+  return parseJsonResponse(text);
+}
+
+module.exports = { parseImageWithOpenAIVision, parseTextWithOpenAI, generateJsonWithOpenAI };

@@ -74,7 +74,7 @@ EXPO_PUBLIC_BACKEND_URL=http://10.0.2.2:5000/api
 | Backend Server | ✅ Running | http://192.168.68.4:5000 |
 | Frontend | ✅ Configured | Updated `.env` |
 | Database | ✅ PostgreSQL | Configured |
-| Gemini AI | ✅ Integrated | In backend |
+| OpenAI | ✅ Integrated | In backend |
 
 ---
 

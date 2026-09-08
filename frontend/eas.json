@@ -11,8 +11,7 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "http://localhost:5000/api",
-        "EXPO_PUBLIC_ENABLE_GEMINI": "true"
+        "EXPO_PUBLIC_BACKEND_URL": "http://localhost:5000/api"
       }
     },
     "preview": {
@@ -22,8 +21,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api",
-        "EXPO_PUBLIC_ENABLE_GEMINI": "true"
+        "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api"
       }
     },
     "production": {
@@ -32,8 +30,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api",
-        "EXPO_PUBLIC_ENABLE_GEMINI": "true"
+        "EXPO_PUBLIC_BACKEND_URL": "https://pharmacy-nlhp.onrender.com/api"
       }
     }
   },

@@ -374,7 +374,7 @@ model Bill {
 
   // Processing metadata
   ocrEngine   String? // ml-kit, tesseract, etc.
-  aiParser    String? // gemini-ai, groq, etc.
+  aiParser    String? // openai, nanonets, etc. Historical rows may say gemini-ai.
   processedAt DateTime? // When AI parsing was completed
 
   // Timestamps
