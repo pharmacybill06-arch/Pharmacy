@@ -21,6 +21,7 @@ import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import Toast from '@/components/ui/Toast';
 import { parseUpiPaymentText, getPaymentAppName, formatPaymentAmount } from '@/utils/paymentParser';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Editable Field Component
@@ -217,13 +218,9 @@ export default function SharedPaymentScreen({
     if (!dateStr) return '';
     try {
       const d = new Date(dateStr);
-      return d.toLocaleDateString('en-IN', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      if (isNaN(d.getTime())) return dateStr;
+      const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      return `${formatDDMMYYYY(d)} ${time}`;
     } catch {
       return dateStr;
     }

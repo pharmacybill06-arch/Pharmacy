@@ -9,6 +9,7 @@ import {
   ArrowRight, Shield, MailCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYY } from '../utils/dateFormat';
 
 // ============================================================================
 // STATUS CONFIGS
@@ -24,6 +25,19 @@ const providerDefaults = {
   gmail: { imapHost: 'imap.gmail.com', imapPort: '993', imapSecure: true, mailbox: 'INBOX' },
   custom: { imapHost: '', imapPort: '993', imapSecure: true, mailbox: 'INBOX' },
 };
+
+/**
+ * Mirrors inferProviderFromAddress in the backend's emailConnectionService: the email
+ * domain decides the provider, so typing a Gmail address can't leave the form pointed at
+ * Zoho's IMAP host (the backend corrects it anyway, but the form should show the truth).
+ */
+function providerForAddress(emailAddress) {
+  const domain = String(emailAddress || '').toLowerCase().split('@')[1] || '';
+  if (!domain) return null;
+  if (/(^|\.)(gmail|googlemail)\.com$/.test(domain)) return 'gmail';
+  if (/(^|\.)zoho(mail)?\.(com|in|eu)$/.test(domain)) return 'zoho';
+  return null;
+}
 
 const emptyConnectionForm = {
   provider: 'zoho',
@@ -77,6 +91,30 @@ export default function EmailBillsPage() {
           mailbox: prev.mailbox || defaults.mailbox,
         };
       }
+      if (field === 'emailAddress') {
+        const detected = providerForAddress(value);
+        // Only move the host if it is still one of our known defaults — never stomp a
+        // host the user typed by hand for a custom IMAP server.
+        const hostIsADefault = Object.values(providerDefaults).some(d => d.imapHost === prev.imapHost);
+        if (detected && detected !== prev.provider && hostIsADefault) {
+          const defaults = providerDefaults[detected];
+          return {
+            ...prev,
+            emailAddress: value,
+            provider: detected,
+            imapHost: defaults.imapHost,
+            imapPort: defaults.imapPort,
+            imapSecure: defaults.imapSecure,
+          };
+        }
+      }
+
+      // App passwords are shown in 4-character groups; the spaces are formatting, not
+      // part of the secret, and pasting them through makes the login fail.
+      if (field === 'password') {
+        return { ...prev, password: String(value).replace(/\s+/g, '') };
+      }
+
       return { ...prev, [field]: value };
     });
   };
@@ -131,11 +169,21 @@ export default function EmailBillsPage() {
         userId: user.id,
         ...connectionForm,
       });
-      toast.success('Mailbox connection saved');
+      toast.success('Mailbox connection verified and saved');
       await loadConnection();
       await loadInbox(searchQuery);
     } catch (err) {
-      toast.error(err.message || 'Failed to save mailbox connection');
+      // The backend now signs in before storing anything, so a 400 here means the
+      // credentials were rejected by the mail server. Show its hint — it names the
+      // usual causes (normal password instead of app password, IMAP disabled,
+      // wrong regional host) far better than a generic failure.
+      const hint = err.details?.hint;
+      toast.error(
+        hint ? `${err.message}
+
+${hint}` : (err.message || 'Failed to save mailbox connection'),
+        { duration: hint ? 10000 : 4000, style: { maxWidth: 520, whiteSpace: 'pre-line' } }
+      );
     } finally {
       setSavingConnection(false);
     }
@@ -209,7 +257,7 @@ export default function EmailBillsPage() {
           `Invoice #${duplicateBill.invoiceNumber} already exists in your records.\n` +
           `Distributor: ${duplicateBill.pharmacyName || 'N/A'}\n` +
           `Amount: ₹${duplicateBill.grandTotal || 'N/A'}\n` +
-          `Saved on: ${new Date(duplicateBill.createdAt).toLocaleDateString('en-IN')}\n\n` +
+          `Saved on: ${formatDDMMYYYY(duplicateBill.createdAt)}\n\n` +
           `Do you still want to open this bill for editing?`
         );
         if (!proceed) return;
@@ -314,10 +362,9 @@ export default function EmailBillsPage() {
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
     const d = new Date(dateStr);
-    return d.toLocaleDateString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
+    if (isNaN(d.getTime())) return '—';
+    const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    return `${formatDDMMYYYY(d)} ${time}`;
   };
 
   // Count selected bills
@@ -440,7 +487,11 @@ export default function EmailBillsPage() {
               {savingConnection ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : <><Shield size={14} /> Connect Mailbox</>}
             </button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Generate an app password from your {connectionForm.provider === 'gmail' ? 'Gmail' : 'Zoho'} account settings
+              {connectionForm.provider === 'gmail'
+                ? 'Google Account → Security → 2-Step Verification → App passwords. Paste the 16 characters; spaces are removed automatically.'
+                : connectionForm.provider === 'zoho'
+                  ? 'Zoho Mail → Settings → Security → App Passwords. Paste it as shown; spaces are removed automatically.'
+                  : 'Use an app-specific password from your mail provider, not your normal login password.'}
             </span>
           </div>
         </form>

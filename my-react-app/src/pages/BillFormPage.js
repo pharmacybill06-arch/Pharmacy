@@ -141,7 +141,7 @@ export default function BillFormPage() {
 
   // Keyboard navigation for Excel-like feel
   const handleKeyDown = (e, rowIndex, field) => {
-    const cols = ['name', 'batchNumber', 'expiryDate', 'quantity', 'rate', 'discount', 'gstPercent'];
+    const cols = ['name', 'batchNumber', 'expiryDate', 'quantity', 'freeQuantity', 'rate', 'discount', 'gstPercent'];
     const colIndex = cols.indexOf(field);
 
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
@@ -278,7 +278,13 @@ export default function BillFormPage() {
       toast.success(draftId ? 'Draft saved as bill!' : 'Bill saved successfully!');
       navigate('/bills');
     } catch (err) {
-      toast.error(err.message || 'Failed to save bill');
+      // A duplicate isn't a failure to retry — the bill is already in the books and
+      // saving again would double-count its stock. Same handling as the mobile app.
+      if (err.status === 409) {
+        toast.error(err.message || 'This invoice is already saved.', { duration: 6000 });
+      } else {
+        toast.error(err.message || 'Failed to save bill');
+      }
     } finally {
       setSaving(false);
     }
@@ -370,6 +376,8 @@ export default function BillFormPage() {
                 <th>Batch</th>
                 <th>Expiry</th>
                 <th>Qty</th>
+                <th>Free</th>
+                <th title="Qty + Free — what actually enters stock">Total</th>
                 <th>Rate</th>
                 <th>Disc %</th>
                 <th>GST %</th>
@@ -442,6 +450,10 @@ export default function BillFormPage() {
                   <td><input id={`input-${index}-batchNumber`} className="form-input" value={item.batchNumber} onChange={e => updateItem(index, 'batchNumber', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'batchNumber')} placeholder="Batch" style={{ width: 80 }} /></td>
                   <td><input id={`input-${index}-expiryDate`} className="form-input" value={item.expiryDate} onChange={e => updateItem(index, 'expiryDate', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'expiryDate')} placeholder="MM/YY" style={{ width: 80 }} /></td>
                   <td><input id={`input-${index}-quantity`} className="form-input" type="number" min="0" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'quantity')} style={{ width: 60 }} /></td>
+                  <td><input id={`input-${index}-freeQuantity`} className="form-input" type="number" min="0" value={item.freeQuantity ?? ''} onChange={e => updateItem(index, 'freeQuantity', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'freeQuantity')} placeholder="0" style={{ width: 55 }} /></td>
+                  <td style={{ color: '#4f46e5', fontWeight: 700, minWidth: 48 }}>
+                    {(parseFloat(item.quantity) || 0) + (parseFloat(item.freeQuantity) || 0)}
+                  </td>
                   <td><input id={`input-${index}-rate`} className="form-input" type="number" min="0" value={item.rate} onChange={e => updateItem(index, 'rate', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'rate')} placeholder="0.00" style={{ width: 80 }} /></td>
                   <td><input id={`input-${index}-discount`} className="form-input" type="number" min="0" max="100" value={item.discount} onChange={e => updateItem(index, 'discount', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'discount')} placeholder="0" style={{ width: 55 }} /></td>
                   <td>

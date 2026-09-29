@@ -464,6 +464,7 @@ function normalizeBillData(parsed, sourceText = '') {
     if (item._uncertain_batchNumber) { uncertainFields.push('batchNumber'); reasons.push('Batch number uncertain — verify in image'); }
     if (item._uncertain_expiryDate)  { uncertainFields.push('expiryDate');  reasons.push('Expiry date uncertain — verify in image'); }
     if (item._uncertain_quantity)    { uncertainFields.push('quantity');     reasons.push('Quantity uncertain — verify in image'); }
+    if (item._uncertain_freeQuantity){ uncertainFields.push('freeQuantity'); reasons.push('Free quantity uncertain — verify in image'); }
     if (item._uncertain_rate)        { uncertainFields.push('rate');         reasons.push('Rate uncertain — verify in image'); }
 
     // Preserve every field normalizeBillData already computed for this item (unit,
@@ -928,12 +929,14 @@ Extract EVERY printed item row from the table, from top to bottom. Return ONLY v
     {
       "sn": number|null,
       "quantity": number|null,
+      "freeQuantity": number|null,
       "name": string|null,
       "batchNumber": string|null,
       "expiryDate": string|null,
       "_uncertain_batchNumber": boolean,
       "_uncertain_expiryDate": boolean,
       "_uncertain_quantity": boolean,
+      "_uncertain_freeQuantity": boolean,
       "_uncertain_rate": boolean
     }
   ]
@@ -942,9 +945,17 @@ Extract EVERY printed item row from the table, from top to bottom. Return ONLY v
 Rules:
 - Read the table row-by-row visually from top to bottom. Ensure the items in the output array are in the EXACT SAME ORDER as they are printed in the table.
 - First read the table header row and map each value by visual column position.
-- Extract ONLY item serial number (sn), name, batch number, expiry date, and quantity. Ignore MRP, Rate, Discount, GST, HSN, and Amount columns.
+- Extract ONLY item serial number (sn), name, batch number, expiry date, quantity, and free quantity. Ignore MRP, Rate, Discount, GST, HSN, and Amount columns.
 - Expiry date is critical. Read Exp/Expiry/Exp Dt/Exp. columns carefully and format as MM/YY or MM/YYYY (or preserve the printed value if the full date is unclear).
 - Quantity must come only from the QTY column. Do not use pack-size text inside the item name (e.g., 10TAB, 30x10) as quantity.
+
+FREE / SCHEME QUANTITY (bonus units the distributor supplies at no charge):
+- Look for a column headed "Free", "Free Qty", "Sch", "Schm", "Scheme", "Sch/Free", "Sch%/Free", "Bonus" or "Deal". Put its count in freeQuantity.
+- freeQuantity is a COUNT OF UNITS, never a percentage. If the cell shows a percent sign, or the column is purely a discount percentage (e.g. "Sch%" alone with values like 5, 10, 12.5 that line up with a discount column), set freeQuantity to null — do NOT record a percentage as free units.
+- A combined "Sch%/Free" header means two things share one heading. Use the value that is a plain whole count of units; if a single cell holds both (e.g. "5%+2"), take only the unit count (2).
+- If the column exists but the cell is blank, 0, or "-", use 0. If there is no such column anywhere in the table, use null.
+- Never fold free units into quantity. quantity is the CHARGED count from the QTY column only. Example: QTY 16 with Free 4 must be quantity=16, freeQuantity=4 — never quantity=20.
+- If you cannot tell whether a number is free units or a percentage, set freeQuantity null and _uncertain_freeQuantity true.
 - Keep pack-size text inside the medicine name/unit. Example: "GPM SR 2 TAB 10TAB" can have quantity 20 if the QTY column says 20.
 - Preserve the exact number of item rows visible in the table. Do not summarize or skip rows.
 - If the table spans many rows, continue until the totals/class section begins.
@@ -1027,11 +1038,13 @@ function reconcileItemPasses(itemsA = [], itemsB = []) {
       sn: a?.sn ?? b?.sn,
       name: a?.name ?? b?.name,
       quantity: a?.quantity ?? b?.quantity,
+      freeQuantity: a?.freeQuantity ?? b?.freeQuantity,
       batchNumber: a?.batchNumber ?? b?.batchNumber,
       expiryDate: a?.expiryDate ?? b?.expiryDate,
       _uncertain_batchNumber: !!a?._uncertain_batchNumber || !!b?._uncertain_batchNumber,
       _uncertain_expiryDate: !!a?._uncertain_expiryDate || !!b?._uncertain_expiryDate,
       _uncertain_quantity: !!a?._uncertain_quantity || !!b?._uncertain_quantity,
+      _uncertain_freeQuantity: !!a?._uncertain_freeQuantity || !!b?._uncertain_freeQuantity,
       _uncertain_rate: !!a?._uncertain_rate || !!b?._uncertain_rate,
     };
 
@@ -1045,6 +1058,11 @@ function reconcileItemPasses(itemsA = [], itemsB = []) {
       if (!valuesMatch(a.quantity, b.quantity, { numeric: true })) {
         row._uncertain_quantity = true;
         console.log(`[AIService] Row ${i + 1} quantity disagreement: ${a.quantity} vs ${b.quantity}`);
+      }
+      // Free units go straight into stock, so a disagreement must surface for review.
+      if (!valuesMatch(a.freeQuantity ?? 0, b.freeQuantity ?? 0, { numeric: true })) {
+        row._uncertain_freeQuantity = true;
+        console.log(`[AIService] Row ${i + 1} freeQuantity disagreement: ${a.freeQuantity} vs ${b.freeQuantity}`);
       }
       if (!valuesMatch(a.batchNumber, b.batchNumber)) {
         row._uncertain_batchNumber = true;

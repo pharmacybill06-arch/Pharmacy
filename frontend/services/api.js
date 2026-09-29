@@ -41,7 +41,14 @@ async function apiFetch(endpoint, options = {}) {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || `API Error: ${response.status}`);
+      // Prefer the server's human-readable `message` when it sends one (e.g. the
+      // duplicate-invoice 409), and carry the status + body so callers can react to a
+      // specific case instead of only having a string to match on.
+      const error = new Error(data.message || data.error || `API Error: ${response.status}`);
+      error.status = response.status;
+      error.code = data.error;
+      error.details = data;
+      throw error;
     }
 
     return data;

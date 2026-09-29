@@ -28,14 +28,10 @@ import {
   toNumber,
 } from '@/utils/dosageForms';
 import { callPatient, messagePatientOnWhatsApp, buildRefillReminderMessage } from '@/utils/contactActions';
+import { formatDDMMYYYYOr } from '@/utils/dateFormat';
 
 function formatDate(date) {
-  if (!date) return '-';
-  return new Date(date).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDDMMYYYYOr(date, '-');
 }
 
 function getRunOutStatus(daysLeft) {

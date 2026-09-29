@@ -13,6 +13,7 @@ import {
   getItemsNeedingReview,
   parseOcrText,
 } from './bill-parser';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * BillFormRedesigned Component
@@ -105,8 +106,10 @@ export default function BillFormRedesigned({
     dlNumber: initialData?.dlNumber || '',
     distributorId: initialData?.distributorId || null,
     invoiceNumber: initialData?.invoiceNumber || '',
-    invoiceDate: initialData?.invoiceDate || '',
-    dueDate: initialData?.dueDate || '',
+    // Dates are shown and edited as DD-MM-YYYY. initialData carries DD-MM-YYYY from the
+    // AI parse, but an ISO timestamp when an already-saved bill is reopened for editing.
+    invoiceDate: formatDDMMYYYY(initialData?.invoiceDate) || '',
+    dueDate: formatDDMMYYYY(initialData?.dueDate) || '',
     paymentType: initialData?.paymentType || '',
     grandTotal: initialData?.grandTotal != null ? String(initialData.grandTotal) : '',
     items: initialData?.items || [],
@@ -243,6 +246,7 @@ export default function BillFormRedesigned({
 
   const numericItemFields = new Set([
     'quantity',
+    'freeQuantity',
     'packSize',
   ]);
 

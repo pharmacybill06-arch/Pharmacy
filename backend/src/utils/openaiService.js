@@ -15,9 +15,51 @@ const {
 } = require('./aiService');
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
+// gpt-4.1-mini benchmarks better than gpt-4o on this workload (dense batch/expiry columns
+// in small print) at roughly a sixth of the cost — see the bench note in .env.example.
+// gpt-4o-mini is NOT a substitute: it misreads the QTY column badly on these invoices.
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
 const TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
 const MAX_LOG_CHARS = Number(process.env.OPENAI_LOG_MAX_CHARS || 20000);
+
+/**
+ * The OCR hint is pasted into every vision prompt, so a long hint is paid for once per
+ * pass. Cap it — the hint only has to be good enough to disambiguate characters the
+ * model is already looking at in the image.
+ */
+const MAX_HINT_CHARS = Number(process.env.OPENAI_VISION_HINT_MAX_CHARS || 4000);
+
+/**
+ * Item-table double-read mode:
+ *   'auto'   — second pass only when the first read looks shaky (default)
+ *   'always' — previous behaviour: always read twice
+ *   'never'  — single read, no reconciliation
+ */
+const DOUBLE_READ_MODE = (process.env.OPENAI_ITEM_DOUBLE_READ || 'auto').toLowerCase();
+
+// USD per 1M tokens. Only used for the cost figures in the logs — update these (or the
+// env overrides) if OpenAI's published pricing moves.
+const PRICING = {
+  'gpt-4o': { in: 2.5, out: 10 },
+  'gpt-4o-mini': { in: 0.15, out: 0.6 },
+  'gpt-4.1': { in: 2, out: 8 },
+  'gpt-4.1-mini': { in: 0.4, out: 1.6 },
+  'gpt-4.1-nano': { in: 0.1, out: 0.4 },
+};
+const FALLBACK_PRICE = {
+  in: Number(process.env.OPENAI_PRICE_IN || 2.5),
+  out: Number(process.env.OPENAI_PRICE_OUT || 10),
+};
+const USD_TO_INR = Number(process.env.USD_TO_INR || 88);
+
+function priceFor(model) {
+  const name = String(model || '');
+  // Longest prefix wins — "gpt-4o-mini" must not match the "gpt-4o" entry.
+  const key = Object.keys(PRICING)
+    .filter((m) => name.startsWith(m))
+    .sort((a, b) => b.length - a.length)[0];
+  return key ? PRICING[key] : FALLBACK_PRICE;
+}
 
 function truncateForLog(value, maxChars = MAX_LOG_CHARS) {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -25,7 +67,26 @@ function truncateForLog(value, maxChars = MAX_LOG_CHARS) {
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
-async function chatCompletion(messages, model, maxTokens = 4096, temperature = 0) {
+/** Trim the hint from the middle: the header and the totals block are the useful ends. */
+function capHint(hint) {
+  const text = String(hint || '').trim();
+  if (text.length <= MAX_HINT_CHARS) return text;
+  const half = Math.floor(MAX_HINT_CHARS / 2);
+  console.log(`[OpenAIService] OCR hint ${text.length} chars — trimming to ${MAX_HINT_CHARS} for the vision prompts`);
+  return `${text.slice(0, half)}\n...[hint trimmed]...\n${text.slice(-half)}`;
+}
+
+function estimateCost(usage, model) {
+  const price = priceFor(model);
+  const inTok = usage?.prompt_tokens || 0;
+  const outTok = usage?.completion_tokens || 0;
+  const cached = usage?.prompt_tokens_details?.cached_tokens || 0;
+  // Cached input bills at half rate on OpenAI.
+  const usd = ((inTok - cached) * price.in + cached * price.in * 0.5 + outTok * price.out) / 1e6;
+  return { inTok, outTok, cached, usd, inr: usd * USD_TO_INR };
+}
+
+async function chatCompletion(messages, model, maxTokens = 4096, temperature = 0, label = 'call') {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OpenAI is not configured. Set OPENAI_API_KEY in .env');
@@ -51,57 +112,126 @@ async function chatCompletion(messages, model, maxTokens = 4096, temperature = 0
     throw new Error(`OpenAI request failed (${res.status}): ${truncateForLog(body?.error || body)}`);
   }
 
-  return body.choices?.[0]?.message?.content || '';
+  const cost = estimateCost(body.usage, model);
+  console.log(
+    `[OpenAIService] $$ ${label} (${model}): in=${cost.inTok} (cached ${cost.cached}) out=${cost.outTok} ` +
+    `≈ $${cost.usd.toFixed(4)} / ₹${cost.inr.toFixed(2)}`
+  );
+
+  return { content: body.choices?.[0]?.message?.content || '', cost };
 }
 
 /**
- * Parse bill image with GPT-4o vision: a metadata pass, then an item-table pass read
- * twice independently and reconciled so disagreements surface as needsReview instead of
- * silently picking one possibly-wrong value.
+ * Does a single item-table read need a second opinion? A confirmation pass costs as much
+ * as the first read, so only spend it when the first read actually signals trouble:
+ * self-reported uncertainty, a missing critical field, or broken row numbering.
+ */
+function needsConfirmationPass(items) {
+  if (!Array.isArray(items) || items.length === 0) return true;
+
+  const shaky = items.some((it, i) => (
+    it?._uncertain_batchNumber ||
+    it?._uncertain_expiryDate ||
+    it?._uncertain_quantity ||
+    it?._uncertain_freeQuantity ||
+    it?._uncertain_rate ||
+    !it?.name ||
+    it?.quantity == null ||
+    // Row numbering that doesn't march 1,2,3... is the classic row-shift symptom.
+    (it?.sn != null && Number(it.sn) !== i + 1)
+  ));
+
+  if (shaky) {
+    console.log('[OpenAIService] First item read flagged uncertainty — spending a confirmation pass');
+  } else {
+    console.log(`[OpenAIService] First item read is clean across ${items.length} rows — skipping the confirmation pass`);
+  }
+  return shaky;
+}
+
+/**
+ * Parse bill image with vision: a metadata pass, then the item-table pass. The item table
+ * is read a second time and reconciled — so disagreements surface as needsReview instead
+ * of silently picking one possibly-wrong value — but only when the first read looks
+ * shaky, since that second read doubles the cost of the most expensive call in the scan.
+ * Set OPENAI_ITEM_DOUBLE_READ=always to restore the unconditional double read.
  */
 async function parseImageWithOpenAIVision(base64Image, mimeType = 'image/jpeg', ocrTextHint = '') {
+  const hint = capHint(ocrTextHint);
+  const imagePart = {
+    type: 'image_url',
+    image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' },
+  };
+  const costs = [];
+
   console.log(`[OpenAIService] Sending image to OpenAI Vision (${VISION_MODEL}) metadata pass...`);
-  const metadataText = await chatCompletion(
+  const metadataRes = await chatCompletion(
     [
       {
         role: 'user',
-        content: [
-          { type: 'text', text: getVisionMetadataPrompt(ocrTextHint) },
-          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
-        ],
+        content: [{ type: 'text', text: getVisionMetadataPrompt(hint) }, imagePart],
       },
     ],
     VISION_MODEL,
-    4096
+    4096,
+    0,
+    'metadata pass'
   );
-  console.log(`[OpenAIService] Metadata pass response:\n${truncateForLog(metadataText)}`);
-  const metadata = parseJsonResponse(metadataText);
+  costs.push(metadataRes.cost);
+  console.log(`[OpenAIService] Metadata pass response:\n${truncateForLog(metadataRes.content)}`);
+  const metadata = parseJsonResponse(metadataRes.content);
 
-  console.log(`[OpenAIService] Sending image to OpenAI Vision (${VISION_MODEL}) item-table pass (2 independent reads for reconciliation)...`);
   const itemsMessages = [
     {
       role: 'user',
-      content: [
-        { type: 'text', text: getVisionItemsPrompt(ocrTextHint) },
-        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
-      ],
+      content: [{ type: 'text', text: getVisionItemsPrompt(hint) }, imagePart],
     },
   ];
-  const [itemsTextA, itemsTextB] = await Promise.all([
-    chatCompletion(itemsMessages, VISION_MODEL, 8192),
-    chatCompletion(itemsMessages, VISION_MODEL, 8192),
-  ]);
-  console.log(`[OpenAIService] Item-table pass A response:\n${truncateForLog(itemsTextA)}`);
-  console.log(`[OpenAIService] Item-table pass B response:\n${truncateForLog(itemsTextB)}`);
-  const itemResultA = parseJsonResponse(itemsTextA);
-  const itemResultB = parseJsonResponse(itemsTextB);
-  const reconciledItems = reconcileItemPasses(itemResultA?.items, itemResultB?.items);
+
+  console.log(`[OpenAIService] Sending image to OpenAI Vision (${VISION_MODEL}) item-table pass (mode: ${DOUBLE_READ_MODE})...`);
+  let reconciledItems;
+
+  if (DOUBLE_READ_MODE === 'always') {
+    const [resA, resB] = await Promise.all([
+      chatCompletion(itemsMessages, VISION_MODEL, 8192, 0, 'items pass A'),
+      chatCompletion(itemsMessages, VISION_MODEL, 8192, 0, 'items pass B'),
+    ]);
+    costs.push(resA.cost, resB.cost);
+    console.log(`[OpenAIService] Item-table pass A response:\n${truncateForLog(resA.content)}`);
+    console.log(`[OpenAIService] Item-table pass B response:\n${truncateForLog(resB.content)}`);
+    reconciledItems = reconcileItemPasses(
+      parseJsonResponse(resA.content)?.items,
+      parseJsonResponse(resB.content)?.items
+    );
+  } else {
+    const resA = await chatCompletion(itemsMessages, VISION_MODEL, 8192, 0, 'items pass A');
+    costs.push(resA.cost);
+    console.log(`[OpenAIService] Item-table pass A response:\n${truncateForLog(resA.content)}`);
+    const itemsA = parseJsonResponse(resA.content)?.items;
+
+    if (DOUBLE_READ_MODE !== 'never' && needsConfirmationPass(itemsA)) {
+      // The prompt+image prefix is identical to pass A, so this sequential call also
+      // picks up OpenAI's automatic prompt-cache discount on the input.
+      const resB = await chatCompletion(itemsMessages, VISION_MODEL, 8192, 0, 'items pass B (confirmation)');
+      costs.push(resB.cost);
+      console.log(`[OpenAIService] Item-table pass B response:\n${truncateForLog(resB.content)}`);
+      reconciledItems = reconcileItemPasses(itemsA, parseJsonResponse(resB.content)?.items);
+    } else {
+      reconciledItems = itemsA;
+    }
+  }
+
   console.log(`[OpenAIService] Reconciled item-table fields:\n${truncateForLog(reconciledItems)}`);
 
   const merged = mergeParsedBill(metadata, { items: reconciledItems });
   const normalized = normalizeBillData(merged, ocrTextHint);
 
-  console.log(`[OpenAIService] ✓ OpenAI Vision parsed ${normalized.items?.length || 0} items`);
+  const totalInr = costs.reduce((sum, c) => sum + c.inr, 0);
+  const totalUsd = costs.reduce((sum, c) => sum + c.usd, 0);
+  console.log(
+    `[OpenAIService] ✓ OpenAI Vision parsed ${normalized.items?.length || 0} items ` +
+    `in ${costs.length} call(s) — scan cost ≈ $${totalUsd.toFixed(4)} / ₹${totalInr.toFixed(2)}`
+  );
   return normalized;
 }
 
@@ -110,7 +240,7 @@ async function parseImageWithOpenAIVision(base64Image, mimeType = 'image/jpeg', 
  */
 async function parseTextWithOpenAI(ocrText) {
   console.log(`[OpenAIService] Sending OCR text to OpenAI (${TEXT_MODEL})...`);
-  const text = await chatCompletion(
+  const { content } = await chatCompletion(
     [
       {
         role: 'system',
@@ -119,10 +249,12 @@ async function parseTextWithOpenAI(ocrText) {
       { role: 'user', content: getOcrTextPrompt(ocrText) },
     ],
     TEXT_MODEL,
-    8192
+    8192,
+    0,
+    'OCR text parse'
   );
-  console.log(`[OpenAIService] Text parser response:\n${truncateForLog(text)}`);
-  const parsed = parseJsonResponse(text);
+  console.log(`[OpenAIService] Text parser response:\n${truncateForLog(content)}`);
+  const parsed = parseJsonResponse(content);
   return normalizeBillData(parsed, ocrText);
 }
 
@@ -132,9 +264,9 @@ async function parseTextWithOpenAI(ocrText) {
  */
 async function generateJsonWithOpenAI(prompt, { label = 'structured JSON', temperature = 0, maxTokens = 4096 } = {}) {
   console.log(`[OpenAIService] Sending ${label} request to OpenAI (${TEXT_MODEL})...`);
-  const text = await chatCompletion([{ role: 'user', content: prompt }], TEXT_MODEL, maxTokens, temperature);
-  console.log(`[OpenAIService] ${label} raw response:\n${truncateForLog(text)}`);
-  return parseJsonResponse(text);
+  const { content } = await chatCompletion([{ role: 'user', content: prompt }], TEXT_MODEL, maxTokens, temperature, label);
+  console.log(`[OpenAIService] ${label} raw response:\n${truncateForLog(content)}`);
+  return parseJsonResponse(content);
 }
 
 module.exports = { parseImageWithOpenAIVision, parseTextWithOpenAI, generateJsonWithOpenAI };

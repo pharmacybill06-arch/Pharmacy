@@ -17,6 +17,7 @@ import { Colors } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { useInvoice } from '../../contexts/InvoiceContext';
 import AppBar from '@/components/ui/AppBar';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * InvoicesListScreen
@@ -114,7 +115,7 @@ export default function InvoicesListScreen() {
           <View style={styles.headerInfo}>
             <Text style={styles.customerName}>{item.customerName}</Text>
             <Text style={styles.invoiceDate}>
-              {new Date(item.invoiceDate).toLocaleDateString()}
+              {formatDDMMYYYY(item.invoiceDate)}
             </Text>
           </View>
         </View>

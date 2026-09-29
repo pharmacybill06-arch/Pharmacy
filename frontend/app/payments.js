@@ -7,6 +7,7 @@ import { useDistributors, DistributorProvider } from '@/contexts/DistributorCont
 import PaymentsListScreen from '@/components/screens/PaymentsListScreen';
 import SharedPaymentScreen from '@/components/screens/SharedPaymentScreen';
 import Toast from '@/components/ui/Toast';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Payments Screen Content
@@ -162,7 +163,7 @@ function PaymentsScreenContent() {
         `Amount: ₹${payment.amount}`,
         `To: ${payment.distributor?.name || payment.payeeName || 'Unknown'}`,
         `Txn ID: ${payment.transactionId || 'N/A'}`,
-        `Date: ${payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString('en-IN') : 'N/A'}`,
+        `Date: ${payment.paymentDate ? formatDDMMYYYY(payment.paymentDate) : 'N/A'}`,
         `App: ${payment.paymentApp ? require('@/utils/paymentParser').getPaymentAppName(payment.paymentApp) : 'N/A'}`,
         payment.notes ? `Notes: ${payment.notes}` : '',
       ].filter(Boolean).join('\n'),

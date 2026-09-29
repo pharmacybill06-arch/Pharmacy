@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { billApi } from '../services/api';
 import { ArrowLeft, Trash2, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYYOr } from '../utils/dateFormat';
 
 export default function BillDetailsPage() {
   const { billId } = useParams();
@@ -66,7 +67,7 @@ export default function BillDetailsPage() {
           <div>
             <h2 style={{ fontSize: 24, fontWeight: 700 }}>Bill #{bill.invoiceNumber || 'N/A'}</h2>
             <p style={{ color: '#6b7280', fontSize: 14 }}>
-              {bill.invoiceDate ? new Date(bill.invoiceDate).toLocaleDateString() : 'No date'} • 
+              {formatDDMMYYYYOr(bill.invoiceDate, 'No date')} • 
               {bill.distributor?.name || bill.pharmacyName || 'Unknown distributor'}
             </p>
           </div>
@@ -90,7 +91,7 @@ export default function BillDetailsPage() {
               </div>
               <div>
                 <p style={{ fontSize: 12, color: '#6b7280' }}>Invoice Date</p>
-                <p style={{ fontWeight: 500 }}>{bill.invoiceDate ? new Date(bill.invoiceDate).toLocaleDateString() : 'N/A'}</p>
+                <p style={{ fontWeight: 500 }}>{formatDDMMYYYYOr(bill.invoiceDate, 'N/A')}</p>
               </div>
               <div>
                 <p style={{ fontSize: 12, color: '#6b7280' }}>Payment Type</p>

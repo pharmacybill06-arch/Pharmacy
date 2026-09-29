@@ -13,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 function formatAmount(amount) {
   const n = parseFloat(amount) || 0;
@@ -21,8 +22,7 @@ function formatAmount(amount) {
 
 function formatDate(dateString) {
   if (!dateString) return 'No payments yet';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDDMMYYYY(dateString);
 }
 
 /**

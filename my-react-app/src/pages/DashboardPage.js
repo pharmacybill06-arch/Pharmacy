@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { billApi, productApi, invoiceApi, distributorApi } from '../services/api';
+import { formatDDMMYYYYOr } from '../utils/dateFormat';
 import {
   FileText, Package, Truck, Receipt, ScanLine,
   Plus, AlertTriangle, Clock
@@ -142,7 +143,7 @@ export default function DashboardPage() {
                       </td>
                       <td>{bill.distributor?.name || bill.pharmacyName || '-'}</td>
                       <td>₹{(bill.grandTotal || 0).toFixed(2)}</td>
-                      <td>{bill.invoiceDate ? new Date(bill.invoiceDate).toLocaleDateString() : '-'}</td>
+                      <td>{formatDDMMYYYYOr(bill.invoiceDate, '-')}</td>
                     </tr>
                   ))}
                 </tbody>

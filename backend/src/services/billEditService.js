@@ -96,6 +96,7 @@ async function updateBillItem(billItemId, changes) {
   if ('batchNumber' in changes) data.batchNumber = changes.batchNumber?.trim() || null;
   if ('expiryDate' in changes) data.expiryDate = changes.expiryDate?.trim() || null;
   if ('quantity' in changes) data.quantity = changes.quantity != null ? parseFloat(changes.quantity) : billItem.quantity;
+  if ('freeQuantity' in changes) data.freeQuantity = changes.freeQuantity != null && changes.freeQuantity !== '' ? parseFloat(changes.freeQuantity) || 0 : null;
   if ('mrp' in changes) data.mrp = changes.mrp != null ? parseFloat(changes.mrp) : null;
   if ('rate' in changes) data.rate = changes.rate != null ? parseFloat(changes.rate) : billItem.rate;
 
@@ -107,7 +108,7 @@ async function updateBillItem(billItemId, changes) {
     if (!newProduct) throw new Error('Selected product not found');
   }
 
-  const diffs = diffFields(billItem, data, ['name', 'manufacturer', 'productId', 'batchNumber', 'expiryDate', 'quantity', 'mrp', 'rate']);
+  const diffs = diffFields(billItem, data, ['name', 'manufacturer', 'productId', 'batchNumber', 'expiryDate', 'quantity', 'freeQuantity', 'mrp', 'rate']);
   if (diffs.length === 0) {
     return { billItem, diffs: [], warnings: [] };
   }
@@ -125,6 +126,15 @@ async function updateBillItem(billItemId, changes) {
   const batchChanged = 'batchNumber' in changes && data.batchNumber !== billItem.batchNumber;
   const expiryChanged = 'expiryDate' in changes && data.expiryDate !== billItem.expiryDate;
   const quantityChanged = 'quantity' in changes && data.quantity !== billItem.quantity;
+  const freeQuantityChanged = 'freeQuantity' in changes && data.freeQuantity !== billItem.freeQuantity;
+
+  // A purchase line's physical contribution to stock is the charged units PLUS the free
+  // units — the same (quantity + freeQuantity) sum batchService adds on confirm. Every
+  // stock delta below has to be computed from this, not from quantity alone.
+  const stockUnitsBefore = (billItem.quantity || 0) + (billItem.freeQuantity || 0);
+  const stockUnitsAfter =
+    ('quantity' in changes ? (data.quantity || 0) : (billItem.quantity || 0)) +
+    ('freeQuantity' in changes ? (data.freeQuantity || 0) : (billItem.freeQuantity || 0));
 
   const result = await prisma.$transaction(async (tx) => {
     // ── Re-link to a different catalog product: move this line's own contribution off
@@ -134,7 +144,7 @@ async function updateBillItem(billItemId, changes) {
     if (productChanged) {
       const oldNormalized = normalizeBatchNumber(billItem.batchNumber);
       const oldProduct = billItem.product;
-      const itemBaseQty = round3((billItem.quantity || 0) * (oldProduct?.packSize || 1));
+      const itemBaseQty = round3(stockUnitsBefore * (oldProduct?.packSize || 1));
 
       const oldLinkedBatch = billItem.productId && oldNormalized
         ? await tx.productBatch.findUnique({
@@ -261,7 +271,7 @@ async function updateBillItem(billItemId, changes) {
     // ── Propagate batch-number/expiry/quantity corrections to the linked ProductBatch,
     // matched via the item's batch number BEFORE this edit (that's the physical batch
     // this purchase line actually fed) — using the product it now belongs to. ──
-    if (workingProductId && (batchChanged || expiryChanged || quantityChanged)) {
+    if (workingProductId && (batchChanged || expiryChanged || quantityChanged || freeQuantityChanged)) {
       const oldNormalized = normalizeBatchNumber(billItem.batchNumber);
       const linkedBatch = oldNormalized
         ? await tx.productBatch.findUnique({
@@ -272,13 +282,14 @@ async function updateBillItem(billItemId, changes) {
       if (linkedBatch) {
         const batchUpdate = {};
 
-        if (quantityChanged) {
+        if (quantityChanged || freeQuantityChanged) {
           // Use the ORIGINAL product's pack size for both sides of the delta — the
           // physical unit count already moved (in the re-link step above, if any) was
-          // computed the same way, so this must stay consistent with it.
+          // computed the same way, so this must stay consistent with it. Both sides
+          // count charged + free units, since both are physically on the shelf.
           const product = billItem.product;
-          const oldBase = round3((billItem.quantity || 0) * (product?.packSize || 1));
-          const newBase = round3((data.quantity || 0) * (product?.packSize || 1));
+          const oldBase = round3(stockUnitsBefore * (product?.packSize || 1));
+          const newBase = round3(stockUnitsAfter * (product?.packSize || 1));
           const delta = round3(newBase - oldBase);
           const projected = round3(linkedBatch.quantityBase + delta);
           batchUpdate.quantityBase = { increment: delta };
@@ -357,7 +368,9 @@ async function updateBillItem(billItemId, changes) {
         field: d.field,
         oldValue: d.oldValue,
         newValue: d.newValue,
-        note: warnings.length > 0 && d.field === 'quantity' ? warnings[warnings.length - 1] : null,
+        note: warnings.length > 0 && (d.field === 'quantity' || d.field === 'freeQuantity')
+          ? warnings[warnings.length - 1]
+          : null,
       })),
     });
 

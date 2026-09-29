@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { productApi } from '../services/api';
 import { Warehouse, Search, AlertTriangle, Package, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYY } from '../utils/dateFormat';
 
 export default function InventoryPage() {
   const { user } = useAuth();
@@ -138,7 +139,7 @@ export default function InventoryPage() {
                     <td>
                       {p.expiryDate ? (
                         <span className={`badge ${isExpired ? 'badge-danger' : isExpiring ? 'badge-warning' : 'badge-success'}`}>
-                          {new Date(p.expiryDate).toLocaleDateString()}
+                          {formatDDMMYYYY(p.expiryDate)}
                         </span>
                       ) : '-'}
                     </td>

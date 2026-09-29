@@ -18,6 +18,8 @@ const productService = require('./productService');
 const distributorService = require('./distributorService');
 const { extractTextFromImage } = require('../utils/ocrService');
 const { parseOcrText, parseImageWithVision } = require('../utils/aiService');
+const { parseInvoiceDate } = require('../utils/dateUtils');
+const { findDuplicateBill } = require('./billDuplicateService');
 
 // Supported attachment types
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff'];
@@ -56,17 +58,10 @@ function isSupportedAttachment(attachment) {
 }
 
 /**
- * Helper: Parse date string
+ * Helper: Parse an invoice/due date string (DD-MM-YYYY, day-first, UTC-anchored).
+ * Shared with billController via dateUtils so both save paths agree.
  */
-function parseDateString(dateStr) {
-  if (!dateStr) return null;
-  try {
-    const date = new Date(dateStr);
-    return isNaN(date.getTime()) ? null : date;
-  } catch {
-    return null;
-  }
-}
+const parseDateString = parseInvoiceDate;
 
 function normalizeSpreadsheetKey(value) {
   return String(value || '')
@@ -553,102 +548,101 @@ async function processEmailBodyText(bodyText, subject) {
 async function listInboxEmails(userId, limit = 50, searchKey = null) {
   const { mailClient, connectionId } = await getEmailContext(userId);
 
-  // Fetch emails
-  let emails;
-  if (searchKey) {
-    emails = await mailClient.searchEmails(searchKey, limit);
-  } else {
-    emails = await mailClient.fetchEmails(limit);
-  }
-
-  // Batch check processing status for all emails at once (much faster)
-  const messageIds = emails.map(e => String(e.messageId));
-  const processedLogs = await prisma.emailProcessingLog.findMany({
-    where: {
-      userId,
-      connectionId,
-      messageId: { in: messageIds },
-    },
-    select: {
-      messageId: true,
-      status: true,
-      billsCreated: true,
-      processedAt: true,
-    },
-  });
-
-  // Create a map for quick lookup
-  const processedMap = new Map();
-  processedLogs.forEach(log => {
-    processedMap.set(log.messageId, {
-      status: log.status,
-      billsCreated: log.billsCreated || 0,
-      processedAt: log.processedAt,
-    });
-  });
-
-  // Process emails in batches to avoid "too many connections" error
-  const BATCH_SIZE = 10; // Gmail allows ~15 concurrent connections, use 10 to be safe
+  // The whole listing — the message index AND every body — runs inside one session, so a
+  // full inbox load costs a single IMAP login. Each body used to be fetched through
+  // mailClient.getEmailContent(), which opened and closed its own connection: 50 logins
+  // to list 50 emails, which is what the old "too many connections" batching was working
+  // around. IMAP multiplexes poorly, so sequential-on-one-connection also beats
+  // parallel-across-many.
   const enrichedEmails = [];
 
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE);
-    
-    const batchResults = await Promise.all(
-      batch.map(async (email) => {
-        const messageId = String(email.messageId);
-        const folderId = email.folderId;
-        const subject = email.subject || '(no subject)';
-        const sender = email.fromAddress || email.sender || '';
-        const hasAtt = String(email.hasAttachment) === '1' || email.hasAttachment === true;
-        const receivedTime = email.receivedTime ? new Date(parseInt(email.receivedTime)) : null;
+  await mailClient.withSession(async (session) => {
+    // Over-fetch when searching, since the filter is applied client-side.
+    const fetched = await session.fetchEmails(searchKey ? Math.max(limit * 3, limit) : limit);
 
-        // Get body text for AI detection
-        let bodyText = '';
-        try {
-          const content = await mailClient.getEmailContent(messageId, folderId);
-          if (content) {
-            const rawHtml = content.content || content.htmlContent || content;
-            bodyText = typeof rawHtml === 'string' ? stripHtml(rawHtml) : '';
-          }
-        } catch (e) {
-          // If content fetch fails, use subject only
+    const matching = searchKey
+      ? fetched
+          .filter((e) => `${e.subject} ${e.sender} ${e.summary}`.toLowerCase()
+            .includes(String(searchKey).toLowerCase()))
+          .slice(0, limit)
+      : fetched;
+
+    // Batch check processing status for the matched emails at once (much faster).
+    // Must come after the fetch — it keys off the message ids we actually got back.
+    const processedLogs = await prisma.emailProcessingLog.findMany({
+      where: {
+        userId,
+        connectionId,
+        messageId: { in: matching.map((e) => String(e.messageId)) },
+      },
+      select: {
+        messageId: true,
+        status: true,
+        billsCreated: true,
+        processedAt: true,
+      },
+    });
+
+    const processedMap = new Map();
+    processedLogs.forEach((log) => {
+      processedMap.set(log.messageId, {
+        status: log.status,
+        billsCreated: log.billsCreated || 0,
+        processedAt: log.processedAt,
+      });
+    });
+
+    for (const email of matching) {
+      const messageId = String(email.messageId);
+      const folderId = email.folderId;
+      const subject = email.subject || '(no subject)';
+      const sender = email.fromAddress || email.sender || '';
+      const hasAtt = String(email.hasAttachment) === '1' || email.hasAttachment === true;
+      const receivedTime = email.receivedTime ? new Date(parseInt(email.receivedTime)) : null;
+
+      // Get body text for AI detection
+      let bodyText = '';
+      try {
+        const content = await session.getEmailContent(messageId);
+        if (content) {
+          const rawHtml = content.content || content.htmlContent || content;
+          bodyText = typeof rawHtml === 'string' ? stripHtml(rawHtml) : '';
         }
+      } catch (e) {
+        // If content fetch fails, use subject only
+      }
 
-        // Run AI bill detection
-        let billDetection = { isBill: false, confidence: 0, reason: '', billType: 'none' };
-        try {
-          billDetection = await detectBillContent(subject, bodyText, hasAtt);
-        } catch (e) {
-          console.warn(`[EmailInvoice] Detection failed for "${subject}":`, e.message);
-          // Fallback to keyword detection
-          const combinedText = `${subject} ${sender}`.toLowerCase();
-          const billKeywords = ['invoice', 'bill', 'receipt', 'purchase', 'order', 'payment', 'gstin', 'gst'];
-          const keywordMatches = billKeywords.filter(kw => combinedText.includes(kw)).length;
-          billDetection = {
-            isBill: keywordMatches >= 2 || hasAtt,
-            confidence: Math.min(0.5 + keywordMatches * 0.15, 0.85),
-            reason: keywordMatches > 0 ? `Keywords: ${keywordMatches}` : 'No bill indicators',
-            billType: hasAtt ? 'attachment' : keywordMatches >= 2 ? 'body-text' : 'none',
-          };
-        }
-
-        return {
-          messageId,
-          folderId,
-          subject,
-          sender,
-          receivedTime,
-          hasAttachments: hasAtt,
-          preview: bodyText.substring(0, 200) || subject.substring(0, 200),
-          billDetection,
-          processingStatus: processedMap.get(messageId) || null,
+      // Run AI bill detection
+      let billDetection = { isBill: false, confidence: 0, reason: '', billType: 'none' };
+      try {
+        billDetection = await detectBillContent(subject, bodyText, hasAtt);
+      } catch (e) {
+        console.warn(`[EmailInvoice] Detection failed for "${subject}":`, e.message);
+        // Fallback to keyword detection
+        const combinedText = `${subject} ${sender}`.toLowerCase();
+        const billKeywords = ['invoice', 'bill', 'receipt', 'purchase', 'order', 'payment', 'gstin', 'gst'];
+        const keywordMatches = billKeywords.filter(kw => combinedText.includes(kw)).length;
+        billDetection = {
+          isBill: keywordMatches >= 2 || hasAtt,
+          confidence: Math.min(0.5 + keywordMatches * 0.15, 0.85),
+          reason: keywordMatches > 0 ? `Keywords: ${keywordMatches}` : 'No bill indicators',
+          billType: hasAtt ? 'attachment' : keywordMatches >= 2 ? 'body-text' : 'none',
         };
-      })
-    );
+      }
 
-    enrichedEmails.push(...batchResults);
-  }
+      enrichedEmails.push({
+        messageId,
+        folderId,
+        subject,
+        sender,
+        receivedTime,
+        hasAttachments: hasAtt,
+        preview: bodyText.substring(0, 200) || subject.substring(0, 200),
+        billDetection,
+        processingStatus: processedMap.get(messageId) || null,
+      });
+    }
+  });
 
   return enrichedEmails;
 }
@@ -707,6 +701,7 @@ async function processSelectedEmails(userId, selectedEmails) {
 
       let billsFromThisEmail = 0;
       const errors = [];
+      const duplicateSkips = [];
 
       // ===== STEP 1: Try attachments first =====
       const attachments = emailDetails?.attachments || [];
@@ -734,13 +729,22 @@ async function processSelectedEmails(userId, selectedEmails) {
               errors.push(`${attachmentName}: No items found`);
             }
           } catch (attErr) {
-            errors.push(`${attachment.attachmentName}: ${attErr.message}`);
+            // A duplicate is not a processing failure — the bill is already in the books.
+            if (attErr.code === 'DUPLICATE_INVOICE') {
+              duplicateSkips.push(attErr.message);
+              console.log(`[EmailInvoice] Skipping duplicate from attachment: ${attErr.message}`);
+            } else {
+              errors.push(`${attachment.attachmentName}: ${attErr.message}`);
+            }
           }
         }
       }
 
       // ===== STEP 2: Try email body text (if no bills from attachments or no attachments) =====
-      if (billsFromThisEmail === 0) {
+      // Skipped when an attachment was already recognised as a duplicate: the invoice is
+      // in the books, and re-reading the body would only add a misleading "body too
+      // short" error over the real reason.
+      if (billsFromThisEmail === 0 && duplicateSkips.length === 0) {
         try {
           const content = await mailClient.getEmailContent(messageId, folderId);
           if (content) {
@@ -771,12 +775,21 @@ async function processSelectedEmails(userId, selectedEmails) {
             }
           }
         } catch (bodyErr) {
-          errors.push(`Email body: ${bodyErr.message}`);
+          if (bodyErr.code === 'DUPLICATE_INVOICE') {
+            duplicateSkips.push(bodyErr.message);
+            console.log(`[EmailInvoice] Skipping duplicate from body: ${bodyErr.message}`);
+          } else {
+            errors.push(`Email body: ${bodyErr.message}`);
+          }
         }
       }
 
       // ===== STEP 3: Log results =====
-      const status = billsFromThisEmail > 0 ? 'processed' : errors.length > 0 ? 'failed' : 'skipped';
+      const status = billsFromThisEmail > 0
+        ? 'processed'
+        : duplicateSkips.length > 0
+          ? 'skipped'
+          : errors.length > 0 ? 'failed' : 'skipped';
       await prisma.emailProcessingLog.create({
         data: {
           userId,
@@ -789,12 +802,18 @@ async function processSelectedEmails(userId, selectedEmails) {
           attachments: supportedAttachments.length,
           billsCreated: billsFromThisEmail,
           status,
-          errorMessage: errors.length > 0 ? errors.join('; ') : null,
+          errorMessage: errors.length > 0
+            ? errors.join('; ')
+            : duplicateSkips.length > 0 ? duplicateSkips.join('; ') : null,
         },
       });
 
       if (billsFromThisEmail > 0) {
         results.processed++;
+        await mailClient.markAsRead(messageId, folderId);
+      } else if (duplicateSkips.length > 0) {
+        // Already in the books — mark it read so it stops resurfacing in the queue.
+        results.skipped++;
         await mailClient.markAsRead(messageId, folderId);
       } else {
         results.failed++;
@@ -1033,6 +1052,20 @@ async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'ema
     } catch (distErr) {
       console.warn('[EmailInvoice] Distributor creation warning:', distErr.message);
     }
+  }
+
+  // Same guard the app's save endpoint applies. Without it, re-processing an email — or
+  // a distributor mailing the same invoice twice — creates a second bill and counts its
+  // stock again. Throws a tagged error so the caller can log it as "skipped", not
+  // "failed": nothing went wrong, the bill is simply already here.
+  const duplicate = await findDuplicateBill(userId, distributorId, parsedData.invoiceNumber);
+  if (duplicate) {
+    const err = new Error(
+      `Invoice ${parsedData.invoiceNumber} from this distributor is already saved (bill ${duplicate.id})`
+    );
+    err.code = 'DUPLICATE_INVOICE';
+    err.duplicateBillId = duplicate.id;
+    throw err;
   }
 
   const bill = await prisma.bill.create({

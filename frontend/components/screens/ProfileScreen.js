@@ -17,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { authApi } from '../../services/api';
 import Toast from '../ui/Toast';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -204,7 +205,7 @@ export default function ProfileScreen() {
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
               <Text style={styles.statNumber}>
-                {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
+                {user?.createdAt ? formatDDMMYYYY(user.createdAt) : 'N/A'}
               </Text>
               <Text style={styles.statLabel}>Member Since</Text>
             </View>

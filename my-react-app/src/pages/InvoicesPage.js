@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { invoiceApi } from '../services/api';
 import { Receipt, Search, Plus, Trash2, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYYOr } from '../utils/dateFormat';
 
 export default function InvoicesPage() {
   const { user } = useAuth();
@@ -110,7 +111,7 @@ export default function InvoicesPage() {
                   <tr key={inv.id}>
                     <td style={{ fontWeight: 500 }}>{inv.invoiceNumber || 'N/A'}</td>
                     <td>{inv.customerName || '-'}</td>
-                    <td>{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '-'}</td>
+                    <td>{formatDDMMYYYYOr(inv.invoiceDate || inv.createdAt, '-')}</td>
                     <td>{inv._count?.items || inv.items?.length || 0}</td>
                     <td style={{ fontWeight: 600 }}>₹{(inv.grandTotal || 0).toFixed(2)}</td>
                     <td><span className={`badge ${inv.paymentType === 'cash' ? 'badge-success' : 'badge-primary'}`}>{inv.paymentType || 'cash'}</span></td>

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { productApi } from '../services/api';
 import { Package, Search, Plus, Edit, Trash2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYY } from '../utils/dateFormat';
 
 export default function ProductsPage() {
   const { user } = useAuth();
@@ -114,7 +115,7 @@ export default function ProductsPage() {
                       <td>
                         {product.expiryDate ? (
                           <span className={`badge ${new Date(product.expiryDate) < new Date() ? 'badge-danger' : 'badge-success'}`}>
-                            {new Date(product.expiryDate).toLocaleDateString()}
+                            {formatDDMMYYYY(product.expiryDate)}
                           </span>
                         ) : '-'}
                       </td>

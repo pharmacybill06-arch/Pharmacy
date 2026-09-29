@@ -27,9 +27,19 @@ const REVIEW_COLUMNS = [
   { key: 'name', label: 'ITEM NAME', width: 230 },
   { key: 'batchNumber', label: 'BATCH', width: 118 },
   { key: 'expiryDate', label: 'EXPIRY', width: 104, keyboardType: 'number-pad', placeholder: 'MM/YY' },
-  { key: 'quantity', label: 'QTY', width: 72, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'quantity', label: 'QTY', width: 64, align: 'right', keyboardType: 'decimal-pad' },
+  { key: 'freeQuantity', label: 'FREE', width: 60, align: 'right', keyboardType: 'decimal-pad' },
+  // Read-only: charged units + free units, i.e. what physically lands in stock.
+  { key: 'totalQuantity', label: 'TOTAL', width: 64, align: 'right', readOnly: true },
   { key: 'status', label: 'CHECK', width: 152, align: 'center' },
 ];
+
+/** Units that actually enter stock for a line: charged quantity plus free/scheme units. */
+const getTotalQuantity = (item) => {
+  const qty = Number(item?.quantity) || 0;
+  const free = Number(item?.freeQuantity) || 0;
+  return Math.round((qty + free) * 1000) / 1000;
+};
 
 const REVIEW_TABLE_WIDTH = REVIEW_COLUMNS.reduce((sum, column) => sum + column.width, 0);
 
@@ -58,10 +68,11 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
       ]}
     >
       {REVIEW_COLUMNS.map((column) => {
+        const cellSource = column.key === 'totalQuantity' ? getTotalQuantity(item) : item[column.key];
         const rawValue =
-          item[column.key] === undefined || item[column.key] === null || item[column.key] === ''
+          cellSource === undefined || cellSource === null || cellSource === ''
             ? '-'
-            : item[column.key];
+            : cellSource;
 
         if (column.key === 'status') {
           return (
@@ -108,6 +119,32 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
           : column.type === 'money' && Number.isFinite(Number(rawValue))
             ? Number(rawValue).toFixed(2)
             : String(rawValue);
+
+        // Computed columns (TOTAL) are derived from other cells — show, don't edit.
+        if (column.readOnly) {
+          return (
+            <View
+              key={column.key}
+              style={[
+                styles.reviewCell,
+                { width: column.width },
+                column.align === 'right' && styles.reviewCellRight,
+                column.align === 'center' && styles.reviewCellCenter,
+              ]}
+            >
+              <ThemedText
+                style={[
+                  styles.reviewCellInput,
+                  styles.reviewCellComputed,
+                  column.align === 'right' && styles.reviewInputRight,
+                ]}
+                numberOfLines={1}
+              >
+                {cellText}
+              </ThemedText>
+            </View>
+          );
+        }
 
         return (
           <View
@@ -460,7 +497,7 @@ export default function BillFormScreen({
                   onChangeText={(text) =>
                     onUpdateInvoiceMetadata({ invoiceDate: text })
                   }
-                  placeholder="DD/MM/YYYY"
+                  placeholder="DD-MM-YYYY"
                   uncertain={headerUncertainFields.includes('invoiceDate')}
                 />
               </View>
@@ -473,7 +510,7 @@ export default function BillFormScreen({
                   onChangeText={(text) =>
                     onUpdateInvoiceMetadata({ dueDate: text })
                   }
-                  placeholder="DD/MM/YYYY"
+                  placeholder="DD-MM-YYYY"
                 />
               </View>
               <View style={styles.halfWidth}>
@@ -778,6 +815,14 @@ const styles = StyleSheet.create({
   },
   reviewCellEmpty: {
     color: '#94A3B8',
+  },
+  // Derived TOTAL cell — visually distinct from the editable ones so it reads as an
+  // answer rather than an empty field the pharmacist is expected to fill.
+  reviewCellComputed: {
+    color: '#4F46E5',
+    fontWeight: '800',
+    backgroundColor: '#EEF2FF',
+    borderColor: 'transparent',
   },
   verifyButton: {
     minHeight: 30,

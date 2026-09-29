@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { billApi } from '../services/api';
 import { FileText, Search, Trash2, Edit3, CheckCircle, Clock, ScanLine } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYY } from '../utils/dateFormat';
 
 // Draft Card Component
 function DraftCard({ draft, onDelete, onEdit, onConvert }) {
@@ -11,7 +12,7 @@ function DraftCard({ draft, onDelete, onEdit, onConvert }) {
   const itemCount = draft._count?.items ?? draft.items?.length ?? 0;
 
   const dateLabel = draft.createdAt
-    ? new Date(draft.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    ? formatDDMMYYYY(draft.createdAt)
     : 'No Date';
 
   const timeLabel = draft.createdAt

@@ -426,6 +426,57 @@ exports.saveConnection = async (req, res) => {
       });
     }
 
+    // Verify the credentials BEFORE storing them. Saving unchecked meant a typo in the
+    // app password looked like success and only surfaced later as an empty inbox, with
+    // nothing pointing at the real cause.
+    const {
+      getProviderDefaults,
+      normalizeAppPassword,
+      inferProviderFromAddress,
+    } = require('../services/emailConnectionService');
+
+    // Resolve exactly the way upsertUserEmailConnection will, so what we verify is what
+    // gets stored — a gmail.com address uses Gmail's host even if the form said Zoho,
+    // and the app password is stripped of its display spaces before either step.
+    const resolvedProvider = inferProviderFromAddress(emailAddress, provider);
+    const defaults = getProviderDefaults(resolvedProvider);
+    const stalePickedHost = imapHost && imapHost === getProviderDefaults(provider).imapHost;
+    const candidate = {
+      provider: resolvedProvider,
+      emailAddress,
+      password: normalizeAppPassword(password),
+      imapHost: (resolvedProvider !== provider && stalePickedHost ? null : imapHost) || defaults.imapHost,
+      imapPort: imapPort || defaults.imapPort,
+      imapSecure: imapSecure !== undefined ? !!imapSecure : defaults.imapSecure,
+      mailbox: mailbox || defaults.mailbox,
+    };
+    console.log(`[EmailBill] Verifying ${emailAddress} against ${candidate.imapHost}:${candidate.imapPort} (provider ${resolvedProvider})`);
+
+    if (!candidate.imapHost) {
+      return res.status(400).json({
+        success: false,
+        error: `No IMAP host known for provider "${candidate.provider}". Please supply imapHost.`,
+      });
+    }
+
+    try {
+      const { createImapMailClient } = require('../services/zohoMailService');
+      const probe = await createImapMailClient(candidate);
+      await probe.fetchEmails(1);
+      console.log(`[EmailBill] Verified mailbox login for ${emailAddress}`);
+    } catch (verifyError) {
+      console.warn(`[EmailBill] Mailbox verification failed for ${emailAddress}:`, verifyError.message);
+      return res.status(400).json({
+        success: false,
+        error: verifyError.message || 'Could not sign in to this mailbox',
+        message: verifyError.message || 'Could not sign in to this mailbox',
+        hint:
+          'Use an app-specific password (not your normal login password), make sure ' +
+          'IMAP is enabled in your mailbox settings, and check the IMAP host matches ' +
+          'your provider region (e.g. imap.zoho.in vs imap.zoho.com).',
+      });
+    }
+
     const connection = await upsertUserEmailConnection(userId, {
       provider,
       authType,

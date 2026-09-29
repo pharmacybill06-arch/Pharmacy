@@ -19,9 +19,12 @@ model API key.
    regex-based, no network. Used when the backend is unreachable, so a pharmacist can
    still get a filled-in form offline.
 
-Vision parsing (`POST /api/ai/parse-image`) runs a metadata pass plus an item-table pass
-read twice and reconciled, so disagreements surface as "needs review" rather than being
-silently resolved to one possibly-wrong value.
+Vision parsing (`POST /api/ai/parse-image`) runs a metadata pass plus an item-table pass.
+The item table gets a second, reconciled read so disagreements surface as "needs review"
+rather than being silently resolved to one possibly-wrong value — but only when the first
+read flags uncertainty, since that confirmation pass costs as much as the first read.
+Set `OPENAI_ITEM_DOUBLE_READ=always` to read twice unconditionally, or `never` to disable
+the confirmation pass. Every scan logs its own token usage and rupee cost.
 
 ## Setup
 
@@ -30,9 +33,14 @@ The only key you need is on the backend. In `backend/.env`:
 ```env
 OPENAI_API_KEY=sk-your_api_key_here
 
-# Optional model overrides
-OPENAI_VISION_MODEL=gpt-4o
+# Optional model overrides (gpt-4.1-mini benchmarked more accurate AND ~6x cheaper
+# than gpt-4o on these invoices; gpt-4o-mini mangles the QTY column - do not use)
+OPENAI_VISION_MODEL=gpt-4.1-mini
 OPENAI_TEXT_MODEL=gpt-4o-mini
+
+# Bill-scan cost controls
+OPENAI_ITEM_DOUBLE_READ=auto
+OPENAI_VISION_HINT_MAX_CHARS=4000
 ```
 
 The app just needs to know where the backend is. In `frontend/.env`:

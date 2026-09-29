@@ -20,6 +20,7 @@ import Toast from '@/components/ui/Toast';
 import { billApi, ledgerApi } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import ExpiryActionPanel from '@/components/expiry/ExpiryActionPanel';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Memoized Expiry Row Component
@@ -35,7 +36,7 @@ const ExpiryItemRow = React.memo(({ item, onPress }) => {
   const formatExpiry = () => {
     if (!item.expiryDate) return 'No expiry';
     if (!item.expiryDateParsed) return item.expiryDate;
-    return item.expiryDateParsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDDMMYYYY(item.expiryDateParsed);
   };
 
   const getStatusColor = () => {

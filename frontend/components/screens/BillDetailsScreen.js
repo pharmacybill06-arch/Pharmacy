@@ -23,6 +23,7 @@ import DateField from '@/components/ui/DateField';
 import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
 import ProductAutocomplete from '@/components/ui/ProductAutocomplete';
 import { billApi } from '@/services/api';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 function ddmmyyyyToIso(value) {
   const m = String(value || '').match(/^(\d{2})-(\d{2})-(\d{4})$/);
@@ -280,7 +281,7 @@ function HistoryModal({ visible, history, onClose }) {
                     {h.billItem ? `${h.billItem.name} · ` : ''}{h.field}
                   </ThemedText>
                   <ThemedText style={styles.historyDate}>
-                    {new Date(h.editedAt).toLocaleDateString()}
+                    {formatDDMMYYYY(h.editedAt)}
                   </ThemedText>
                 </View>
                 <ThemedText style={styles.historyChange} numberOfLines={2}>

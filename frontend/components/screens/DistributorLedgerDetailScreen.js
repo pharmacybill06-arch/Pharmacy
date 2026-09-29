@@ -9,16 +9,15 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { getFileUrl } from '@/services/api';
+import { formatDDMMYYYYOr } from '@/utils/dateFormat';
 
 function formatAmount(amount) {
   const n = parseFloat(amount) || 0;
   return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
-function formatDate(dateString, opts) {
-  if (!dateString) return '-';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-IN', opts || { day: 'numeric', month: 'short', year: 'numeric' });
+function formatDate(dateString) {
+  return formatDDMMYYYYOr(dateString, '-');
 }
 
 const STATUS_VARIANT = { unpaid: 'default', partial: 'warning', paid: 'success', overdue: 'danger' };
@@ -132,7 +131,7 @@ PaymentRow.displayName = 'PaymentRow';
 const LedgerStatementRow = React.memo(({ row }) => (
   <View style={styles.ledgerRow}>
     <View style={styles.ledgerRowLeft}>
-      <ThemedText style={styles.ledgerDate}>{formatDate(row.date, { day: '2-digit', month: 'short', year: '2-digit' })}</ThemedText>
+      <ThemedText style={styles.ledgerDate}>{formatDate(row.date)}</ThemedText>
       <ThemedText style={styles.ledgerParticulars} numberOfLines={2}>{row.particulars}</ThemedText>
     </View>
     <View style={styles.ledgerRowRight}>

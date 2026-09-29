@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import PrimaryButton from '@/components/ui/PrimaryButton';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Pending Bills — the convert-to-bill queue.
@@ -24,9 +25,7 @@ import PrimaryButton from '@/components/ui/PrimaryButton';
  */
 
 function formatDate(value) {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDDMMYYYY(value);
 }
 
 function round2(n) {

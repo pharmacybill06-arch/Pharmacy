@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { billApi } from '../services/api';
 import { FileText, Search, Trash2, Eye, ScanLine, Receipt } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYY } from '../utils/dateFormat';
 
 // Helper: compute GST display info for a bill
 function getGstInfo(bill) {
@@ -32,7 +33,7 @@ function BillCard({ bill, onDelete }) {
   const itemCount = bill._count?.items ?? bill.items?.length ?? 0;
 
   const dateLabel = bill.invoiceDate
-    ? new Date(bill.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    ? formatDDMMYYYY(bill.invoiceDate)
     : 'No Date';
 
   const isCash = (bill.paymentType || '').toLowerCase() === 'cash';

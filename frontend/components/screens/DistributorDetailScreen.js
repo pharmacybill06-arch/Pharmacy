@@ -17,6 +17,7 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Info Row Component
@@ -43,12 +44,7 @@ const InfoRow = ({ icon, label, value }) => {
 const BillRow = React.memo(({ item, onPress }) => {
   const formatDate = (dateString) => {
     if (!dateString) return 'No Date';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', { 
-      day: 'numeric', 
-      month: 'short',
-      year: 'numeric'
-    });
+    return formatDDMMYYYY(dateString);
   };
 
   return (
@@ -122,12 +118,7 @@ export default function DistributorDetailScreen({
 
   const formatDate = (dateString) => {
     if (!dateString) return '-';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', { 
-      day: 'numeric', 
-      month: 'short',
-      year: 'numeric'
-    });
+    return formatDDMMYYYY(dateString);
   };
 
   const handleDelete = () => {
@@ -308,7 +299,7 @@ export default function DistributorDetailScreen({
                   </ThemedText>
                   <ThemedText style={styles.recentPaymentDate}>
                     {payment.paymentDate
-                      ? new Date(payment.paymentDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+                      ? formatDDMMYYYY(payment.paymentDate)
                       : '-'}
                   </ThemedText>
                 </View>

@@ -19,6 +19,7 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
 import { expiryApi } from '@/services/api';
+import { formatDDMMYYYYOr } from '@/utils/dateFormat';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -28,10 +29,7 @@ function fmt(n) {
 }
 
 function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric',
-  });
+  return formatDDMMYYYYOr(iso, '—');
 }
 
 function urgencyColor(days) {

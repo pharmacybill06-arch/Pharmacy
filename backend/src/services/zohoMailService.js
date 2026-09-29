@@ -5,7 +5,6 @@
 
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
-const dns = require('dns').promises;
 const { getUserEmailConnection, touchConnectionSync } = require('./emailConnectionService');
 
 function normalizeAddress(value) {
@@ -106,6 +105,28 @@ function buildEmailSummary(uid, mailbox, parsed, flags, internalDate) {
   };
 }
 
+/**
+ * Does this BODYSTRUCTURE contain a real attachment?
+ *
+ * Walks the MIME tree looking for a part that is either explicitly dispositioned as an
+ * attachment or is one of the document types we can parse. Inline images (signatures,
+ * tracking pixels) are deliberately not counted — they'd flag almost every marketing
+ * email as carrying a bill.
+ */
+function bodyStructureHasAttachment(node) {
+  if (!node) return false;
+
+  const disposition = String(node.disposition || '').toLowerCase();
+  if (disposition === 'attachment') return true;
+
+  if (disposition !== 'inline' && isAttachmentContentType(node.type)) return true;
+
+  if (Array.isArray(node.childNodes)) {
+    return node.childNodes.some(bodyStructureHasAttachment);
+  }
+  return false;
+}
+
 function mapAttachment(attachment, index) {
   return {
     attachmentId: String(index),
@@ -116,17 +137,12 @@ function mapAttachment(attachment, index) {
   };
 }
 
-async function resolveImapHost(hostname) {
-  if (!hostname) return hostname;
-
-  try {
-    const result = await dns.lookup(hostname, { family: 4 });
-    return result.address || hostname;
-  } catch (error) {
-    console.warn(`[Mailbox] IPv4 lookup failed for ${hostname}, falling back to hostname:`, error.message);
-    return hostname;
-  }
-}
+// NOTE: a resolveImapHost() helper used to live here that forced an IPv4 address via
+// dns.lookup, presumably to work around a host with broken IPv6. It was never called.
+// It is removed rather than wired up because connecting to a bare IP with secure: true
+// makes the TLS certificate fail to match the hostname — if IPv6 ever does need working
+// around, pass the IP as `host` AND the original hostname as `tls.servername` so SNI and
+// certificate validation still work.
 
 // Connection cache to prevent duplicate simultaneous connections
 const activeConnections = new Map();
@@ -136,11 +152,11 @@ async function createImapMailClient(connection) {
     throw new Error('Mailbox connection is missing IMAP email, password, or host');
   }
 
-  // Debug logging (remove after fixing)
+  // NEVER log connection.password — it is the user's mailbox app password, and these
+  // logs go to stdout/Render. Length is enough to diagnose a truncated paste.
   console.log('[Mailbox] Creating IMAP client:', {
     emailAddress: connection.emailAddress,
-    passwordLength: connection.password?.length,
-    password: connection.password || 'NONE',
+    passwordLength: connection.password?.length || 0,
     imapHost: connection.imapHost,
     imapPort: connection.imapPort,
     source: connection.source,
@@ -166,7 +182,10 @@ async function createImapMailClient(connection) {
     const client = new ImapFlow({
       host: connection.imapHost,
       port: connection.imapPort || 993,
-      secure: true,
+      // Honour the stored imapSecure flag instead of hardcoding true — a custom IMAP
+      // provider on 143 needs STARTTLS, and forcing implicit TLS there just hangs.
+      // Anything other than an explicit false stays on implicit TLS.
+      secure: connection.imapSecure !== false,
       auth: {
         user: connection.emailAddress,
         pass: connection.password,
@@ -233,8 +252,8 @@ async function createImapMailClient(connection) {
     };
   }
 
-  async function fetchEmails(limit = 50, folderId = null) {
-    return withMailbox(folderId, async (client, mailbox) => {
+  async function readEmailList(client, mailbox, limit = 50) {
+    {
       const messages = [];
       
       // Get mailbox info to know total messages
@@ -245,20 +264,33 @@ async function createImapMailClient(connection) {
         return [];
       }
       
-      // Calculate range to fetch the LATEST messages
-      // If we have 131 messages and want 50, fetch 82:131 (latest 50)
+      // Calculate range to fetch the LATEST messages.
+      // If we have 131 messages and want 50, fetch 82:131 (latest 50).
+      //
+      // This range is in SEQUENCE numbers, because it is derived from mailbox.exists
+      // (a message count). It must NOT be sent with { uid: true } — that would make
+      // ImapFlow read "82:131" as a UID range, and UIDs drift above sequence numbers as
+      // soon as anything is deleted, so the wrong messages (or none) come back. Each
+      // fetched message still carries its .uid because uid is requested in the query.
       const start = Math.max(1, totalMessages - limit + 1);
       const end = totalMessages;
       const range = `${start}:${end}`;
-      
+
       console.log(`[Mailbox] Fetching messages ${start} to ${end} (total: ${totalMessages})`);
-      
-      // Fetch only the latest 'limit' messages using envelope (lightweight)
-      for await (const message of client.fetch(range, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) {
+
+      // bodyStructure is still lightweight (no body download) but lets us tell whether
+      // the message actually carries an attachment — a key bill-detection signal.
+      for await (const message of client.fetch(range, {
+        uid: true,
+        envelope: true,
+        flags: true,
+        internalDate: true,
+        bodyStructure: true,
+      })) {
         const subject = message.envelope?.subject || '(no subject)';
         const fromValue = message.envelope?.from?.[0];
         const sender = fromValue?.address || fromValue?.name || '';
-        const hasAttachment = false; // We'll check this later if needed
+        const hasAttachment = bodyStructureHasAttachment(message.bodyStructure);
         const receivedTime = message.internalDate ? String(message.internalDate.getTime()) : String(Date.now());
         
         messages.push({
@@ -275,10 +307,14 @@ async function createImapMailClient(connection) {
       }
 
       await touchConnectionSync(connection.id);
-      
+
       // Sort by receivedTime descending (newest first)
       return messages.sort((a, b) => Number(b.receivedTime) - Number(a.receivedTime));
-    });
+    }
+  }
+
+  async function fetchEmails(limit = 50, folderId = null) {
+    return withMailbox(folderId, (client, mailbox) => readEmailList(client, mailbox, limit));
   }
 
   async function searchEmails(searchKey = 'invoice', limit = 50) {
@@ -290,55 +326,91 @@ async function createImapMailClient(connection) {
     }).slice(0, limit);
   }
 
-  async function getEmailDetails(messageId, folderId) {
-    return withMailbox(folderId, async (client, mailbox) => {
-      const { parsed, flags, internalDate } = await fetchMessageSource(client, messageId);
-      const attachments = (parsed.attachments || []).map(mapAttachment);
-      const fromValue = Array.isArray(parsed.from?.value) ? parsed.from.value[0] : parsed.from?.value;
+  // ── Core operations, all taking an already-connected client ────────────────
+  // Each is exposed twice: once standalone (opens its own connection, for one-off
+  // calls) and once via withSession (reuses one connection across many messages).
 
-      return {
-        messageId: String(messageId),
-        folderId: mailbox,
-        subject: parsed.subject || '(no subject)',
-        fromAddress: normalizeAddress(fromValue),
-        sender: normalizeAddress(fromValue),
-        attachments,
-        hasAttachment: attachments.length > 0,
-        receivedTime: internalDate ? String(internalDate.getTime()) : String(Date.now()),
-        flags: Array.from(flags || []),
-      };
-    });
+  async function readEmailDetails(client, mailbox, messageId) {
+    const { parsed, flags, internalDate } = await fetchMessageSource(client, messageId);
+    const attachments = (parsed.attachments || []).map(mapAttachment);
+    const fromValue = Array.isArray(parsed.from?.value) ? parsed.from.value[0] : parsed.from?.value;
+
+    return {
+      messageId: String(messageId),
+      folderId: mailbox,
+      subject: parsed.subject || '(no subject)',
+      fromAddress: normalizeAddress(fromValue),
+      sender: normalizeAddress(fromValue),
+      attachments,
+      hasAttachment: attachments.length > 0,
+      receivedTime: internalDate ? String(internalDate.getTime()) : String(Date.now()),
+      flags: Array.from(flags || []),
+    };
+  }
+
+  async function readAttachment(client, messageId, attachmentId) {
+    const { parsed } = await fetchMessageSource(client, messageId);
+    const attachments = parsed.attachments || [];
+    const attachment = attachments[Number(attachmentId)];
+
+    if (!attachment) {
+      throw new Error(`Attachment ${attachmentId} not found`);
+    }
+
+    return attachment.content;
+  }
+
+  async function readEmailContent(client, messageId) {
+    const { parsed } = await fetchMessageSource(client, messageId);
+    return {
+      content: parsed.html || parsed.textAsHtml || parsed.text || '',
+      text: parsed.text || '',
+      subject: parsed.subject || '(no subject)',
+    };
+  }
+
+  async function getEmailDetails(messageId, folderId) {
+    return withMailbox(folderId, (client, mailbox) => readEmailDetails(client, mailbox, messageId));
   }
 
   async function downloadAttachment(messageId, attachmentId, folderId) {
-    return withMailbox(folderId, async (client) => {
-      const { parsed } = await fetchMessageSource(client, messageId);
-      const attachments = parsed.attachments || [];
-      const attachment = attachments[Number(attachmentId)];
-
-      if (!attachment) {
-        throw new Error(`Attachment ${attachmentId} not found`);
-      }
-
-      return attachment.content;
-    });
+    return withMailbox(folderId, (client) => readAttachment(client, messageId, attachmentId));
   }
 
   async function getEmailContent(messageId, folderId) {
-    return withMailbox(folderId, async (client) => {
-      const { parsed } = await fetchMessageSource(client, messageId);
-      return {
-        content: parsed.html || parsed.textAsHtml || parsed.text || '',
-        text: parsed.text || '',
-        subject: parsed.subject || '(no subject)',
-      };
-    });
+    return withMailbox(folderId, (client) => readEmailContent(client, messageId));
   }
 
   async function markAsRead(messageId, folderId) {
     return withMailbox(folderId, async (client) => {
       await client.messageFlagsAdd(Number(messageId), ['\\Seen'], { uid: true });
     });
+  }
+
+  /**
+   * Run several mailbox operations over a SINGLE connection.
+   *
+   * The standalone helpers above each open a connection, do one thing, and log out.
+   * That is fine for a one-off, but listing an inbox needs the body of every message:
+   * doing that one-at-a-time meant N connect/login/logout round trips per listing, which
+   * is slow and trips provider limits on simultaneous connections (Gmail allows ~15).
+   * Callers that touch more than one message should use this instead.
+   *
+   *   await mailClient.withSession(async (session) => {
+   *     for (const id of ids) await session.getEmailContent(id);
+   *   });
+   */
+  async function withSession(fn, folderId = null) {
+    return withMailbox(folderId, async (client, mailbox) =>
+      fn({
+        mailbox,
+        fetchEmails: (limit = 50) => readEmailList(client, mailbox, limit),
+        getEmailDetails: (messageId) => readEmailDetails(client, mailbox, messageId),
+        getEmailContent: (messageId) => readEmailContent(client, messageId),
+        downloadAttachment: (messageId, attachmentId) => readAttachment(client, messageId, attachmentId),
+        markAsRead: (messageId) => client.messageFlagsAdd(Number(messageId), ['\\Seen'], { uid: true }),
+      })
+    );
   }
 
   return {
@@ -349,6 +421,7 @@ async function createImapMailClient(connection) {
     downloadAttachment,
     getEmailContent,
     markAsRead,
+    withSession,
     isAttachmentContentType,
   };
 }

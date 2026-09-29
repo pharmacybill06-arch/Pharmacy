@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Daily Sale Register
@@ -36,10 +37,7 @@ function todayLocalIso() {
 function formatDayLabel(isoDate) {
   if (isoDate === todayLocalIso()) return 'Today';
   if (isoDate === shiftDate(todayLocalIso(), -1)) return 'Yesterday';
-  const [y, m, d] = isoDate.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  });
+  return formatDDMMYYYY(isoDate);
 }
 
 function formatTime(value) {
@@ -49,9 +47,7 @@ function formatTime(value) {
 }
 
 function formatDate(value) {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDDMMYYYY(value);
 }
 
 function StatusChip({ status }) {

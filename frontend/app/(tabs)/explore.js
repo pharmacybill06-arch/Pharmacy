@@ -488,7 +488,17 @@ export default function ExploreScreen() {
       }, 1500);
     } catch (error) {
       console.error('Error saving bill:', error);
-      showToast(error.message || 'Failed to save bill', 'error', 'Save Failed');
+      // A duplicate isn't a failure to fix — the bill is already in the books, and
+      // saving again would double-count its stock. Say that, don't just say "failed".
+      if (error.status === 409) {
+        showToast(
+          error.message || 'This invoice is already saved.',
+          'warning',
+          'Already Saved'
+        );
+      } else {
+        showToast(error.message || 'Failed to save bill', 'error', 'Save Failed');
+      }
     } finally {
       setSaving(false);
     }

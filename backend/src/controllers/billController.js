@@ -5,17 +5,13 @@ const productService = require('../services/productService');
 const distributorService = require('../services/distributorService');
 const billEditService = require('../services/billEditService');
 const { PACK_LABELS, BASE_UNITS } = require('../utils/unitInference');
+const { parseInvoiceDate } = require('../utils/dateUtils');
+const { findDuplicateBill } = require('../services/billDuplicateService');
 
-// Helper function to parse date string
-function parseDateString(dateStr) {
-  if (!dateStr) return null;
-  try {
-    const date = new Date(dateStr);
-    return isNaN(date.getTime()) ? null : date;
-  } catch {
-    return null;
-  }
-}
+// Invoice/due dates arrive as DD-MM-YYYY (what the AI prompt asks for and what Indian
+// invoices print). parseInvoiceDate reads them day-first and anchors to UTC midnight —
+// see dateUtils for why `new Date(str)` must never be used on these.
+const parseDateString = parseInvoiceDate;
 
 // Helper function to parse a monetary amount, tolerating stray commas/currency symbols
 function parseAmount(value) {
@@ -45,6 +41,11 @@ function normalizeExpiryItem(item = {}, index = 0) {
     batchNumber: item.batchNumber || item.batch || null,
     expiryDate: item.expiryDate || item.exp || null,
     quantity: item.quantity ? parseFloat(item.quantity) : 0,
+    // Free/scheme units: charged at zero but they still land in stock, so they must be
+    // persisted separately from quantity — batchService adds (quantity + freeQuantity).
+    freeQuantity: item.freeQuantity != null && item.freeQuantity !== ''
+      ? parseFloat(item.freeQuantity) || 0
+      : null,
     rate: 0,
     itemTotal: 0,
     confidence: item.confidence || 1.0,
@@ -100,6 +101,26 @@ exports.uploadBill = async (req, res) => {
       } catch (distError) {
         console.error('[SAVE_BILL] Distributor error (non-fatal):', distError.message);
       }
+    }
+
+    // ========== DUPLICATE INVOICE GUARD ==========
+    // Re-scanning a bill already in the books would double-count its stock, so refuse
+    // the save rather than creating a second copy. Checked after the distributor is
+    // resolved, since the same number from a different supplier is a different bill.
+    const duplicate = await findDuplicateBill(userId, distributorId, parsedData?.invoiceNumber);
+    if (duplicate) {
+      console.warn(`[SAVE_BILL] Duplicate invoice ${parsedData.invoiceNumber} — already saved as ${duplicate.id}`);
+      return res.status(409).json({
+        error: 'Duplicate invoice',
+        message: `Invoice ${parsedData.invoiceNumber} from this distributor is already saved.`,
+        duplicate: {
+          billId: duplicate.id,
+          invoiceNumber: duplicate.invoiceNumber,
+          invoiceDate: duplicate.invoiceDate,
+          grandTotal: duplicate.grandTotal,
+          savedAt: duplicate.createdAt,
+        },
+      });
     }
 
     // Create bill record with normalized fields
@@ -315,6 +336,26 @@ exports.updateBill = async (req, res) => {
     if (updateData.invoiceNumber !== undefined) data.invoiceNumber = updateData.invoiceNumber;
     if (updateData.invoiceDate !== undefined) data.invoiceDate = parseDateString(updateData.invoiceDate);
     if (updateData.dueDate !== undefined) data.dueDate = parseDateString(updateData.dueDate);
+
+    // Editing a number onto an invoice that's already in the books is the same collision
+    // as saving it twice — refuse it here too, ignoring this bill's own row.
+    if (data.invoiceNumber !== undefined || data.distributorId !== undefined) {
+      const targetDistributorId = data.distributorId !== undefined ? data.distributorId : bill.distributorId;
+      const targetInvoiceNumber = data.invoiceNumber !== undefined ? data.invoiceNumber : bill.invoiceNumber;
+      const clash = await findDuplicateBill(bill.userId, targetDistributorId, targetInvoiceNumber, billId);
+      if (clash) {
+        return res.status(409).json({
+          error: 'Duplicate invoice',
+          message: `Invoice ${targetInvoiceNumber} from this distributor is already saved.`,
+          duplicate: {
+            billId: clash.id,
+            invoiceNumber: clash.invoiceNumber,
+            invoiceDate: clash.invoiceDate,
+            savedAt: clash.createdAt,
+          },
+        });
+      }
+    }
 
     // Ledger: grand total (Phase 1 — always manually confirmed by the user)
     if (updateData.grandTotal !== undefined) data.grandTotal = updateData.grandTotal === null ? null : parseFloat(updateData.grandTotal);
@@ -604,6 +645,25 @@ exports.convertDraft = async (req, res) => {
       } catch (distError) {
         console.error('[CONVERT_DRAFT] Distributor error (non-fatal):', distError.message);
       }
+    }
+
+    // Converting a draft is the point it becomes a real bill and feeds stock, so apply
+    // the same duplicate guard as a direct save — excluding the draft's own row.
+    const draftInvoiceNumber = parsedData?.invoiceNumber || bill.invoiceNumber;
+    const draftDuplicate = await findDuplicateBill(bill.userId, distributorId, draftInvoiceNumber, billId);
+    if (draftDuplicate) {
+      console.warn(`[CONVERT_DRAFT] Duplicate invoice ${draftInvoiceNumber} — already saved as ${draftDuplicate.id}`);
+      return res.status(409).json({
+        error: 'Duplicate invoice',
+        message: `Invoice ${draftInvoiceNumber} from this distributor is already saved. The draft was left untouched.`,
+        duplicate: {
+          billId: draftDuplicate.id,
+          invoiceNumber: draftDuplicate.invoiceNumber,
+          invoiceDate: draftDuplicate.invoiceDate,
+          grandTotal: draftDuplicate.grandTotal,
+          savedAt: draftDuplicate.createdAt,
+        },
+      });
     }
 
     // If parsedData has updated items, delete old items and create new ones

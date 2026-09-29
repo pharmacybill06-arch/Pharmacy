@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { distributorApi } from '../services/api';
 import { ArrowLeft, Edit, FileText, Phone, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYYOr } from '../utils/dateFormat';
 
 export default function DistributorDetailPage() {
   const { distributorId } = useParams();
@@ -129,7 +130,7 @@ export default function DistributorDetailPage() {
                 {bills.map(bill => (
                   <tr key={bill.id}>
                     <td><Link to={`/bills/${bill.id}`} style={{ fontWeight: 500 }}>{bill.invoiceNumber || 'N/A'}</Link></td>
-                    <td>{bill.invoiceDate ? new Date(bill.invoiceDate).toLocaleDateString() : '-'}</td>
+                    <td>{formatDDMMYYYYOr(bill.invoiceDate, '-')}</td>
                     <td>{bill._count?.items || 0}</td>
                     <td style={{ fontWeight: 600 }}>₹{(bill.grandTotal || 0).toFixed(2)}</td>
                     <td><span className="badge badge-primary">{bill.paymentType || 'credit'}</span></td>

@@ -19,6 +19,7 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { getPaymentAppName, formatPaymentAmount } from '@/utils/paymentParser';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Payment App Badge
@@ -49,12 +50,7 @@ const AppBadge = ({ app }) => {
 const PaymentRow = React.memo(({ item, onPress, onDelete }) => {
   const formatDate = (dateString) => {
     if (!dateString) return 'No Date';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
+    return formatDDMMYYYY(dateString);
   };
 
   const getStatusColor = (status) => {

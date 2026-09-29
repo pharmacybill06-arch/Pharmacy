@@ -50,6 +50,68 @@ function parseExpiryToUtcDate(value) {
   return new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()));
 }
 
+/**
+ * Parse an invoice/due date into a timezone-stable UTC calendar date.
+ *
+ * Indian invoices — and the DD-MM-YYYY the AI prompts ask for — are ALWAYS day-first, so
+ * this is deliberately stricter than parseExpiryDate: "09-03-2026" is 9 March, never
+ * 3 September. Never hand these strings to `new Date(str)`, which reads a dashed date as
+ * US MM-DD-YYYY (silently wrong) and rejects slashed DD/MM/YYYY outright (silently null).
+ *
+ * Accepts DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY, 2-digit years, and ISO YYYY-MM-DD.
+ * Returns null for anything it cannot read confidently, rather than guessing.
+ */
+function parseInvoiceDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return isNaN(value.getTime())
+      ? null
+      : new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const utc = (y, m, d) => {
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const date = new Date(Date.UTC(y, m - 1, d));
+    // Reject overflow like 31-02-2026, which JS would roll into March.
+    if (date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+    return date;
+  };
+
+  // ISO first — unambiguous, and what a DB round-trip hands back.
+  let m = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (m) return utc(Number(m[1]), Number(m[2]), Number(m[3]));
+
+  // DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY, 2- or 4-digit year. Day first, always.
+  m = text.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+    return utc(year, month, day);
+  }
+
+  return null;
+}
+
+/**
+ * Format a stored invoice/due date as DD-MM-YYYY using its UTC parts.
+ *
+ * formatDDMMYYYY reads local parts, which shifts a UTC-midnight calendar date back a day
+ * west of UTC. Dates written by parseInvoiceDate are UTC-anchored, so they must be read
+ * back the same way.
+ */
+function formatInvoiceDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return null;
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${d}-${m}-${date.getUTCFullYear()}`;
+}
+
 function daysUntil(date) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -63,4 +125,11 @@ function formatDDMMYYYY(date) {
   return `${d}-${m}-${y}`;
 }
 
-module.exports = { parseExpiryDate, parseExpiryToUtcDate, daysUntil, formatDDMMYYYY };
+module.exports = {
+  parseExpiryDate,
+  parseExpiryToUtcDate,
+  parseInvoiceDate,
+  formatInvoiceDate,
+  daysUntil,
+  formatDDMMYYYY,
+};

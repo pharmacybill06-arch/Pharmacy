@@ -9,6 +9,33 @@ function maskSecret(value) {
   return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
+/**
+ * App passwords are displayed in four 4-character groups ("abcd efgh ijkl mnop") by both
+ * Google and Zoho. The spaces are display formatting, not part of the secret, but they
+ * get copied along with it and then the IMAP login fails with a bare "invalid
+ * credentials" that points nowhere. Strip all whitespace before it is ever used or
+ * stored — a real app password never contains any.
+ */
+function normalizeAppPassword(value) {
+  if (value === null || value === undefined) return value;
+  return String(value).replace(/\s+/g, '');
+}
+
+/**
+ * Work out the provider from the email domain.
+ *
+ * The UI defaults to one provider, so a user who types a Gmail address without also
+ * changing the dropdown ends up trying to log into the wrong company's IMAP server.
+ * The domain is the more reliable signal, so it wins for domains we recognise.
+ */
+function inferProviderFromAddress(emailAddress, fallback = DEFAULT_PROVIDER) {
+  const domain = String(emailAddress || '').toLowerCase().split('@')[1] || '';
+  if (!domain) return fallback;
+  if (/(^|\.)gmail\.com$/.test(domain) || /(^|\.)googlemail\.com$/.test(domain)) return 'gmail';
+  if (/(^|\.)zoho(mail)?\.(com|in|eu)$/.test(domain)) return 'zoho';
+  return fallback;
+}
+
 function getProviderDefaults(provider = DEFAULT_PROVIDER) {
   const normalized = String(provider || DEFAULT_PROVIDER).toLowerCase();
 
@@ -88,7 +115,7 @@ function buildEnvFallback(userId) {
     authType: DEFAULT_AUTH_TYPE,
     emailAddress: process.env.EMAIL_ADDRESS || process.env.ZOHO_EMAIL_ADDRESS || null,
     displayName: process.env.EMAIL_DISPLAY_NAME || process.env.ZOHO_DISPLAY_NAME || null,
-    password: process.env.EMAIL_PASSWORD || process.env.ZOHO_APP_PASSWORD || null,
+    password: normalizeAppPassword(process.env.EMAIL_PASSWORD || process.env.ZOHO_APP_PASSWORD) || null,
     imapHost: process.env.EMAIL_IMAP_HOST || providerDefaults.imapHost,
     imapPort: process.env.EMAIL_IMAP_PORT ? parseInt(process.env.EMAIL_IMAP_PORT, 10) : providerDefaults.imapPort,
     imapSecure: process.env.EMAIL_IMAP_SECURE
@@ -137,14 +164,26 @@ async function upsertUserEmailConnection(userId, payload) {
     throw new Error('userId is required');
   }
 
-  const defaults = getProviderDefaults(payload.provider || DEFAULT_PROVIDER);
+  // The address decides the provider when we recognise its domain — see
+  // inferProviderFromAddress. Stops a gmail.com address being saved against Zoho's
+  // IMAP host just because the form's dropdown was left on its default.
+  const resolvedProvider = inferProviderFromAddress(payload.emailAddress, payload.provider || DEFAULT_PROVIDER);
+  const defaults = getProviderDefaults(resolvedProvider);
+
+  // Only take the caller's imapHost when it is not the OTHER provider's default, which
+  // is what a stale dropdown leaves behind.
+  const otherDefaults = getProviderDefaults(payload.provider || DEFAULT_PROVIDER);
+  const hostLooksStale =
+    payload.imapHost && resolvedProvider !== (payload.provider || DEFAULT_PROVIDER) &&
+    payload.imapHost === otherDefaults.imapHost;
+
   const data = {
-    provider: payload.provider || defaults.provider,
+    provider: resolvedProvider,
     authType: payload.authType || defaults.authType,
     emailAddress: payload.emailAddress || null,
     displayName: payload.displayName || null,
-    password: payload.password || null,
-    imapHost: payload.imapHost || defaults.imapHost,
+    password: normalizeAppPassword(payload.password) || null,
+    imapHost: (!hostLooksStale && payload.imapHost) || defaults.imapHost,
     imapPort: payload.imapPort !== undefined && payload.imapPort !== null && payload.imapPort !== ''
       ? parseInt(payload.imapPort, 10)
       : defaults.imapPort,
@@ -199,6 +238,8 @@ module.exports = {
   DEFAULT_PROVIDER,
   DEFAULT_AUTH_TYPE,
   getProviderDefaults,
+  normalizeAppPassword,
+  inferProviderFromAddress,
   getUserEmailConnection,
   upsertUserEmailConnection,
   touchConnectionSync,
