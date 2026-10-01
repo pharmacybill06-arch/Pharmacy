@@ -187,30 +187,117 @@ function DistributorsScreenContent() {
     setViewingBill(bill);
   }, []);
 
+  /**
+   * Re-pull everything an invoice/due date change can move.
+   *
+   * A date edit is not local to the row it was typed in: the bill list is ordered by
+   * invoice date, and the ledger's outstanding/overdue figures are derived from due
+   * dates. Patching only the edited row left the list in the old order and the payment
+   * summary showing pre-edit numbers, so the same bill appeared to have two different
+   * dates depending on where you looked.
+   */
+  const refreshAfterBillChange = useCallback(async (updatedBill) => {
+    // Optimistic: reflect the change immediately in the row the user is looking at.
+    if (updatedBill?.id) {
+      setDistributorBills((prev) =>
+        prev.map((b) => (b.id === updatedBill.id ? { ...b, ...updatedBill } : b))
+      );
+      setViewingBill((prev) => (prev && prev.id === updatedBill.id ? { ...prev, ...updatedBill } : prev));
+    }
+
+    if (!selectedDistributor?.id) return;
+    try {
+      const [billsResult, paymentResult] = await Promise.all([
+        getDistributorBills(selectedDistributor.id, { page: 1, limit: 10 }),
+        paymentApi.getDistributorPayments(selectedDistributor.id, { page: 1, limit: 5 }).catch(() => null),
+      ]);
+      setDistributorBills(billsResult.bills || []);
+      setBillsPage(1);
+      setHasMoreBills((billsResult.bills?.length || 0) < (billsResult.total || 0));
+      if (paymentResult) {
+        setDistributorPaymentStats(paymentResult.stats || null);
+        setDistributorRecentPayments(paymentResult.payments || []);
+      }
+    } catch {
+      // Non-fatal — the optimistic patch above still stands.
+    }
+  }, [selectedDistributor, getDistributorBills]);
+
+  /**
+   * Delete an uploaded bill from the distributor's list.
+   *
+   * Destructive and it moves stock — the backend reverses the batch quantities this bill
+   * put on the shelf — so the confirm names what goes. The impact is fetched first
+   * rather than guessed at; if that call fails we still allow the delete, with a
+   * generic warning.
+   */
+  const handleBillDelete = useCallback(async (bill) => {
+    let impact = null;
+    try {
+      impact = await billApi.getBillDeleteImpact(bill.id);
+    } catch {
+      // Non-fatal — fall back to a generic message.
+    }
+
+    const parts = [
+      impact
+        ? `${impact.itemCount} line item${impact.itemCount === 1 ? '' : 's'} will be removed.`
+        : 'Its line items will be removed.',
+    ];
+    if (impact?.stockAffectedCount > 0) {
+      parts.push(
+        `${impact.stockAffectedCount} of them added stock, which will be taken back off the shelf.`
+      );
+    }
+    parts.push('This cannot be undone.');
+
+    Alert.alert(
+      `Delete invoice ${bill.invoiceNumber || '(no number)'}?`,
+      parts.join(String.fromCharCode(10, 10)),
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await billApi.deleteBill(bill.id);
+              // Drop the row straight away, then re-pull so the ledger totals and
+              // ordering reflect the removal too.
+              setDistributorBills((prev) => prev.filter((b) => b.id !== bill.id));
+              await refreshAfterBillChange();
+              const warnings = res?.stock?.warnings || [];
+              if (warnings.length > 0) {
+                showToast(warnings[0], 'warning', 'Stock went negative');
+              } else {
+                showToast('Bill deleted', 'success', 'Deleted');
+              }
+            } catch (err) {
+              showToast(err.message || 'Failed to delete bill', 'error', 'Error');
+            }
+          },
+        },
+      ]
+    );
+  }, [showToast, refreshAfterBillChange]);
+
   // Drop into the full OCR-review-style form for heavier changes
   const handleBillEdit = useCallback((bill) => {
     setViewingBill(null);
     setEditingBill(bill);
   }, []);
 
-  const refreshDistributorBills = useCallback(async () => {
-    if (!selectedDistributor?.id) return;
-    const billsResult = await getDistributorBills(selectedDistributor.id, { page: 1, limit: 10 });
-    setDistributorBills(billsResult.bills || []);
-    setBillsPage(1);
-    setHasMoreBills((billsResult.bills?.length || 0) < (billsResult.total || 0));
-  }, [selectedDistributor, getDistributorBills]);
 
   const handleSaveBillEdit = useCallback(async (formData) => {
     try {
       await billApi.updateBill(editingBill.id, formData);
       setEditingBill(null);
       showToast('Bill updated successfully', 'success', 'Updated');
-      await refreshDistributorBills();
+      await refreshAfterBillChange();
     } catch (err) {
       showToast(err.message || 'Failed to save bill', 'error', 'Error');
     }
-  }, [editingBill, refreshDistributorBills]);
+  }, [editingBill, refreshAfterBillChange]);
 
   const handleCancelBillEdit = useCallback(() => {
     setEditingBill(null);
@@ -254,9 +341,7 @@ function DistributorsScreenContent() {
           userId={userId}
           onBack={() => setViewingBill(null)}
           onEdit={handleBillEdit}
-          onRefresh={(updatedBill) => {
-            setDistributorBills((prev) => prev.map((b) => (b.id === updatedBill.id ? { ...b, ...updatedBill } : b)));
-          }}
+          onRefresh={refreshAfterBillChange}
         />
         <Toast
           visible={toast.visible}
@@ -299,6 +384,7 @@ function DistributorsScreenContent() {
           onEdit={handleEditPress}
           onDelete={handleDelete}
           onBillPress={handleBillPress}
+          onBillDelete={handleBillDelete}
           onLoadMoreBills={handleLoadMoreBills}
           loading={isLoading}
           hasMoreBills={hasMoreBills}

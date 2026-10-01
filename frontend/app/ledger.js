@@ -13,22 +13,9 @@ import DistributorLedgerListScreen from '@/components/screens/DistributorLedgerL
 import DistributorLedgerDetailScreen from '@/components/screens/DistributorLedgerDetailScreen';
 import RecordPaymentScreen from '@/components/screens/RecordPaymentScreen';
 import Toast from '@/components/ui/Toast';
+import { ddmmyyyyToIso, isoToDdmmyyyy } from '@/utils/dateFormat';
 
-function isoToDdmmyyyy(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}-${mm}-${d.getFullYear()}`;
-}
 
-function ddmmyyyyToIso(value) {
-  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value || '');
-  if (!match) return null;
-  const [, dd, mm, yyyy] = match;
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 /**
  * Picker shown when "Record Payment" is triggered without a distributor pre-selected.

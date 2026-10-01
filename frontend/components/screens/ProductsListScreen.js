@@ -23,6 +23,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import DateField from '@/components/ui/DateField';
 import { useEnrichedProductList, useProductCRUD } from '@/hooks/useProducts';
 import { productApi, distributorApi } from '@/services/api';
+import { ddmmyyyyToIso } from '@/utils/dateFormat';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -33,11 +34,6 @@ function getExpiryColor(daysLeft) {
   return '#10B981';
 }
 
-function ddmmyyyyToIso(value) {
-  const m = String(value || '').match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (!m) return null;
-  return `${m[3]}-${m[2]}-${m[1]}`;
-}
 
 /**
  * Batch row — used inside an expanded product card

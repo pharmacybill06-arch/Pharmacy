@@ -54,4 +54,33 @@ export function formatDDMMYYYYOr(value, fallback = '—') {
   return formatDDMMYYYY(value) || fallback;
 }
 
+/**
+ * Parse a user-typed DD-MM-YYYY date into the ISO `YYYY-MM-DD` the API expects.
+ *
+ * Deliberately tolerant of how people actually type: `9-3-2026`, `09/03/2026` and
+ * `9.3.2026` all work. The five hand-rolled copies this replaces each demanded exactly
+ * two digits, so a pharmacist typing a single-digit day got a silent "invalid date".
+ *
+ * Returns null for anything it cannot read confidently — including real nonsense like
+ * 31-02-2026, which must not be rolled forward into March.
+ */
+export function ddmmyyyyToIso(value) {
+  const m = String(value || '').trim().match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  // Reject overflow (31-02) rather than letting Date roll it into the next month.
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Stored date -> the DD-MM-YYYY shown in an editable field. Same function as
+ * formatDDMMYYYY; named separately because that is how the screens refer to it.
+ */
+export const isoToDdmmyyyy = formatDDMMYYYY;
+
 export default formatDDMMYYYY;

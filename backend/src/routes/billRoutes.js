@@ -25,6 +25,7 @@ router.get('/:billId', billController.getBillById);
 router.put('/:billId', billController.updateBill);
 
 // Delete bill
+router.get('/:billId/delete-impact', billController.getBillDeleteImpact);
 router.delete('/:billId', billController.deleteBill);
 
 // Add item to bill

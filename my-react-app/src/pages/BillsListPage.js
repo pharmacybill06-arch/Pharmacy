@@ -158,12 +158,19 @@ export default function BillsListPage() {
     }
   };
 
+  // Invoice numbers are matched ignoring case AND separators, so "A-004189" finds
+  // "A004189" — same rule the backend's search applies. Distributor name stays a plain
+  // case-insensitive match.
+  const normalizeInvoice = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const filtered = bills.filter(b => {
-    const q = search.toLowerCase();
-    return !q ||
-      (b.invoiceNumber || '').toLowerCase().includes(q) ||
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    const qInvoice = normalizeInvoice(search);
+    return (
+      (qInvoice && normalizeInvoice(b.invoiceNumber).includes(qInvoice)) ||
       (b.pharmacyName || '').toLowerCase().includes(q) ||
-      (b.distributor?.name || '').toLowerCase().includes(q);
+      (b.distributor?.name || '').toLowerCase().includes(q)
+    );
   });
 
   if (loading) {

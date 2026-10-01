@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
+import { formatDDMMYYYY } from '@/utils/dateFormat';
 
 /**
  * Bill List Item Component (Memoized for performance)
@@ -109,17 +110,25 @@ export default function BillsListScreen({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Filter bills based on search query
+  // Filter bills based on search query.
+  //
+  // Invoice numbers match ignoring case AND separators, so "A-004189" finds "A004189" —
+  // the same rule the backend's search uses. Dates are matched against what is actually
+  // on screen (DD-MM-YYYY); the raw value is an ISO timestamp, so searching "09-03"
+  // used to match nothing.
   const filteredBills = useCallback(() => {
     if (!searchQuery.trim()) return bills;
-    
-    const query = searchQuery.toLowerCase();
-    return bills.filter(
-      (bill) =>
-        bill.pharmacyName?.toLowerCase().includes(query) ||
-        bill.invoiceNumber?.toLowerCase().includes(query) ||
-        bill.invoiceDate?.toLowerCase().includes(query)
-    );
+
+    const query = searchQuery.trim().toLowerCase();
+    const normalizeInvoice = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const qInvoice = normalizeInvoice(searchQuery);
+
+    return bills.filter((bill) => {
+      if (qInvoice && normalizeInvoice(bill.invoiceNumber).includes(qInvoice)) return true;
+      if (bill.pharmacyName?.toLowerCase().includes(query)) return true;
+      if (bill.distributor?.name?.toLowerCase().includes(query)) return true;
+      return formatDDMMYYYY(bill.invoiceDate).includes(query);
+    });
   }, [bills, searchQuery]);
 
   const renderItem = useCallback(
@@ -150,8 +159,9 @@ export default function BillsListScreen({
         <AppBar
           title="All Bills"
           onBack={onBack}
-          rightIcon="options-outline"
-          onRightPress={onFilterPress}
+          // Only offer the filter affordance when a caller actually handles it —
+          // otherwise it renders as a button that silently does nothing.
+          {...(onFilterPress ? { rightIcon: 'options-outline', onRightPress: onFilterPress } : {})}
         />
 
         <View style={styles.content}>
@@ -160,7 +170,7 @@ export default function BillsListScreen({
             <Ionicons name="search-outline" size={20} color="#64748B" />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search bills..."
+              placeholder="Search invoice #, distributor, date..."
               placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}

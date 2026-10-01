@@ -41,7 +41,7 @@ const InfoRow = ({ icon, label, value }) => {
 /**
  * Bill Row Component
  */
-const BillRow = React.memo(({ item, onPress }) => {
+const BillRow = React.memo(({ item, onPress, onDelete }) => {
   const formatDate = (dateString) => {
     if (!dateString) return 'No Date';
     return formatDDMMYYYY(dateString);
@@ -73,6 +73,16 @@ const BillRow = React.memo(({ item, onPress }) => {
           size="small"
         />
       </View>
+      {onDelete && (
+        <Pressable
+          onPress={() => onDelete(item)}
+          hitSlop={10}
+          accessibilityLabel={`Delete invoice ${item.invoiceNumber || ''}`}
+          style={({ pressed }) => [styles.billDeleteButton, pressed && { opacity: 0.6 }]}
+        >
+          <Ionicons name="trash-outline" size={17} color="#DC2626" />
+        </Pressable>
+      )}
     </Pressable>
   );
 });
@@ -90,6 +100,7 @@ export default function DistributorDetailScreen({
   onEdit,
   onDelete,
   onBillPress,
+  onBillDelete,
   onLoadMoreBills,
   loading = false,
   hasMoreBills = false,
@@ -137,8 +148,8 @@ export default function DistributorDetailScreen({
   };
 
   const renderBill = useCallback(({ item }) => (
-    <BillRow item={item} onPress={onBillPress} />
-  ), [onBillPress]);
+    <BillRow item={item} onPress={onBillPress} onDelete={onBillDelete} />
+  ), [onBillPress, onBillDelete]);
 
   const keyExtractor = useCallback((item) => item.id, []);
 
@@ -665,6 +676,11 @@ const styles = StyleSheet.create({
     elevation: 1,
     borderWidth: 1,
     borderColor: 'rgba(226,232,240,0.6)',
+  },
+  billDeleteButton: {
+    paddingLeft: 12,
+    paddingVertical: 4,
+    justifyContent: 'center',
   },
   billRowPressed: {
     opacity: 0.7,

@@ -308,6 +308,81 @@ async function upsertBatchesFromBillItems(userId, billItems) {
 }
 
 /**
+ * Reverse what a bill put into batch-level stock — the exact inverse of
+ * upsertBatchesFromBillItems — so deleting a purchase bill does not leave its goods
+ * sitting on the shelf forever.
+ *
+ * Mirrors the add path: match on (productId, batchNumber), subtract
+ * (quantity + freeQuantity) * packSize. A batch created solely by one of these lines
+ * (sourceBillItemId) is archived once emptied rather than deleted, following the
+ * archive-never-delete convention the rest of the batch code uses.
+ *
+ * Stock can legitimately go negative here: the pharmacist may already have sold from a
+ * batch whose purchase bill is now being removed. That is reported as a warning, not
+ * blocked — the user is correcting their own records and we do not silently refuse.
+ *
+ * @param {object} tx - prisma client or transaction
+ * @param {Array} billItems - the bill's items (needs id, productId, batchNumber, quantity, freeQuantity)
+ * @returns {Promise<{adjusted:number, archived:number, warnings:string[], productIds:string[]}>}
+ */
+async function reverseBatchesFromBillItems(tx, billItems) {
+  const result = { adjusted: 0, archived: 0, warnings: [], productIds: [] };
+
+  for (const item of billItems) {
+    const batchNumber = (item.batchNumber || '').trim();
+    if (!item.productId || !batchNumber) continue; // never contributed to a batch
+
+    const product = await tx.product.findUnique({
+      where: { id: item.productId },
+      select: { id: true, packSize: true },
+    });
+    if (!product) continue;
+
+    const batchNumberNormalized = normalizeBatchNumber(batchNumber);
+    const batch = await tx.productBatch.findUnique({
+      where: { productId_batchNumberNormalized: { productId: product.id, batchNumberNormalized } },
+    });
+    if (!batch) continue;
+
+    const units = (Number(item.quantity) || 0) + (Number(item.freeQuantity) || 0);
+    const quantityBase = round3(units * (product.packSize || 1));
+    const projected = round3(batch.quantityBase - quantityBase);
+
+    // A batch this bill line created on its own, now fully reversed — retire it.
+    if (batch.sourceBillItemId === item.id && projected <= 0) {
+      await tx.productBatch.update({
+        where: { id: batch.id },
+        data: { isArchived: true, quantityBase: 0, sourceBillItemId: null },
+      });
+      result.archived++;
+    } else {
+      await tx.productBatch.update({
+        where: { id: batch.id },
+        data: {
+          quantityBase: projected,
+          ...(batch.sourceBillItemId === item.id ? { sourceBillItemId: null } : {}),
+        },
+      });
+      result.adjusted++;
+      if (projected < 0) {
+        result.warnings.push(
+          `Removing "${item.name}" left batch ${batch.batchNumber} at ${projected} — more had already been sold ` +
+          `than this bill supplied. Stock is not blocked, but review it.`
+        );
+      }
+    }
+
+    result.productIds.push(product.id);
+  }
+
+  if (result.productIds.length > 0) {
+    await syncProductStock(tx, result.productIds);
+  }
+
+  return result;
+}
+
+/**
  * Create or update a batch by hand (user override — always available).
  */
 async function upsertBatchManually(userId, productId, data) {
@@ -371,6 +446,7 @@ module.exports = {
   applyBatchDeltas,
   syncProductStock,
   upsertBatchesFromBillItems,
+  reverseBatchesFromBillItems,
   upsertBatchManually,
   archiveBatch,
 };

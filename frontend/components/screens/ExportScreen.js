@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import DateField from '@/components/ui/DateField';
+import { ddmmyyyyToIso, isoToDdmmyyyy } from '@/utils/dateFormat';
 
 /**
  * Export Data — Excel/CSV export of everything in Setu.
@@ -84,18 +85,7 @@ function toIso(date) {
   return local.toISOString().slice(0, 10);
 }
 
-function isoToDdmmyyyy(iso) {
-  if (!iso) return '';
-  const [y, m, d] = iso.split('-');
-  return `${d}-${m}-${y}`;
-}
 
-function ddmmyyyyToIso(value) {
-  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value || '');
-  if (!match) return null;
-  const [, dd, mm, yyyy] = match;
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 function presetRange(preset) {
   const now = new Date();

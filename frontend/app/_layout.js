@@ -83,6 +83,7 @@ export default function RootLayout() {
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="products" options={{ headerShown: false, title: 'Products' }} />
                 <Stack.Screen name="distributors" options={{ headerShown: false }} />
+                <Stack.Screen name="bills" options={{ headerShown: false, title: 'All Bills' }} />
                 <Stack.Screen name="payments" options={{ headerShown: false, title: 'Payments' }} />
                 <Stack.Screen name="ledger" options={{ headerShown: false, title: 'Distributor Payments' }} />
                 <Stack.Screen name="sales" options={{ headerShown: false, title: 'Daily Sales' }} />

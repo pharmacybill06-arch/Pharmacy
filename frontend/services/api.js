@@ -293,8 +293,14 @@ export const billApi = {
   /**
    * Get all bills for a user
    */
-  getUserBills: async (userId) => {
-    return apiFetch(`/bills/user/${userId}`);
+  /**
+   * Bills for a user, newest-first by the date printed ON the bill (not upload time).
+   * @param {string} userId
+   * @param {string} [search] - invoice number, partial and separator-insensitive
+   */
+  getUserBills: async (userId, search) => {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return apiFetch(`/bills/user/${userId}${qs}`);
   },
 
   /**
@@ -317,6 +323,14 @@ export const billApi = {
   /**
    * Delete bill
    */
+  /**
+   * What deleting this bill would do — item count and the stock lines that would be
+   * reversed. Used to state the consequence in the confirm dialog.
+   */
+  getBillDeleteImpact: async (billId) => {
+    return apiFetch(`/bills/${billId}/delete-impact`);
+  },
+
   deleteBill: async (billId) => {
     return apiFetch(`/bills/${billId}`, {
       method: 'DELETE',

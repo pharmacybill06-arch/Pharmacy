@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { distributorApi } from '../services/api';
-import { ArrowLeft, Edit, FileText, Phone, MapPin } from 'lucide-react';
+import { distributorApi, billApi } from '../services/api';
+import { ArrowLeft, Edit, FileText, Phone, MapPin, Trash2, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDDMMYYYYOr } from '../utils/dateFormat';
 
@@ -11,6 +11,56 @@ export default function DistributorDetailPage() {
   const [distributor, setDistributor] = useState(null);
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deletingBillId, setDeletingBillId] = useState(null);
+
+  /**
+   * Delete an uploaded bill. This is destructive and it moves stock, so the confirm
+   * spells out exactly what goes: the backend reverses the batch quantities this bill
+   * put on the shelf, which is why we fetch the impact first rather than guessing.
+   */
+  const handleDeleteBill = async (bill) => {
+    let impact = null;
+    try {
+      impact = await billApi.getBillDeleteImpact(bill.id);
+    } catch {
+      // Non-fatal — fall back to a generic warning rather than blocking the delete.
+    }
+
+    const lines = [
+      `Delete invoice ${bill.invoiceNumber || '(no number)'}?`,
+      '',
+      impact
+        ? `${impact.itemCount} line item${impact.itemCount === 1 ? '' : 's'} will be removed.`
+        : 'Its line items will be removed.',
+    ];
+    if (impact?.stockAffectedCount > 0) {
+      lines.push(
+        `${impact.stockAffectedCount} of them added stock, which will be taken back off the shelf:`,
+        ...impact.stockLines.slice(0, 6).map(l => `  • ${l.name} — ${l.totalUnits} (batch ${l.batchNumber})`),
+      );
+      if (impact.stockLines.length > 6) lines.push(`  …and ${impact.stockLines.length - 6} more`);
+    }
+    lines.push('', 'This cannot be undone.');
+
+    if (!window.confirm(lines.join(String.fromCharCode(10)))) return;
+
+    setDeletingBillId(bill.id);
+    try {
+      const res = await billApi.deleteBill(bill.id);
+      setBills(prev => prev.filter(b => b.id !== bill.id));
+      const warnings = res?.stock?.warnings || [];
+      if (warnings.length > 0) {
+        // Stock went negative — the pharmacist had already sold beyond this bill.
+        toast(warnings[0], { icon: '⚠️', duration: 9000, style: { maxWidth: 520 } });
+      } else {
+        toast.success(`Invoice ${bill.invoiceNumber || ''} deleted`.trim());
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete bill');
+    } finally {
+      setDeletingBillId(null);
+    }
+  };
 
   const loadDistributor = useCallback(async () => {
     try {
@@ -124,6 +174,7 @@ export default function DistributorDetailPage() {
                   <th>Items</th>
                   <th>Total</th>
                   <th>Payment</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -134,6 +185,19 @@ export default function DistributorDetailPage() {
                     <td>{bill._count?.items || 0}</td>
                     <td style={{ fontWeight: 600 }}>₹{(bill.grandTotal || 0).toFixed(2)}</td>
                     <td><span className="badge badge-primary">{bill.paymentType || 'credit'}</span></td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        className="btn btn-ghost btn-icon"
+                        title={`Delete invoice ${bill.invoiceNumber || ''}`}
+                        aria-label={`Delete invoice ${bill.invoiceNumber || ''}`}
+                        disabled={deletingBillId === bill.id}
+                        onClick={() => handleDeleteBill(bill)}
+                      >
+                        {deletingBillId === bill.id
+                          ? <Loader2 size={15} style={{ color: '#6b7280', animation: 'spin 1s linear infinite' }} />
+                          : <Trash2 size={15} style={{ color: '#dc2626' }} />}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

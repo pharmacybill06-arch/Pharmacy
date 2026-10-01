@@ -4,13 +4,21 @@
     {
       "name": "backend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "backend", "start"],
+      "runtimeArgs": [
+        "--prefix",
+        "backend",
+        "start"
+      ],
       "port": 5000
     },
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "my-react-app", "start"],
+      "runtimeArgs": [
+        "--prefix",
+        "my-react-app",
+        "start"
+      ],
       "port": 3000
     }
   ]

@@ -7,6 +7,7 @@ const billEditService = require('../services/billEditService');
 const { PACK_LABELS, BASE_UNITS } = require('../utils/unitInference');
 const { parseInvoiceDate } = require('../utils/dateUtils');
 const { findDuplicateBill } = require('../services/billDuplicateService');
+const batchService = require('../services/batchService');
 
 // Invoice/due dates arrive as DD-MM-YYYY (what the AI prompt asks for and what Indian
 // invoices print). parseInvoiceDate reads them day-first and anchors to UTC midnight —
@@ -209,6 +210,7 @@ exports.uploadBill = async (req, res) => {
 exports.getUserBills = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { search } = req.query;
 
     // Check if user exists
     const user = await prisma.user.findUnique({
@@ -219,9 +221,18 @@ exports.getUserBills = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Invoice-number search. Matched case-insensitively against the number as printed;
+    // separators are not stripped here because a partial query like "A017" should still
+    // match "A-017863" — so the query is normalized and compared in JS below when it
+    // contains anything other than letters and digits.
+    const rawSearch = String(search || '').trim();
+    const searchFilter = rawSearch
+      ? { invoiceNumber: { contains: rawSearch, mode: 'insensitive' } }
+      : {};
+
     // Get all bills for the user with normalized fields (exclude drafts)
     const bills = await prisma.bill.findMany({
-      where: { userId, status: { not: 'draft' } },
+      where: { userId, status: { not: 'draft' }, ...searchFilter },
       include: {
         distributor: {
           select: {
@@ -245,13 +256,60 @@ exports.getUserBills = async (req, res) => {
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      // Sorted by the date printed ON the bill, not when it was uploaded — a bill
+      // entered today for yesterday's purchase belongs under today's. Bills whose date
+      // could not be read sort last rather than first (Postgres defaults NULLs first on
+      // DESC), and createdAt only breaks ties between bills sharing a date.
+      orderBy: [
+        { invoiceDate: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ]
     });
+
+    // Widen the match when the query carries separators the stored number may not have
+    // (or vice versa): "A-017863" should find "A017863".
+    const normalize = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    let result = bills;
+    if (rawSearch && normalize(rawSearch)) {
+      const needle = normalize(rawSearch);
+      const extra = await prisma.bill.findMany({
+        where: { userId, status: { not: 'draft' }, invoiceNumber: { not: null } },
+        select: { id: true, invoiceNumber: true },
+      });
+      const alsoMatching = new Set(
+        extra.filter((b) => normalize(b.invoiceNumber).includes(needle)).map((b) => b.id)
+      );
+      const haveIds = new Set(bills.map((b) => b.id));
+      const missingIds = [...alsoMatching].filter((id) => !haveIds.has(id));
+      if (missingIds.length > 0) {
+        const more = await prisma.bill.findMany({
+          where: { id: { in: missingIds } },
+          include: {
+            distributor: {
+              select: { id: true, name: true, phone: true, gstin: true, address: true, dlNumber: true },
+            },
+            items: {
+              select: {
+                id: true, serialNumber: true, name: true, batchNumber: true,
+                expiryDate: true, quantity: true, confidence: true,
+              },
+            },
+          },
+        });
+        result = [...bills, ...more].sort((a, b) => {
+          const ad = a.invoiceDate ? new Date(a.invoiceDate).getTime() : -Infinity;
+          const bd = b.invoiceDate ? new Date(b.invoiceDate).getTime() : -Infinity;
+          if (ad !== bd) return bd - ad;
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+      }
+    }
 
     res.json({
       message: 'User bills fetched successfully',
-      total: bills.length,
-      bills
+      total: result.length,
+      search: rawSearch || undefined,
+      bills: result
     });
   } catch (error) {
     console.error('Error fetching user bills:', error.message);
@@ -389,34 +447,101 @@ exports.updateBill = async (req, res) => {
 };
 
 // Delete bill (cascade delete bill items)
+/**
+ * GET /api/bills/:billId/delete-impact
+ *
+ * What would deleting this bill actually do? Returns the stock that would come back off
+ * the shelf, so the confirm dialog can state the consequence instead of asking the user
+ * to delete and find out.
+ */
+exports.getBillDeleteImpact = async (req, res) => {
+  try {
+    const { billId } = req.params;
+    const bill = await prisma.bill.findUnique({
+      where: { id: billId },
+      include: { items: true, distributor: true },
+    });
+    if (!bill) return res.status(404).json({ error: 'Bill not found' });
+
+    const linked = bill.items.filter((i) => i.productId && (i.batchNumber || '').trim());
+    res.json({
+      billId,
+      invoiceNumber: bill.invoiceNumber,
+      invoiceDate: bill.invoiceDate,
+      distributorName: bill.distributor?.name || bill.pharmacyName || null,
+      grandTotal: bill.grandTotal,
+      itemCount: bill.items.length,
+      // Lines that actually fed batch stock and will be reversed.
+      stockAffectedCount: linked.length,
+      stockLines: linked.map((i) => ({
+        name: i.name,
+        batchNumber: i.batchNumber,
+        quantity: i.quantity,
+        freeQuantity: i.freeQuantity,
+        totalUnits: (Number(i.quantity) || 0) + (Number(i.freeQuantity) || 0),
+      })),
+    });
+  } catch (error) {
+    console.error('Error computing delete impact:', error.message);
+    res.status(500).json({ error: 'Failed to compute delete impact' });
+  }
+};
+
+/**
+ * DELETE /api/bills/:billId
+ *
+ * Deleting a purchase bill also takes its goods back out of batch stock. Without that,
+ * removing a wrongly-entered bill left phantom inventory behind permanently — the batch
+ * quantities it added stayed on the shelf with nothing to account for them.
+ */
 exports.deleteBill = async (req, res) => {
   try {
     const { billId } = req.params;
 
-    // Check if bill exists
     const bill = await prisma.bill.findUnique({
-      where: { id: billId }
+      where: { id: billId },
+      include: { items: true },
     });
 
     if (!bill) {
       return res.status(404).json({ error: 'Bill not found' });
     }
 
-    // Delete associated file from uploads folder if it exists
+    // Reverse stock and remove the bill atomically — a half-done delete would leave
+    // stock reversed for a bill that still exists, or vice versa.
+    const stockResult = await prisma.$transaction(async (tx) => {
+      const reversal = bill.billType === 'purchase'
+        ? await batchService.reverseBatchesFromBillItems(tx, bill.items)
+        : { adjusted: 0, archived: 0, warnings: [], productIds: [] };
+
+      // Bill items cascade with the bill.
+      await tx.bill.delete({ where: { id: billId } });
+      return reversal;
+    });
+
+    // Only once the row is gone — an orphaned file is recoverable, a deleted file
+    // belonging to a bill that failed to delete is not.
     if (bill.filePath && bill.filePath.startsWith('/uploads/')) {
       const filePath = path.join(__dirname, '../../', bill.filePath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (fileErr) {
+        console.warn('[DELETE_BILL] Could not remove file (non-fatal):', fileErr.message);
       }
     }
 
-    // Delete bill (bill items cascade delete)
-    await prisma.bill.delete({
-      where: { id: billId }
-    });
+    console.log(
+      `[DELETE_BILL] Deleted ${billId} (invoice ${bill.invoiceNumber || 'n/a'}) — ` +
+      `${stockResult.adjusted} batch(es) adjusted, ${stockResult.archived} archived`
+    );
 
     res.json({
-      message: 'Bill deleted successfully'
+      message: 'Bill deleted successfully',
+      stock: {
+        batchesAdjusted: stockResult.adjusted,
+        batchesArchived: stockResult.archived,
+        warnings: stockResult.warnings,
+      },
     });
   } catch (error) {
     console.error('Error deleting bill:', error.message);

@@ -246,8 +246,7 @@ export default function BillsHomeScreen() {
   }, []);
 
   const handleViewAll = useCallback(() => {
-    // TODO: Navigate to all bills screen when implemented
-    router.push('/explore');
+    router.push('/bills');
   }, [router]);
 
   // Bill details — header + per-item quick edit, audit history, fast date-fix path

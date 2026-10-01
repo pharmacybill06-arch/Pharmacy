@@ -250,7 +250,13 @@ async function getDistributorBills(distributorId, options = {}) {
         }
       }
     },
-    orderBy: { createdAt: 'desc' },
+    // Ordered by the date on the bill, not the upload time — same rule as the main
+    // bills list. NULL invoice dates (unreadable on the scan) sort last instead of
+    // first, and createdAt only breaks ties.
+    orderBy: [
+      { invoiceDate: { sort: 'desc', nulls: 'last' } },
+      { createdAt: 'desc' },
+    ],
     skip: (page - 1) * limit,
     take: limit
   });

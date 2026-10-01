@@ -20,6 +20,7 @@ import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import DateField from '@/components/ui/DateField';
+import { ddmmyyyyToIso } from '@/utils/dateFormat';
 
 const MODES = [
   { key: 'upi', label: 'UPI', icon: 'phone-portrait-outline' },
@@ -49,12 +50,6 @@ function todayDDMMYYYY() {
   return `${dd}-${mm}-${d.getFullYear()}`;
 }
 
-function ddmmyyyyToIso(value) {
-  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value || '');
-  if (!match) return null;
-  const [, dd, mm, yyyy] = match;
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;

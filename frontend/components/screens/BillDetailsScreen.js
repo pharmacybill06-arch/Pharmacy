@@ -23,22 +23,9 @@ import DateField from '@/components/ui/DateField';
 import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
 import ProductAutocomplete from '@/components/ui/ProductAutocomplete';
 import { billApi } from '@/services/api';
-import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { ddmmyyyyToIso, formatDDMMYYYY, isoToDdmmyyyy } from '@/utils/dateFormat';
 
-function ddmmyyyyToIso(value) {
-  const m = String(value || '').match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (!m) return null;
-  return `${m[3]}-${m[2]}-${m[1]}`;
-}
 
-function isoToDdmmyyyy(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${dd}-${mm}-${d.getUTCFullYear()}`;
-}
 
 /**
  * Quick date-fix modal — the fastest path for the most common real-world edit.
