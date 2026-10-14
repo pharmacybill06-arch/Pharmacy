@@ -5,7 +5,6 @@ import {
   FlatList,
   TextInput,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import PrimaryButton from '@/components/ui/PrimaryButton';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import PressableScale from '@/components/ui/PressableScale';
 
 /**
  * Distributor List Item Component
@@ -26,7 +27,7 @@ const DistributorListItem = React.memo(({ item, onPress }) => {
   };
 
   return (
-    <Pressable
+    <PressableScale
       onPress={() => onPress(item)}
       style={({ pressed }) => [
         styles.distributorCard,
@@ -81,7 +82,7 @@ const DistributorListItem = React.memo(({ item, onPress }) => {
           )}
         </View>
       </Card>
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -206,10 +207,7 @@ export default function DistributorsListScreen({
 
         {/* Distributors List */}
         {loading && distributors.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#4F46E5" />
-            <ThemedText style={styles.loadingText}>Loading distributors...</ThemedText>
-          </View>
+          <SkeletonList rows={7} />
         ) : distributors.length === 0 ? (
           <EmptyState onAddPress={onAddPress} />
         ) : (

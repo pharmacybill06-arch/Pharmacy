@@ -484,22 +484,22 @@ export default function BillFormRedesigned({
 
     // Validation
     // if (!formData.pharmacyName.trim()) {
-    //   Alert.alert('Validation Error', 'Pharmacy name is required');
+    //   showToast('Pharmacy name is required', 'error', 'Error');
     //   return;
     // }
 
     // if (!formData.invoiceNumber.trim()) {
-    //   Alert.alert('Validation Error', 'Invoice number is required');
+    //   showToast('Invoice number is required', 'error', 'Error');
     //   return;
     // }
 
     // if (!formData.invoiceDate.trim()) {
-    //   Alert.alert('Validation Error', 'Invoice date is required');
+    //   showToast('Invoice date is required', 'error', 'Error');
     //   return;
     // }
 
     // if (formData.items.length === 0) {
-    //   Alert.alert('Validation Error', 'At least one item is required');
+    //   showToast('At least one item is required', 'error', 'Error');
     //   return;
     // }
 

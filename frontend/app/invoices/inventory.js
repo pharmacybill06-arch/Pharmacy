@@ -18,12 +18,14 @@ import { Colors } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { productApi } from '../../services/api';
 import AppBar from '@/components/ui/AppBar';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * InventoryScreen
  * Manage product inventory with stock levels and low stock warnings
  */
 export default function InventoryScreen() {
+  const toast = useToast();
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id;
@@ -49,7 +51,7 @@ export default function InventoryScreen() {
       const data = await productApi.getProducts(userId, { limit: 100, activeOnly: true });
       setProducts(data.products || []);
     } catch (error) {
-      Alert.alert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
@@ -60,7 +62,7 @@ export default function InventoryScreen() {
     try {
       await loadProducts();
     } catch (error) {
-      Alert.alert('Error', 'Failed to refresh');
+      toast.error('Failed to refresh');
     } finally {
       setRefreshing(false);
     }
@@ -83,7 +85,7 @@ export default function InventoryScreen() {
 
   const handleAdjustStock = async () => {
     if (!stockAdjustment || isNaN(stockAdjustment)) {
-      Alert.alert('Invalid Input', 'Please enter a valid adjustment amount');
+      toast.warning('Please enter a valid adjustment amount');
       return;
     }
 
@@ -91,19 +93,19 @@ export default function InventoryScreen() {
     const newStock = (editingProduct.stock || 0) + adjustment;
 
     if (newStock < 0) {
-      Alert.alert('Invalid Stock', 'Stock cannot go negative');
+      toast.warning('Stock cannot go negative');
       return;
     }
 
     try {
       await productApi.updateProduct(userId, editingProduct.id, { stock: newStock });
 
-      Alert.alert('Success', 'Stock updated successfully');
+      toast.success('Stock updated successfully');
       setModalVisible(false);
       setStockAdjustment('');
       await loadProducts();
     } catch (error) {
-      Alert.alert('Error', error.message);
+      toast.error(error.message);
     }
   };
 
@@ -119,10 +121,10 @@ export default function InventoryScreen() {
             try {
               await productApi.deleteProduct(userId, productId);
 
-              Alert.alert('Success', 'Product deleted');
+              toast.success('Product deleted');
               await loadProducts();
             } catch (error) {
-              Alert.alert('Error', error.message);
+              toast.error(error.message);
             }
           },
           style: 'destructive'

@@ -6,7 +6,6 @@ import {
   Pressable,
   Platform,
   SafeAreaView,
-  ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
@@ -14,6 +13,10 @@ import { ThemedView } from '@/components/themed-view';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys, invalidateBillData } from '@/lib/queryClient';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import BillDetailsScreen from '@/components/screens/BillDetailsScreen';
 import Toast from '@/components/ui/Toast';
@@ -115,9 +118,6 @@ const STOCK_PAGE_SIZE = 5;
 export default function BillsHomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [bills, setBills] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
   const [viewingBill, setViewingBill] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
@@ -127,21 +127,30 @@ export default function BillsHomeScreen() {
   // Only use authenticated user ID; do not fetch with placeholder
   const userId = user?.id;
 
-  const fetchBills = useCallback(async () => {
-    if (!userId) return;
-    try {
-      setIsLoading(true);
-      setError(null);
-      const response = await billApi.getUserBills(userId);
-      setBills(response.bills || []);
-      setVisibleStockCount(STOCK_PAGE_SIZE);
-    } catch (err) {
-      console.error('Error fetching bills:', err);
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [userId]);
+  // Bills come from the shared cache. Revisiting Home used to blank the screen to a
+  // spinner on every focus while it refetched data it already had; now cached bills
+  // render instantly and the refetch happens behind them.
+  const queryClient = useQueryClient();
+  const billsQuery = useQuery({
+    queryKey: queryKeys.bills(userId),
+    queryFn: async () => (await billApi.getUserBills(userId)).bills || [],
+    enabled: !!userId,
+  });
+  const bills = useMemo(() => billsQuery.data ?? [], [billsQuery.data]);
+  // Skeleton only on a genuine first load — never over data we can already show.
+  const isLoading = billsQuery.isPending && !billsQuery.data;
+  // Likewise an error only replaces the list when there is no list to keep showing.
+  const error = billsQuery.error && !billsQuery.data ? billsQuery.error.message : null;
+  const fetchBills = billsQuery.refetch;
+
+  // Optimistic edits write straight into the cache, so every screen reading it updates.
+  const setBills = useCallback(
+    (updater) =>
+      queryClient.setQueryData(queryKeys.bills(userId), (prev = []) =>
+        typeof updater === 'function' ? updater(prev) : updater
+      ),
+    [queryClient, userId]
+  );
 
   const expiringItems = useMemo(() => {
     const today = new Date();
@@ -184,12 +193,13 @@ export default function BillsHomeScreen() {
   useFocusEffect(
     useCallback(() => {
       if (userId) {
-        fetchBills();
+        // Marks the cache stale and refetches in the background; what is on screen stays.
+        queryClient.invalidateQueries({ queryKey: queryKeys.bills(userId) });
         ledgerApi.getOverdueAlert(userId)
           .then(setOverdueAlert)
           .catch((err) => console.log('Could not fetch overdue alert:', err.message));
       }
-    }, [userId, fetchBills])
+    }, [userId, queryClient])
   );
 
   const showToast = (message, type = 'info', title = '') => {
@@ -232,6 +242,9 @@ export default function BillsHomeScreen() {
         )
       );
       
+      // Refresh every screen that shows this bill, not just this one.
+      invalidateBillData(userId);
+
       // Close edit mode and show success
       setEditingBill(null);
       showToast('Expiry items have been updated successfully.', 'success', 'Items Updated');
@@ -239,7 +252,7 @@ export default function BillsHomeScreen() {
       console.error('Error saving bill:', err);
       showToast('Failed to save bill. Please try again.', 'error', 'Error');
     }
-  }, [editingBill]);
+  }, [editingBill, setBills, userId]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBill(null);
@@ -249,10 +262,13 @@ export default function BillsHomeScreen() {
     router.push('/bills');
   }, [router]);
 
+  // How deep the current in-place view is: home 0, bill detail 1, editing 2.
+  const transition = useTransitionDirection(editingBill ? 2 : viewingBill ? 1 : 0);
+
   // Bill details — header + per-item quick edit, audit history, fast date-fix path
   if (viewingBill) {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="detail" direction={transition}>
         <BillDetailsScreen
           bill={viewingBill}
           userId={userId}
@@ -263,16 +279,17 @@ export default function BillsHomeScreen() {
           }}
           onRefresh={(updatedBill) => {
             setBills((prev) => prev.map((b) => (b.id === updatedBill.id ? updatedBill : b)));
+            invalidateBillData(userId);
           }}
         />
-      </View>
+      </ScreenTransition>
     );
   }
 
   // If editing a bill, show the bill form
   if (editingBill) {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="edit" direction={transition}>
         <BillFormRedesigned
           initialData={editingBill}
           onSubmit={handleSaveBill}
@@ -288,11 +305,12 @@ export default function BillsHomeScreen() {
           onHide={hideToast}
           duration={4000}
         />
-      </View>
+      </ScreenTransition>
     );
   }
 
   return (
+    <ScreenTransition key="home" direction={transition}>
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ThemedView style={styles.container}>
         {/* Top App Bar with Logo */}
@@ -421,10 +439,8 @@ export default function BillsHomeScreen() {
 
             {/* Expiry List */}
             {isLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#007AFF" />
-                <ThemedText style={styles.loadingText}>Loading expiry items...</ThemedText>
-              </View>
+              // Rows the shape of what is coming, instead of a blank spinner.
+              <SkeletonList rows={6} style={{ paddingHorizontal: 0 }} />
             ) : error ? (
               <View style={styles.errorContainer}>
                 <MaterialIcons name="error-outline" size={48} color="#FF3B30" />
@@ -605,6 +621,7 @@ export default function BillsHomeScreen() {
         />
       </ThemedView>
     </SafeAreaView>
+    </ScreenTransition>
   );
 }
 

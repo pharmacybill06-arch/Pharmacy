@@ -11,6 +11,7 @@ import DistributorDetailScreen from '@/components/screens/DistributorDetailScree
 import BillDetailsScreen from '@/components/screens/BillDetailsScreen';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
  * Distributors Screen Content
@@ -314,9 +315,12 @@ function DistributorsScreenContent() {
   }, [selectedDistributor, router]);
 
   // Render based on current view
+  // How deep the current in-place view is: list 0, detail 1, edit 2+.
+  const transition = useTransitionDirection(editingBill ? 3 : viewingBill ? 2 : currentView === 'form' ? 2 : currentView === 'detail' ? 1 : 0);
+
   if (editingBill) {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="bill-edit" direction={transition}>
         <BillFormRedesigned
           initialData={editingBill}
           onSubmit={handleSaveBillEdit}
@@ -329,13 +333,13 @@ function DistributorsScreenContent() {
           title={toast.title}
           onHide={hideToast}
         />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (viewingBill) {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="bill-detail" direction={transition}>
         <BillDetailsScreen
           bill={viewingBill}
           userId={userId}
@@ -350,13 +354,13 @@ function DistributorsScreenContent() {
           title={toast.title}
           onHide={hideToast}
         />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (currentView === 'form') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="form" direction={transition}>
         <DistributorFormScreen
           distributor={editingDistributor}
           onBack={handleBack}
@@ -370,13 +374,13 @@ function DistributorsScreenContent() {
           title={toast.title}
           onHide={hideToast}
         />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (currentView === 'detail') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="detail" direction={transition}>
         <DistributorDetailScreen
           distributor={selectedDistributor}
           bills={distributorBills}
@@ -399,12 +403,12 @@ function DistributorsScreenContent() {
           title={toast.title}
           onHide={hideToast}
         />
-      </View>
+      </ScreenTransition>
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenTransition key="list" direction={transition}>
       <DistributorsListScreen
         distributors={distributors}
         onDistributorPress={handleDistributorPress}
@@ -421,7 +425,7 @@ function DistributorsScreenContent() {
         title={toast.title}
         onHide={hideToast}
       />
-    </View>
+    </ScreenTransition>
   );
 }
 

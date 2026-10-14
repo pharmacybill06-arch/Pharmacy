@@ -7,6 +7,7 @@ import QuickSellScreen from '@/components/screens/QuickSellScreen';
 import DailySaleRegisterScreen from '@/components/screens/DailySaleRegisterScreen';
 import PendingBillsScreen from '@/components/screens/PendingBillsScreen';
 import Toast from '@/components/ui/Toast';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
  * Quick Sell + Daily Sale Register.
@@ -132,9 +133,12 @@ function SalesScreenContent() {
     }
   }, [handleOpenPending]);
 
+  // How deep the current in-place view is: list 0, detail 1, edit 2+.
+  const transition = useTransitionDirection(view === 'sell' || view === 'pending' ? 1 : 0);
+
   if (view === 'sell') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="sell" direction={transition}>
         <QuickSellScreen
           userId={userId}
           onBack={handleBack}
@@ -144,13 +148,13 @@ function SalesScreenContent() {
           isSaving={isSaving}
         />
         <Toast {...toast} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (view === 'pending') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="pending" direction={transition}>
         <PendingBillsScreen
           pending={pending}
           loading={isLoading}
@@ -160,12 +164,12 @@ function SalesScreenContent() {
           onConvertMany={handleConvertMany}
         />
         <Toast {...toast} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenTransition key="list" direction={transition}>
       <DailySaleRegisterScreen
         register={register}
         registerDate={registerDate}
@@ -180,7 +184,7 @@ function SalesScreenContent() {
         onPendingPress={handleOpenPending}
       />
       <Toast {...toast} onHide={hideToast} />
-    </View>
+    </ScreenTransition>
   );
 }
 

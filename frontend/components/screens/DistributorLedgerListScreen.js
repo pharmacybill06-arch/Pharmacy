@@ -3,8 +3,6 @@ import {
   View,
   StyleSheet,
   FlatList,
-  Pressable,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,6 +12,8 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import PressableScale from '@/components/ui/PressableScale';
 
 function formatAmount(amount) {
   const n = parseFloat(amount) || 0;
@@ -29,7 +29,7 @@ function formatDate(dateString) {
  * Distributor Row — Screen A
  */
 const DistributorLedgerRow = React.memo(({ item, onPress }) => (
-  <Pressable
+  <PressableScale
     onPress={() => onPress?.(item)}
     style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
   >
@@ -59,7 +59,7 @@ const DistributorLedgerRow = React.memo(({ item, onPress }) => (
         <ThemedText style={styles.rowOverdue}>{formatAmount(item.overdue)} overdue</ThemedText>
       )}
     </View>
-  </Pressable>
+  </PressableScale>
 ));
 DistributorLedgerRow.displayName = 'DistributorLedgerRow';
 
@@ -124,7 +124,7 @@ export default function DistributorLedgerListScreen({
           renderItem={renderItem}
           keyExtractor={keyExtractor}
           ListHeaderComponent={ListHeader}
-          ListEmptyComponent={!loading ? ListEmpty : null}
+          ListEmptyComponent={loading ? <SkeletonList rows={6} /> : ListEmpty}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -132,11 +132,6 @@ export default function DistributorLedgerListScreen({
           }
         />
 
-        {loading && distributors.length === 0 && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#4F46E5" />
-          </View>
-        )}
       </SafeAreaView>
     </ThemedView>
   );

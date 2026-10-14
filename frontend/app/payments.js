@@ -8,6 +8,7 @@ import PaymentsListScreen from '@/components/screens/PaymentsListScreen';
 import SharedPaymentScreen from '@/components/screens/SharedPaymentScreen';
 import Toast from '@/components/ui/Toast';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
  * Payments Screen Content
@@ -176,10 +177,13 @@ function PaymentsScreenContent() {
     fetchPayments(userId, { page: pagination.page + 1, limit: 20 });
   }, [userId, isLoading, pagination, fetchPayments]);
 
+  // How deep the current in-place view is: list 0, shared-payment 1.
+  const transition = useTransitionDirection(currentView === 'shared' ? 1 : 0);
+
   // Render current view
   if (currentView === 'shared') {
     return (
-      <>
+      <ScreenTransition key="shared" direction={transition}>
         <SharedPaymentScreen
           sharedText={sharedPaymentText || ''}
           distributors={distributors}
@@ -193,14 +197,14 @@ function PaymentsScreenContent() {
           message={toast.message}
           type={toast.type}
           title={toast.title}
-          onDismiss={() => setToast({ ...toast, visible: false })}
+          onHide={() => setToast((t) => ({ ...t, visible: false }))}
         />
-      </>
+      </ScreenTransition>
     );
   }
 
   return (
-    <>
+    <ScreenTransition key="list" direction={transition}>
       <PaymentsListScreen
         payments={payments}
         stats={paymentStats}
@@ -219,9 +223,9 @@ function PaymentsScreenContent() {
         message={toast.message}
         type={toast.type}
         title={toast.title}
-        onDismiss={() => setToast({ ...toast, visible: false })}
+        onHide={() => setToast((t) => ({ ...t, visible: false }))}
       />
-    </>
+    </ScreenTransition>
   );
 }
 

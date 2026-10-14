@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/theme';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * InvoiceItemsTable
@@ -22,21 +23,19 @@ const InvoiceItemsTable = ({
   onUpdateItem,
   onCalculateTotals
 }) => {
+  const toast = useToast();
   const [editingIndex, setEditingIndex] = useState(null);
 
   const handleQuantityChange = (index, quantity) => {
     const item = items[index];
     
     if (!quantity || quantity <= 0) {
-      Alert.alert('Invalid Quantity', 'Quantity must be greater than 0');
+      toast.warning('Quantity must be greater than 0');
       return;
     }
 
     if (quantity > item.stock) {
-      Alert.alert(
-        'Insufficient Stock',
-        `Available stock: ${item.stock}, Requested: ${quantity}`
-      );
+      toast.warning(`Available stock: ${item.stock}, Requested: ${quantity}`);
       return;
     }
 

@@ -220,12 +220,15 @@ export function ProductsProvider({ children }) {
    * Delete a product
    */
   const deleteProduct = useCallback(async (userId, productId, permanent = false) => {
+    // Declared outside the try because the catch below reverts to it. It used to live
+    // inside, so a failed delete threw "previousProducts is not defined" from the
+    // recovery path and buried the real error.
+    const previousProducts = [...products];
     try {
       setIsSaving(true);
       setError(null);
-      
+
       // Optimistic update - remove from list
-      const previousProducts = [...products];
       setProducts(prev => prev.filter(p => p.id !== productId));
       setPagination(prev => ({ ...prev, total: prev.total - 1 }));
       

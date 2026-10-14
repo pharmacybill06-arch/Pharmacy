@@ -24,6 +24,7 @@ import DistributorAutocomplete from '@/components/ui/DistributorAutocomplete';
 import ProductAutocomplete from '@/components/ui/ProductAutocomplete';
 import { billApi } from '@/services/api';
 import { ddmmyyyyToIso, formatDDMMYYYY, isoToDdmmyyyy } from '@/utils/dateFormat';
+import { useToast } from '@/contexts/ToastContext';
 
 
 
@@ -334,6 +335,7 @@ export default function BillDetailsScreen({
   onEdit,
   onRefresh,
 }) {
+  const toast = useToast();
   const [currentBill, setCurrentBill] = useState(bill);
   const [quickDateModal, setQuickDateModal] = useState({ visible: false, field: null, label: '' });
   const [headerModalVisible, setHeaderModalVisible] = useState(false);
@@ -389,9 +391,9 @@ export default function BillDetailsScreen({
       });
       setQuickDateModal({ visible: false, field: null, label: '' });
       await refetchAfterEdit();
-      if (result.warnings?.length) Alert.alert('Note', result.warnings.join('\n'));
+      if (result.warnings?.length) toast.warning(result.warnings.join('\n'));
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to save date.');
+      toast.error(err.message || 'Failed to save date.');
     } finally {
       setSaving(false);
     }
@@ -404,7 +406,7 @@ export default function BillDetailsScreen({
       setHeaderModalVisible(false);
       await refetchAfterEdit();
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to save changes.');
+      toast.error(err.message || 'Failed to save changes.');
     } finally {
       setSaving(false);
     }
@@ -417,10 +419,10 @@ export default function BillDetailsScreen({
       setEditingItem(null);
       await refetchAfterEdit();
       if (result.warnings?.length) {
-        Alert.alert('Stock warning', result.warnings.join('\n'));
+        toast.warning(result.warnings.join('\n'));
       }
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to save item.');
+      toast.error(err.message || 'Failed to save item.');
     } finally {
       setSaving(false);
     }
@@ -432,7 +434,7 @@ export default function BillDetailsScreen({
       setHistory(res.history || []);
       setHistoryModalVisible(true);
     } catch (err) {
-      Alert.alert('Error', 'Failed to load edit history.');
+      toast.error('Failed to load edit history.');
     }
   };
 
@@ -479,11 +481,19 @@ export default function BillDetailsScreen({
                 </ThemedText>
               </View>
 
-              {/* Invoice date — tap the pencil for the fastest path (the most common edit) */}
+              {/* Invoice date — the date the DISTRIBUTOR put on the bill. Labelled, and
+                  never silently replaced by the upload date: a bill whose date could not
+                  be read says so, so it can be corrected with the pencil. */}
               <View style={styles.summaryRow}>
                 <Ionicons name="calendar-outline" size={16} color="#64748B" />
-                <ThemedText style={styles.summaryMeta}>
-                  {isoToDdmmyyyy(currentBill.invoiceDate) || 'No date'}
+                <ThemedText style={styles.summaryMetaLabel}>Invoice date</ThemedText>
+                <ThemedText
+                  style={[
+                    styles.summaryMeta,
+                    !currentBill.invoiceDate && styles.summaryMetaMissing,
+                  ]}
+                >
+                  {isoToDdmmyyyy(currentBill.invoiceDate) || 'Not on bill — tap to add'}
                 </ThemedText>
                 <Pressable
                   hitSlop={8}
@@ -496,11 +506,23 @@ export default function BillDetailsScreen({
                 </Pressable>
               </View>
 
+              {/* Added to app — when this bill was scanned/imported. A different fact
+                  from the invoice date, so it gets its own labelled row rather than
+                  standing in for one. */}
+              <View style={styles.summaryRow}>
+                <Ionicons name="cloud-upload-outline" size={16} color="#94A3B8" />
+                <ThemedText style={styles.summaryMetaLabel}>Added to app</ThemedText>
+                <ThemedText style={[styles.summaryMeta, styles.summaryMetaSubtle]}>
+                  {formatDDMMYYYY(currentBill.createdAt) || '—'}
+                </ThemedText>
+              </View>
+
               {currentBill.dueDate && (
                 <View style={styles.summaryRow}>
                   <Ionicons name="alarm-outline" size={16} color="#64748B" />
+                  <ThemedText style={styles.summaryMetaLabel}>Due date</ThemedText>
                   <ThemedText style={styles.summaryMeta}>
-                    Due {isoToDdmmyyyy(currentBill.dueDate)}
+                    {isoToDdmmyyyy(currentBill.dueDate)}
                   </ThemedText>
                   <Pressable
                     hitSlop={8}
@@ -672,6 +694,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#64748B',
+  },
+  // Fixed-width label so the two date rows line up under each other.
+  summaryMetaLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+    width: 86,
+  },
+  // A missing invoice date is a prompt to fix it, not a neutral blank.
+  summaryMetaMissing: {
+    color: '#B45309',
+    fontStyle: 'italic',
+  },
+  // The upload date is context, not the headline fact.
+  summaryMetaSubtle: {
+    color: '#94A3B8',
+    fontWeight: '500',
   },
   quickEditPencil: {
     backgroundColor: '#EEF2FF',

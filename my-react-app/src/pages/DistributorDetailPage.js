@@ -170,7 +170,7 @@ export default function DistributorDetailPage() {
               <thead>
                 <tr>
                   <th>Invoice #</th>
-                  <th>Date</th>
+                  <th>Invoice Date</th>
                   <th>Items</th>
                   <th>Total</th>
                   <th>Payment</th>

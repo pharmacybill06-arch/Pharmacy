@@ -5,7 +5,6 @@ import {
   ScrollView,
   TextInput,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +12,8 @@ import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import PressableScale from '@/components/ui/PressableScale';
 
 /**
  * Daily Sale Register
@@ -63,7 +64,7 @@ function StatusChip({ status }) {
 
 function SaleCard({ sale, onPress }) {
   return (
-    <Pressable
+    <PressableScale
       style={({ pressed }) => [styles.saleCard, pressed && styles.saleCardPressed]}
       onPress={() => onPress?.(sale)}
     >
@@ -101,7 +102,7 @@ function SaleCard({ sale, onPress }) {
           </ThemedText>
         )}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -278,9 +279,7 @@ export default function DailySaleRegisterScreen({
 
           {/* Sales list */}
           {loading && sales.length === 0 ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator color="#4F46E5" />
-            </View>
+            <SkeletonList rows={5} style={{ paddingHorizontal: 0 }} />
           ) : sales.length === 0 ? (
             <View style={styles.emptyBox}>
               <Ionicons name="cart-outline" size={52} color="#CBD5E1" />

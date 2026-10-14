@@ -1,11 +1,17 @@
 import React from 'react';
-import { Pressable, StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
+import PressableScale from '@/components/ui/PressableScale';
 
 /**
  * Primary Button Component
- * Blue background, white text, optional icon
+ * Blue background, white text, optional icon.
+ *
+ * This is the app's "do the thing" button — save, confirm, record payment — so it gets a
+ * scale-down and a light haptic tick: the feedback that tells you a commit-type tap
+ * landed. While `loading`, it shows a spinner in place of the label instead of swapping
+ * the text to "Loading...", which used to resize the label mid-tap.
  */
 export default function PrimaryButton({
   title,
@@ -15,22 +21,25 @@ export default function PrimaryButton({
   fullWidth = true,
   loading = false,
 }) {
+  const inactive = disabled || loading;
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.button,
-        fullWidth && styles.fullWidth,
-        pressed && styles.pressed,
-        disabled && styles.disabled,
-      ]}
+    <PressableScale
+      style={[styles.button, fullWidth && styles.fullWidth, disabled && styles.disabled]}
       onPress={onPress}
-      disabled={disabled || loading}
+      disabled={inactive}
+      haptic={inactive ? false : 'light'}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: inactive, busy: loading }}
     >
-      {icon && <Ionicons name={icon} size={20} color="#FFFFFF" style={styles.icon} />}
-      <ThemedText style={styles.text}>
-        {loading ? 'Loading...' : title}
-      </ThemedText>
-    </Pressable>
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          {icon && <Ionicons name={icon} size={20} color="#FFFFFF" style={styles.icon} />}
+          <ThemedText style={styles.text}>{title}</ThemedText>
+        </>
+      )}
+    </PressableScale>
   );
 }
 

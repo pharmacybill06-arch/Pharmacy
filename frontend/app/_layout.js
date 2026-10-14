@@ -1,11 +1,15 @@
 import '../global-polyfills'; // Must be first - sets up global Buffer and process
 import { Stack, useRouter } from 'expo-router';
 import { AuthProvider } from '../contexts/AuthContext';
+import { ToastProvider } from '@/contexts/ToastContext';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/lib/queryClient';
 import { ProductsProvider } from '../contexts/ProductsContext';
 import { InvoiceProvider } from '../contexts/InvoiceContext';
 import { PaymentProvider } from '../contexts/PaymentContext';
 import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import 'react-native-reanimated';
 
@@ -17,11 +21,17 @@ function NotificationTapHandler() {
   const router = useRouter();
 
   useEffect(() => {
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response?.notification.request.content.data?.type === 'low_stock_reminder') {
-        router.push('/patients');
-      }
-    });
+    // Push notifications only exist on a device. On web these APIs throw, and the
+    // un-caught rejection surfaced as a red error overlay on every load.
+    if (Platform.OS === 'web') return undefined;
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response?.notification.request.content.data?.type === 'low_stock_reminder') {
+          router.push('/patients');
+        }
+      })
+      .catch((err) => console.warn('[Notifications] Could not read launch notification:', err?.message));
 
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       if (response.notification.request.content.data?.type === 'low_stock_reminder') {
@@ -68,8 +78,10 @@ export default function RootLayout() {
   }, []);
 
   return (
+    <QueryClientProvider client={queryClient}>
     <ShareIntentProvider options={{ debug: __DEV__, resetOnBackground: true }}>
       <AuthProvider>
+        <ToastProvider>
         <ProductsProvider>
           <InvoiceProvider>
             <PaymentProvider>
@@ -96,7 +108,9 @@ export default function RootLayout() {
             </PaymentProvider>
           </InvoiceProvider>
         </ProductsProvider>
+        </ToastProvider>
       </AuthProvider>
     </ShareIntentProvider>
+    </QueryClientProvider>
   );
 }

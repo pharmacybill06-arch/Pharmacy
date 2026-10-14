@@ -3,10 +3,13 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { billApi } from '@/services/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys, invalidateBillData } from '@/lib/queryClient';
 import BillsListScreen from '@/components/screens/BillsListScreen';
 import BillDetailsScreen from '@/components/screens/BillDetailsScreen';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
  * All purchase bills, searchable by invoice number.
@@ -24,8 +27,6 @@ export default function BillsRoute() {
   const { user } = useAuth();
   const userId = user?.id;
 
-  const [bills, setBills] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [viewingBill, setViewingBill] = useState(null);
   const [editingBill, setEditingBill] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
@@ -34,22 +35,31 @@ export default function BillsRoute() {
     setToast({ visible: true, message, type, title });
   const hideToast = () => setToast((t) => ({ ...t, visible: false }));
 
-  const fetchBills = useCallback(async () => {
-    if (!userId) return;
-    try {
-      setLoading(true);
-      const res = await billApi.getUserBills(userId);
-      setBills(res.bills || []);
-    } catch (err) {
-      showToast(err.message || 'Failed to load bills', 'error', 'Error');
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
+  // Same cache key as the Home screen, so arriving here from Home is instant: the
+  // bills are already loaded and this just revalidates them in the background.
+  const queryClient = useQueryClient();
+  const billsQuery = useQuery({
+    queryKey: queryKeys.bills(userId),
+    queryFn: async () => (await billApi.getUserBills(userId)).bills || [],
+    enabled: !!userId,
+  });
+  const bills = billsQuery.data ?? [];
+  const loading = billsQuery.isPending && !billsQuery.data;
+  const fetchBills = billsQuery.refetch;
 
   useEffect(() => {
-    fetchBills();
-  }, [fetchBills]);
+    if (billsQuery.error && !billsQuery.data) {
+      showToast(billsQuery.error.message || 'Failed to load bills', 'error', 'Error');
+    }
+  }, [billsQuery.error, billsQuery.data]);
+
+  const setBills = useCallback(
+    (updater) =>
+      queryClient.setQueryData(queryKeys.bills(userId), (prev = []) =>
+        typeof updater === 'function' ? updater(prev) : updater
+      ),
+    [queryClient, userId]
+  );
 
   // Keep the list, the open bill and the row in step after any edit — same rule as the
   // distributor screen: a date change must not leave two views disagreeing.
@@ -59,9 +69,9 @@ export default function BillsRoute() {
         setBills((prev) => prev.map((b) => (b.id === updatedBill.id ? { ...b, ...updatedBill } : b)));
         setViewingBill((prev) => (prev && prev.id === updatedBill.id ? { ...prev, ...updatedBill } : prev));
       }
-      await fetchBills();
+      await invalidateBillData(userId);
     },
-    [fetchBills]
+    [setBills, userId]
   );
 
   const handleSaveBillEdit = useCallback(
@@ -70,30 +80,33 @@ export default function BillsRoute() {
         await billApi.updateBill(editingBill.id, formData);
         setEditingBill(null);
         showToast('Bill updated successfully', 'success', 'Updated');
-        await fetchBills();
+        await invalidateBillData(userId);
       } catch (err) {
         showToast(err.message || 'Failed to save bill', 'error', 'Error');
       }
     },
-    [editingBill, fetchBills]
+    [editingBill, userId]
   );
+
+  // How deep the current in-place view is: list 0, detail 1, edit 2+.
+  const transition = useTransitionDirection(editingBill ? 2 : viewingBill ? 1 : 0);
 
   if (editingBill) {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="edit" direction={transition}>
         <BillFormRedesigned
           initialData={editingBill}
           onSubmit={handleSaveBillEdit}
           onCancel={() => setEditingBill(null)}
         />
         <Toast {...toast} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (viewingBill) {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="detail" direction={transition}>
         <BillDetailsScreen
           bill={viewingBill}
           userId={userId}
@@ -105,19 +118,21 @@ export default function BillsRoute() {
           onRefresh={handleBillChanged}
         />
         <Toast {...toast} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenTransition key="list" direction={transition}>
       <BillsListScreen
         bills={bills}
         loading={loading}
+        refreshing={billsQuery.isRefetching}
+        onRefresh={fetchBills}
         onBillPress={setViewingBill}
         onBack={() => router.back()}
       />
       <Toast {...toast} onHide={hideToast} />
-    </View>
+    </ScreenTransition>
   );
 }

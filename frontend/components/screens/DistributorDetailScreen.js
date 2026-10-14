@@ -17,7 +17,8 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { formatDDMMYYYY, billDisplayDateShort } from '@/utils/dateFormat';
+import PressableScale from '@/components/ui/PressableScale';
 
 /**
  * Info Row Component
@@ -48,7 +49,7 @@ const BillRow = React.memo(({ item, onPress, onDelete }) => {
   };
 
   return (
-    <Pressable
+    <PressableScale
       onPress={() => onPress?.(item)}
       style={({ pressed }) => [
         styles.billRow,
@@ -60,7 +61,7 @@ const BillRow = React.memo(({ item, onPress, onDelete }) => {
           {item.invoiceNumber || 'No Invoice #'}
         </ThemedText>
         <ThemedText style={styles.billDate}>
-          {formatDate(item.invoiceDate || item.createdAt)}
+          {billDisplayDateShort(item)}
         </ThemedText>
       </View>
       <View style={styles.billRowRight}>
@@ -83,7 +84,7 @@ const BillRow = React.memo(({ item, onPress, onDelete }) => {
           <Ionicons name="trash-outline" size={17} color="#DC2626" />
         </Pressable>
       )}
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -109,6 +110,16 @@ export default function DistributorDetailScreen({
   recentPayments = [],
   onViewPayments,
 }) {
+  // Hooks must run on every render, so they sit above the early return below. They used
+  // to sit after it: if `distributor` flipped between null and set while mounted (e.g.
+  // clearSelectedDistributor() after a delete), React threw "Rendered fewer hooks than
+  // expected" and the screen crashed.
+  const renderBill = useCallback(({ item }) => (
+    <BillRow item={item} onPress={onBillPress} onDelete={onBillDelete} />
+  ), [onBillPress, onBillDelete]);
+
+  const keyExtractor = useCallback((item) => item.id, []);
+
   if (!distributor) {
     return (
       <ThemedView style={styles.container}>
@@ -147,11 +158,6 @@ export default function DistributorDetailScreen({
     );
   };
 
-  const renderBill = useCallback(({ item }) => (
-    <BillRow item={item} onPress={onBillPress} onDelete={onBillDelete} />
-  ), [onBillPress, onBillDelete]);
-
-  const keyExtractor = useCallback((item) => item.id, []);
 
   const ListHeader = () => (
     <>

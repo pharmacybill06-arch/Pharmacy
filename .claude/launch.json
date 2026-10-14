@@ -20,6 +20,15 @@
         "start"
       ],
       "port": 3000
+    },
+    {
+      "name": "mobile",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "cd frontend && set \"CI=true\" && npx expo start --clear --port 8081 --max-workers 2"
+      ],
+      "port": 8081
     }
   ]
 }

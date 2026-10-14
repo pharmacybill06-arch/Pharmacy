@@ -20,6 +20,7 @@ import DateField from '@/components/ui/DateField';
 import UnitPickerField from '@/components/ui/UnitPickerField';
 import { PACK_LABELS, BASE_UNITS } from '@/constants/units';
 import { useProductCRUD } from '@/hooks/useProducts';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * Form Input Component with validation
@@ -75,6 +76,7 @@ export default function ProductFormScreen({
   onBack,
   onSave,
 }) {
+  const toast = useToast();
   const isEditing = !!product;
   
   // Form state
@@ -116,7 +118,7 @@ export default function ProductFormScreen({
   // Show API errors
   useEffect(() => {
     if (apiError) {
-      Alert.alert('Error', apiError);
+      toast.error(apiError);
     }
   }, [apiError]);
 

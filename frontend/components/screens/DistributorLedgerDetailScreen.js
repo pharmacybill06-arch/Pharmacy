@@ -9,7 +9,9 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { getFileUrl } from '@/services/api';
-import { formatDDMMYYYYOr } from '@/utils/dateFormat';
+import { formatDDMMYYYYOr, billDisplayDateShort } from '@/utils/dateFormat';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import PressableScale from '@/components/ui/PressableScale';
 
 function formatAmount(amount) {
   const n = parseFloat(amount) || 0;
@@ -62,7 +64,7 @@ function TabBar({ active, onChange }) {
 }
 
 const BillRow = React.memo(({ bill, onPress }) => (
-  <Pressable onPress={() => onPress?.(bill)} style={({ pressed }) => [styles.billCard, pressed && styles.rowPressed]}>
+  <PressableScale onPress={() => onPress?.(bill)} style={({ pressed }) => [styles.billCard, pressed && styles.rowPressed]}>
     <View style={styles.billCardTop}>
       <ThemedText style={styles.billInvoice} numberOfLines={1}>
         {bill.invoiceNumber || `Invoice (${bill.id.slice(-6)})`}
@@ -70,7 +72,7 @@ const BillRow = React.memo(({ bill, onPress }) => (
       <Chip label={STATUS_LABEL[bill.status] || bill.status} variant={STATUS_VARIANT[bill.status] || 'default'} />
     </View>
     <View style={styles.billCardDates}>
-      <ThemedText style={styles.billDateText}>Billed {formatDate(bill.invoiceDate || bill.createdAt)}</ThemedText>
+      <ThemedText style={styles.billDateText}>Billed {billDisplayDateShort(bill)}</ThemedText>
       {bill.dueDate && <ThemedText style={styles.billDateText}>· Due {formatDate(bill.dueDate)}</ThemedText>}
     </View>
     <View style={styles.billCardAmounts}>
@@ -89,12 +91,12 @@ const BillRow = React.memo(({ bill, onPress }) => (
         </ThemedText>
       </View>
     </View>
-  </Pressable>
+  </PressableScale>
 ));
 BillRow.displayName = 'BillRow';
 
 const PaymentRow = React.memo(({ payment, onPress }) => (
-  <Pressable onPress={() => onPress?.(payment)} style={({ pressed }) => [styles.paymentCard, pressed && styles.rowPressed]}>
+  <PressableScale onPress={() => onPress?.(payment)} style={({ pressed }) => [styles.paymentCard, pressed && styles.rowPressed]}>
     <View style={styles.paymentIconWrap}>
       <Ionicons name={MODE_ICON[payment.paymentMethod] || 'cash-outline'} size={20} color="#4F46E5" />
     </View>
@@ -124,7 +126,7 @@ const PaymentRow = React.memo(({ payment, onPress }) => (
         <Ionicons name="image-outline" size={16} color="#CBD5E1" />
       </View>
     )}
-  </Pressable>
+  </PressableScale>
 ));
 PaymentRow.displayName = 'PaymentRow';
 
@@ -275,9 +277,9 @@ export default function DistributorLedgerDetailScreen({
           <View style={{ height: 32 }} />
         </ScrollView>
 
-        {loading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#4F46E5" />
+        {loading && bills.length === 0 && payments.length === 0 && ledgerRows.length === 0 && (
+          <View style={[styles.loadingOverlay, styles.skeletonOverlay]}>
+            <SkeletonList rows={6} />
           </View>
         )}
       </SafeAreaView>
@@ -389,5 +391,12 @@ const styles = StyleSheet.create({
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(248, 250, 252, 0.8)',
+  },
+  // First-load placeholder sits below the header rather than centred over everything.
+  skeletonOverlay: {
+    top: 120,
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
+    backgroundColor: '#F8FAFC',
   },
 });

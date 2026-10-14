@@ -5,7 +5,6 @@ import {
   FlatList,
   TextInput,
   Pressable,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +16,8 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { callPatient, messagePatientOnWhatsApp, buildRefillReminderMessage } from '@/utils/contactActions';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import PressableScale from '@/components/ui/PressableScale';
 
 /**
  * Days-left -> color/label, mirrors the expiry action-window thresholds
@@ -38,7 +39,7 @@ const PatientListItem = React.memo(({ item, onPress }) => {
   const status = getRunOutStatus(item.daysLeft);
 
   return (
-    <Pressable
+    <PressableScale
       onPress={() => onPress(item)}
       style={({ pressed }) => [
         styles.patientCard,
@@ -96,7 +97,7 @@ const PatientListItem = React.memo(({ item, onPress }) => {
           </View>
         </View>
       </Card>
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -201,10 +202,7 @@ export default function PatientsListScreen({
         </View>
 
         {loading && patients.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#4F46E5" />
-            <ThemedText style={styles.loadingText}>Loading patients...</ThemedText>
-          </View>
+          <SkeletonList rows={7} />
         ) : patients.length === 0 ? (
           <EmptyState onAddPress={onAddPress} />
         ) : (

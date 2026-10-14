@@ -20,12 +20,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import ProductSearchDropdown from '../../components/invoice/ProductSearchDropdown';
 import InvoiceItemsTable from '../../components/invoice/InvoiceItemsTable';
 import AppBar from '@/components/ui/AppBar';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * CreateInvoiceScreen
  * Main screen for creating customer invoices with stock management
  */
 export default function CreateInvoiceScreen() {
+  const toast = useToast();
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id;
@@ -57,7 +59,7 @@ export default function CreateInvoiceScreen() {
     );
 
     if (existingItem) {
-      Alert.alert('Product Already Added', `${product.name} is already in the invoice`);
+      toast.warning(`${product.name} is already in the invoice`);
       return;
     }
 
@@ -115,12 +117,12 @@ export default function CreateInvoiceScreen() {
 
   const handleSaveInvoice = async () => {
     if (!currentInvoice.customerName.trim()) {
-      Alert.alert('Invalid Input', 'Please enter customer name');
+      toast.warning('Please enter customer name');
       return;
     }
 
     if (currentInvoice.items.length === 0) {
-      Alert.alert('Invalid Input', 'Please add at least one item');
+      toast.warning('Please add at least one item');
       return;
     }
 
@@ -129,10 +131,7 @@ export default function CreateInvoiceScreen() {
     );
 
     if (insufficientStock) {
-      Alert.alert(
-        'Insufficient Stock',
-        `${insufficientStock.name}: Available ${insufficientStock.stock}, Requested ${insufficientStock.quantity}`
-      );
+      toast.warning(`${insufficientStock.name}: Available ${insufficientStock.stock}, Requested ${insufficientStock.quantity}`);
       return;
     }
 
@@ -167,7 +166,7 @@ export default function CreateInvoiceScreen() {
         }
       ]);
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to create invoice');
+      toast.error(error.message || 'Failed to create invoice');
     } finally {
       setSaving(false);
     }

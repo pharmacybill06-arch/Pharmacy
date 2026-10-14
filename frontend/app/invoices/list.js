@@ -18,12 +18,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useInvoice } from '../../contexts/InvoiceContext';
 import AppBar from '@/components/ui/AppBar';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * InvoicesListScreen
  * Display list of customer invoices with filtering and actions
  */
 export default function InvoicesListScreen() {
+  const toast = useToast();
   const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id;
@@ -43,7 +45,7 @@ export default function InvoicesListScreen() {
     try {
       await fetchInvoices(userId);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load invoices');
+      toast.error('Failed to load invoices');
     }
   };
 
@@ -52,7 +54,7 @@ export default function InvoicesListScreen() {
     try {
       await loadInvoices();
     } catch (error) {
-      Alert.alert('Error', 'Failed to refresh invoices');
+      toast.error('Failed to refresh invoices');
     } finally {
       setRefreshing(false);
     }
@@ -84,10 +86,10 @@ export default function InvoicesListScreen() {
           onPress: async () => {
             try {
               await deleteInvoice(userId, invoiceId);
-              Alert.alert('Success', 'Invoice deleted and stock refunded');
+              toast.success('Invoice deleted and stock refunded');
               await loadInvoices();
             } catch (error) {
-              Alert.alert('Error', error.message);
+              toast.error(error.message);
             }
           },
           style: 'destructive'

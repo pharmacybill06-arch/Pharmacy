@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { billApi } from '../services/api';
 import { FileText, Search, Trash2, Eye, ScanLine, Receipt } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { formatDDMMYYYY } from '../utils/dateFormat';
+import { billDisplayDateShort } from '../utils/dateFormat';
 
 // Helper: compute GST display info for a bill
 function getGstInfo(bill) {
@@ -32,9 +32,9 @@ function BillCard({ bill, onDelete }) {
   const gst = getGstInfo(bill);
   const itemCount = bill._count?.items ?? bill.items?.length ?? 0;
 
-  const dateLabel = bill.invoiceDate
-    ? formatDDMMYYYY(bill.invoiceDate)
-    : 'No Date';
+  // Never show the upload date as if it were the invoice date — mark it when it stands
+  // in, so "No Date" bills are visibly distinguishable from genuinely dated ones.
+  const dateLabel = billDisplayDateShort(bill);
 
   const isCash = (bill.paymentType || '').toLowerCase() === 'cash';
 

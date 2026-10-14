@@ -20,6 +20,8 @@ import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { getPaymentAppName, formatPaymentAmount } from '@/utils/paymentParser';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { SkeletonList } from '@/components/ui/Skeleton';
+import PressableScale from '@/components/ui/PressableScale';
 
 /**
  * Payment App Badge
@@ -74,7 +76,7 @@ const PaymentRow = React.memo(({ item, onPress, onDelete }) => {
   };
 
   return (
-    <Pressable
+    <PressableScale
       onPress={() => onPress?.(item)}
       onLongPress={handleLongPress}
       style={({ pressed }) => [
@@ -106,7 +108,7 @@ const PaymentRow = React.memo(({ item, onPress, onDelete }) => {
         </ThemedText>
         {item.paymentApp && <AppBadge app={item.paymentApp} />}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -298,7 +300,7 @@ export default function PaymentsListScreen({
           renderItem={renderPayment}
           keyExtractor={keyExtractor}
           ListHeaderComponent={ListHeader}
-          ListEmptyComponent={payments.length === 0 && !loading ? ListEmpty : null}
+          ListEmptyComponent={payments.length === 0 ? (loading ? <SkeletonList rows={6} /> : ListEmpty) : null}
           ListFooterComponent={ListFooter}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -312,11 +314,6 @@ export default function PaymentsListScreen({
           }
         />
 
-        {loading && payments.length === 0 && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#4F46E5" />
-          </View>
-        )}
       </SafeAreaView>
     </ThemedView>
   );

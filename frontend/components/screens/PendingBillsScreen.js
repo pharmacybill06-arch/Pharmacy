@@ -5,7 +5,6 @@ import {
   ScrollView,
   TextInput,
   Pressable,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { SkeletonList } from '@/components/ui/Skeleton';
 
 /**
  * Pending Bills — the convert-to-bill queue.
@@ -211,9 +211,7 @@ export default function PendingBillsScreen({
         </View>
 
         {loading && sales.length === 0 ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator color="#4F46E5" />
-          </View>
+          <SkeletonList rows={5} />
         ) : sales.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="checkmark-done-circle-outline" size={52} color="#CBD5E1" />

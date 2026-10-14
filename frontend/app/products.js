@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import ProductsListScreen from '@/components/screens/ProductsListScreen';
 import ProductFormScreen from '@/components/screens/ProductFormScreen';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
  * Products Screen
@@ -50,24 +51,31 @@ export default function ProductsScreen() {
   }, [router]);
 
   // Render based on current view
+  // How deep the current in-place view is: list 0, form 1.
+  const transition = useTransitionDirection(currentView === 'form' ? 1 : 0);
+
   if (currentView === 'form') {
     return (
-      <ProductFormScreen
-        userId={userId}
-        product={selectedProduct}
-        onBack={handleBack}
-        onSave={handleProductSaved}
-      />
+      <ScreenTransition key="form" direction={transition}>
+        <ProductFormScreen
+          userId={userId}
+          product={selectedProduct}
+          onBack={handleBack}
+          onSave={handleProductSaved}
+        />
+      </ScreenTransition>
     );
   }
 
   return (
-    <ProductsListScreen
-      userId={userId}
-      onBack={handleBack}
-      onProductPress={handleProductPress}
-      onAddPress={handleAddPress}
-      onSellPress={handleSellPress}
-    />
+    <ScreenTransition key="list" direction={transition}>
+      <ProductsListScreen
+        userId={userId}
+        onBack={handleBack}
+        onProductPress={handleProductPress}
+        onAddPress={handleAddPress}
+        onSellPress={handleSellPress}
+      />
+    </ScreenTransition>
   );
 }

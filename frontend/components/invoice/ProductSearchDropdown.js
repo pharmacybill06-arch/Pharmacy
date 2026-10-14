@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Colors } from '../../constants/theme';
 import { productApi } from '../../services/api';
+import { useToast } from '@/contexts/ToastContext';
 
 /**
  * ProductSearchDropdown
@@ -22,6 +23,7 @@ const ProductSearchDropdown = ({
   placeholder = 'Search product...',
   excludeProductIds = []
 }) => {
+  const toast = useToast();
   // Fix: define colors from Colors.light
   const colors = Colors.light;
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,7 +74,7 @@ const ProductSearchDropdown = ({
 
   const handleProductSelect = (product) => {
     if (product.stock <= 0) {
-      Alert.alert('Out of Stock', `${product.name} is currently out of stock`);
+      toast.warning(`${product.name} is currently out of stock`);
       return;
     }
 

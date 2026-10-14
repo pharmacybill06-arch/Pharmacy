@@ -14,6 +14,7 @@ import DistributorLedgerDetailScreen from '@/components/screens/DistributorLedge
 import RecordPaymentScreen from '@/components/screens/RecordPaymentScreen';
 import Toast from '@/components/ui/Toast';
 import { ddmmyyyyToIso, isoToDdmmyyyy } from '@/utils/dateFormat';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 
 
@@ -173,6 +174,7 @@ function LedgerScreenContent() {
     uploadAttachment,
     recordPayment,
     archivePayment,
+    updatePayment,
     updateOpeningBalance,
     clearError,
     clearDistributorLedger,
@@ -180,8 +182,9 @@ function LedgerScreenContent() {
 
   const { distributors, fetchDistributors } = useDistributors();
 
-  const [view, setView] = useState('list'); // list | detail | pick-distributor | record
+  const [view, setView] = useState('list'); // list | detail | pick-distributor | record | edit-payment
   const [recordingDistributor, setRecordingDistributor] = useState(null);
+  const [editingPayment, setEditingPayment] = useState(null);
   const [allocationTargets, setAllocationTargets] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
@@ -206,7 +209,10 @@ function LedgerScreenContent() {
   const hideToast = () => setToast((t) => ({ ...t, visible: false }));
 
   const handleBack = useCallback(() => {
-    if (view === 'record') {
+    if (view === 'edit-payment') {
+      setEditingPayment(null);
+      setView('detail');
+    } else if (view === 'record') {
       setView(recordingDistributor && distributorLedger?.distributor?.id === recordingDistributor.id ? 'detail' : 'list');
     } else if (view === 'detail') {
       setView('list');
@@ -299,19 +305,45 @@ function LedgerScreenContent() {
     }
   }, [billModal, fetchDistributorLedger, distributorLedger, fetchSummary, userId]);
 
+  /** Tapping a payment opens it in the same form that created it, pre-filled. */
   const handlePaymentPress = useCallback((payment) => {
+    setEditingPayment(payment);
+    setView('edit-payment');
+  }, []);
+
+  const handleUpdatePayment = useCallback(async (data) => {
+    if (!editingPayment) return;
+    try {
+      await updatePayment(editingPayment.id, data, distributorLedger?.distributor?.id);
+      showToast('Payment updated', 'success', 'Saved');
+      setEditingPayment(null);
+      setView('detail');
+      await fetchSummary(userId);
+    } catch (err) {
+      showToast(err.message || 'Failed to update payment', 'error', 'Error');
+    }
+  }, [updatePayment, editingPayment, distributorLedger, fetchSummary, userId]);
+
+  /**
+   * Archiving is destructive and cannot be undone from here, so it keeps a confirm step
+   * — but it is now reached from the payment's own page rather than being the only
+   * thing an Alert offered.
+   */
+  const handleArchivePayment = useCallback((payment) => {
     Alert.alert(
-      `${payment.paymentMethod?.toUpperCase() || 'Payment'} — ₹${payment.amount}`,
-      payment.referenceNumber ? `Ref: ${payment.referenceNumber}` : undefined,
+      'Archive this payment?',
+      `₹${payment.amount} will be removed from the ledger. Archived payments can be restored from the archive view.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Archive Payment',
+          text: 'Archive',
           style: 'destructive',
           onPress: async () => {
             try {
-              await archivePayment(payment.id, distributorLedger.distributor.id);
+              await archivePayment(payment.id, distributorLedger?.distributor?.id);
               showToast('Payment archived', 'success', 'Archived');
+              setEditingPayment(null);
+              setView('detail');
               await fetchSummary(userId);
             } catch (err) {
               showToast(err.message || 'Failed to archive payment', 'error', 'Error');
@@ -322,9 +354,31 @@ function LedgerScreenContent() {
     );
   }, [archivePayment, distributorLedger, fetchSummary, userId]);
 
+  // How deep the current in-place view is: list 0, detail 1, edit 2+.
+  const transition = useTransitionDirection((view === 'edit-payment' && editingPayment) || view === 'record' ? 2 : view === 'detail' ? 1 : 0);
+
+  if (view === 'edit-payment' && editingPayment) {
+    return (
+      <ScreenTransition key="edit-payment" direction={transition}>
+        <RecordPaymentScreen
+          distributor={distributorLedger?.distributor}
+          userId={userId}
+          allocationTargets={allocationTargets}
+          existingPayment={editingPayment}
+          onBack={handleBack}
+          onSave={handleUpdatePayment}
+          onArchive={handleArchivePayment}
+          onUploadAttachment={handleUploadAttachment}
+          isLoading={isLoading}
+        />
+        <Toast {...toast} onHide={hideToast} />
+      </ScreenTransition>
+    );
+  }
+
   if (view === 'record') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="record" direction={transition}>
         <RecordPaymentScreen
           distributor={recordingDistributor}
           userId={userId}
@@ -335,13 +389,13 @@ function LedgerScreenContent() {
           isLoading={isLoading}
         />
         <Toast {...toast} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (view === 'detail') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="detail" direction={transition}>
         <DistributorLedgerDetailScreen
           distributor={distributorLedger?.distributor}
           bills={distributorLedger?.bills || []}
@@ -367,12 +421,12 @@ function LedgerScreenContent() {
           onClose={() => setBillModal(null)}
         />
         <Toast {...toast} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenTransition key="list" direction={transition}>
       <DistributorLedgerListScreen
         distributors={summary.distributors}
         totalOutstanding={summary.totalOutstanding}
@@ -391,7 +445,7 @@ function LedgerScreenContent() {
         onClose={() => setView('list')}
       />
       <Toast {...toast} onHide={hideToast} />
-    </View>
+    </ScreenTransition>
   );
 }
 

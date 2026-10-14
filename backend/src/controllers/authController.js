@@ -12,6 +12,9 @@ async function withRetry(fn, retries = 3, delay = 1000) {
         error.message?.includes('Connection timed out') ||
         error.message?.includes('ECONNRESET') ||
         error.message?.includes('ECONNREFUSED') ||
+        // The Neon serverless driver words a dropped connection its own way.
+        error.message?.includes('Connection terminated') ||
+        error.message?.includes('terminating connection') ||
         error.code === 'P1001' || // Can't reach database server
         error.code === 'P1002' || // Database server timed out
         error.code === 'P1017' || // Server has closed the connection

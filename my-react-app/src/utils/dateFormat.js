@@ -83,4 +83,34 @@ export function ddmmyyyyToIso(value) {
  */
 export const isoToDdmmyyyy = formatDDMMYYYY;
 
+/**
+ * Which date to show for a bill, and — crucially — what that date actually is.
+ *
+ * A bill has two different dates and they are not interchangeable: the date printed on
+ * the invoice by the distributor, and the date it was added to this app. Some screens
+ * were silently falling back from one to the other, so a bill with no readable invoice
+ * date appeared to have one; others showed nothing at all. Both are misleading in
+ * different directions, which is why the source is returned alongside the text.
+ *
+ * @returns {{ text: string, source: 'invoice'|'uploaded'|'none', label: string }}
+ */
+export function billDisplayDate(bill) {
+  const invoice = formatDDMMYYYY(bill?.invoiceDate);
+  if (invoice) return { text: invoice, source: 'invoice', label: 'Invoice date' };
+
+  const uploaded = formatDDMMYYYY(bill?.createdAt);
+  if (uploaded) return { text: uploaded, source: 'uploaded', label: 'Added to app' };
+
+  return { text: '—', source: 'none', label: 'No date' };
+}
+
+/**
+ * Compact one-line form for list rows, where a second line will not fit. An upload date
+ * is always marked, so it can never be mistaken for the date on the bill.
+ */
+export function billDisplayDateShort(bill) {
+  const d = billDisplayDate(bill);
+  return d.source === 'uploaded' ? `${d.text} (added)` : d.text;
+}
+
 export default formatDDMMYYYY;

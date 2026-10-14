@@ -24,6 +24,7 @@ import DateField from '@/components/ui/DateField';
 import { useEnrichedProductList, useProductCRUD } from '@/hooks/useProducts';
 import { productApi, distributorApi } from '@/services/api';
 import { ddmmyyyyToIso } from '@/utils/dateFormat';
+import { useToast } from '@/contexts/ToastContext';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -680,6 +681,7 @@ const EmptyState = ({ hasActiveFilters, onClearFilters, onAddPress }) => (
  * expiry-month + received-date filters, FEFO sort, expand-in-place batch view.
  */
 export default function ProductsListScreen({ userId, onBack, onProductPress, onAddPress, onSellPress }) {
+  const toast = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ visible: false, product: null });
   const [expandedId, setExpandedId] = useState(null);
@@ -768,7 +770,7 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
       const res = await productApi.getProductById(userId, item.id);
       onProductPress?.(res.product);
     } catch (err) {
-      Alert.alert('Error', 'Failed to load product details.');
+      toast.error('Failed to load product details.');
     }
   }, [userId, onProductPress]);
 
@@ -783,7 +785,7 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
       await deleteProduct(product.id);
       refresh();
     } catch (err) {
-      Alert.alert('Error', 'Failed to delete product. Please try again.');
+      toast.error('Failed to delete product. Please try again.');
     }
   }, [deleteDialog.product, deleteProduct, refresh]);
 
@@ -810,9 +812,9 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
       setMergeMode(false);
       setMergeSelection([]);
       refresh();
-      Alert.alert('Merged', 'The duplicate product has been merged and archived.');
+      toast.success('The duplicate product has been merged and archived.');
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to merge products. Please try again.');
+      toast.error(err.message || 'Failed to merge products. Please try again.');
     } finally {
       setIsMerging(false);
     }
@@ -840,10 +842,10 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
       await productApi.mergeProducts(userId, match.productId, ghost.id);
       setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
       refresh();
-      Alert.alert('Merged', `"${ghost.name}" was merged into "${match.name}" and archived.`);
+      toast.success(`"${ghost.name}" was merged into "${match.name}" and archived.`);
     } catch (err) {
       setIdentify((prev) => ({ ...prev, isApplying: false }));
-      Alert.alert('Error', err.message || 'Failed to merge products. Please try again.');
+      toast.error(err.message || 'Failed to merge products. Please try again.');
     }
   }, [identify.product, userId, refresh]);
 
@@ -857,7 +859,7 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
     // Nothing the AI could add — the product is already saved and correct as it stands.
     if (Object.keys(updates).length === 0) {
       setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
-      Alert.alert('Kept', `"${product.name}" stays in your catalog as its own product.`);
+      toast.success(`"${product.name}" stays in your catalog as its own product.`);
       return;
     }
 
@@ -866,10 +868,10 @@ export default function ProductsListScreen({ userId, onBack, onProductPress, onA
       await productApi.updateProduct(userId, product.id, updates);
       setIdentify({ visible: false, product: null, result: null, isLoading: false, error: null, isApplying: false });
       refresh();
-      Alert.alert('Saved', `Saved as "${updates.name || product.name}" in your product catalog.`);
+      toast.success(`Saved as "${updates.name || product.name}" in your product catalog.`);
     } catch (err) {
       setIdentify((prev) => ({ ...prev, isApplying: false }));
-      Alert.alert('Error', err.message || 'Failed to save the product. Please try again.');
+      toast.error(err.message || 'Failed to save the product. Please try again.');
     }
   }, [identify.product, userId, refresh]);
 

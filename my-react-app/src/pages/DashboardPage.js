@@ -132,7 +132,7 @@ export default function DashboardPage() {
                     <th>Invoice #</th>
                     <th>Distributor</th>
                     <th>Amount</th>
-                    <th>Date</th>
+                    <th>Invoice Date</th>
                   </tr>
                 </thead>
                 <tbody>

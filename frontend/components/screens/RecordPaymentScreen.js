@@ -8,7 +8,6 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/themed-view';
@@ -20,7 +19,7 @@ import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import DateField from '@/components/ui/DateField';
-import { ddmmyyyyToIso } from '@/utils/dateFormat';
+import { ddmmyyyyToIso, isoToDdmmyyyy } from '@/utils/dateFormat';
 
 const MODES = [
   { key: 'upi', label: 'UPI', icon: 'phone-portrait-outline' },
@@ -84,14 +83,28 @@ export default function RecordPaymentScreen({
   onSave,
   onUploadAttachment, // (userId, uri, mimeType) => Promise<attachmentPath>
   isLoading = false,
+  // Pass a payment to edit it in place instead of recording a new one. Tapping a
+  // payment used to open an Alert that could only show the amount and archive it;
+  // the same form that created it is a far better place to correct it.
+  existingPayment = null,
+  onArchive,
 }) {
-  const [amount, setAmount] = useState('');
-  const [dateStr, setDateStr] = useState(todayDDMMYYYY());
-  const [mode, setMode] = useState('cash');
-  const [referenceNumber, setReferenceNumber] = useState('');
-  const [notes, setNotes] = useState('');
+  const isEditing = !!existingPayment;
+
+  const [amount, setAmount] = useState(existingPayment ? String(existingPayment.amount ?? '') : '');
+  const [dateStr, setDateStr] = useState(
+    existingPayment?.paymentDate ? isoToDdmmyyyy(existingPayment.paymentDate) : todayDDMMYYYY()
+  );
+  const [mode, setMode] = useState(existingPayment?.paymentMethod || 'cash');
+  const [referenceNumber, setReferenceNumber] = useState(existingPayment?.referenceNumber || '');
+  const [notes, setNotes] = useState(existingPayment?.notes || '');
   const [attachment, setAttachment] = useState(null); // { uri, mimeType, source }
   const [uploading, setUploading] = useState(false);
+
+  // Validation and failure messages live in the form, not in a blocking Alert the user
+  // has to dismiss before they can fix anything.
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState(null);
 
   // allocationMode: 'auto' (FIFO, default) | 'manual' (user-edited) | 'later' (skip entirely)
   const [allocationMode, setAllocationMode] = useState('auto');
@@ -143,14 +156,14 @@ export default function RecordPaymentScreen({
       if (source === 'camera') {
         const perm = await ImagePicker.requestCameraPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert('Camera permission needed', 'Allow camera access to photograph the receipt.');
+          setFormError('Camera access is off. Allow it in settings to photograph the receipt.');
           return;
         }
         result = await ImagePicker.launchCameraAsync({ quality: 0.9 });
       } else {
         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!perm.granted) {
-          Alert.alert('Photos permission needed', 'Allow photo library access to attach a screenshot.');
+          setFormError('Photo library access is off. Allow it in settings to attach a screenshot.');
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({ quality: 0.9 });
@@ -168,7 +181,7 @@ export default function RecordPaymentScreen({
       setAttachment({ uri: manipulated.uri, mimeType: 'image/jpeg', source });
     } catch (err) {
       console.error('Attachment capture failed:', err);
-      Alert.alert('Error', 'Could not capture the attachment. Please try again.');
+      setFormError('Could not capture the attachment. Please try again.');
     }
   }, []);
 
@@ -176,17 +189,22 @@ export default function RecordPaymentScreen({
 
   const validate = useCallback(() => {
     if (!amountNum || amountNum <= 0) {
-      Alert.alert('Amount required', 'Enter a payment amount greater than zero.');
+      setFieldErrors({ amount: 'Enter an amount greater than zero.' });
+      setFormError(null);
       return false;
     }
     if (!ddmmyyyyToIso(dateStr)) {
-      Alert.alert('Invalid date', 'Enter the payment date as DD-MM-YYYY.');
+      setFieldErrors({ dateStr: 'Enter the date as DD-MM-YYYY.' });
+      setFormError(null);
       return false;
     }
     if (allocationMode === 'manual' && manualTotal > amountNum + 0.01) {
-      Alert.alert('Allocation exceeds amount', 'The amounts you allocated add up to more than the payment amount.');
+      setFieldErrors({});
+      setFormError('The amounts you allocated add up to more than the payment amount.');
       return false;
     }
+    setFieldErrors({});
+    setFormError(null);
     return true;
   }, [amountNum, dateStr, allocationMode, manualTotal]);
 
@@ -200,7 +218,7 @@ export default function RecordPaymentScreen({
         attachmentPath = await onUploadAttachment(userId, attachment.uri, attachment.mimeType);
       } catch {
         setUploading(false);
-        Alert.alert('Upload failed', 'Could not upload the attachment. You can save without it and add it later.');
+        setFormError('Could not upload the attachment. You can save without it and add it later.');
         return;
       }
       setUploading(false);
@@ -238,7 +256,7 @@ export default function RecordPaymentScreen({
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <AppBar title="Record Payment" onBack={onBack} />
+        <AppBar title={isEditing ? 'Edit Payment' : 'Record Payment'} onBack={onBack} />
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -246,6 +264,17 @@ export default function RecordPaymentScreen({
               <View style={styles.distributorBanner}>
                 <ThemedText style={styles.distributorBannerLabel}>Paying</ThemedText>
                 <ThemedText style={styles.distributorBannerName}>{distributor.name}</ThemedText>
+              </View>
+            )}
+
+            {/* Non-blocking error banner — replaces the Alerts this screen used to throw */}
+            {formError && (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle" size={18} color="#B91C1C" />
+                <ThemedText style={styles.errorBannerText}>{formError}</ThemedText>
+                <Pressable onPress={() => setFormError(null)} hitSlop={8}>
+                  <Ionicons name="close" size={16} color="#B91C1C" />
+                </Pressable>
               </View>
             )}
 
@@ -263,11 +292,13 @@ export default function RecordPaymentScreen({
                   keyboardType="decimal-pad"
                 />
               </View>
+              {fieldErrors.amount && <ThemedText style={styles.fieldError}>{fieldErrors.amount}</ThemedText>}
             </Card>
 
             {/* Date */}
             <Card style={styles.card}>
               <DateField label="Payment Date" value={dateStr} onChange={setDateStr} required />
+              {fieldErrors.dateStr && <ThemedText style={styles.fieldError}>{fieldErrors.dateStr}</ThemedText>}
             </Card>
 
             {/* Mode */}
@@ -446,12 +477,22 @@ export default function RecordPaymentScreen({
 
           <View style={styles.buttonContainer}>
             <PrimaryButton
-              title="Save Payment"
+              title={isEditing ? 'Save Changes' : 'Save Payment'}
               icon="checkmark"
               onPress={handleSave}
               loading={busy}
               disabled={busy}
             />
+            {isEditing && onArchive && (
+              <Pressable
+                style={styles.archiveButton}
+                onPress={() => onArchive(existingPayment)}
+                disabled={busy}
+              >
+                <Ionicons name="archive-outline" size={16} color="#B91C1C" />
+                <ThemedText style={styles.archiveButtonText}>Archive this payment</ThemedText>
+              </Pressable>
+            )}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -461,6 +502,29 @@ export default function RecordPaymentScreen({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  errorBannerText: { flex: 1, color: '#B91C1C', fontSize: 13, fontWeight: '600' },
+  fieldError: { color: '#B91C1C', fontSize: 12, fontWeight: '600', marginTop: 6 },
+  archiveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  archiveButtonText: { color: '#B91C1C', fontSize: 14, fontWeight: '700' },
   safeArea: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 24 },
 

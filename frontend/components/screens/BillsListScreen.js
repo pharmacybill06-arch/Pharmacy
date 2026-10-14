@@ -3,10 +3,8 @@ import {
   View,
   StyleSheet,
   SafeAreaView,
-  FlatList,
   TextInput,
   Pressable,
-  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
@@ -15,7 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
-import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { formatDDMMYYYY, billDisplayDateShort } from '@/utils/dateFormat';
+import { FlashList } from '@shopify/flash-list';
+import PressableScale from '@/components/ui/PressableScale';
+import { SkeletonList } from '@/components/ui/Skeleton';
 
 /**
  * Bill List Item Component (Memoized for performance)
@@ -38,13 +39,7 @@ const BillListItem = React.memo(({ item, onPress }) => {
   const isLegacyRecord = !item.distributorId && item.pharmacyName;
 
   return (
-    <Pressable
-      onPress={() => onPress(item)}
-      style={({ pressed }) => [
-        styles.billCard,
-        pressed && styles.billCardPressed,
-      ]}
-    >
+    <PressableScale onPress={() => onPress(item)} style={styles.billCard}>
       <Card style={styles.billCardInner}>
         {/* Top Row: Distributor Name + Amount */}
         <View style={styles.billCardHeader}>
@@ -63,12 +58,18 @@ const BillListItem = React.memo(({ item, onPress }) => {
           </ThemedText>
         </View>
 
+        {/* The invoice number is what people search this list by — show the match. */}
+        {item.invoiceNumber ? (
+          <ThemedText style={styles.invoiceNumber} numberOfLines={1}>
+            #{item.invoiceNumber}
+          </ThemedText>
+        ) : null}
+
         {/* Bottom Row: Date + Payment Type Chips */}
         <View style={styles.billCardFooter}>
-          <Chip
-            label={item.invoiceDate || 'No Date'}
-            variant="default"
-          />
+          {/* Was the raw ISO value ("2026-03-09T00:00:00.000Z"). Now DD-MM-YYYY, and an
+              upload date standing in for a missing invoice date is marked as such. */}
+          <Chip label={billDisplayDateShort(item)} variant="default" />
           <View style={styles.chipSpacer} />
           <Chip
             label={item.paymentType || 'Cash'}
@@ -76,7 +77,7 @@ const BillListItem = React.memo(({ item, onPress }) => {
           />
         </View>
       </Card>
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -85,16 +86,7 @@ BillListItem.displayName = 'BillListItem';
 /**
  * Loading Skeleton Component
  */
-const LoadingSkeleton = () => (
-  <View style={styles.skeletonContainer}>
-    {[1, 2, 3, 4].map((i) => (
-      <View key={i} style={styles.skeletonCard}>
-        <View style={styles.skeletonLine} />
-        <View style={styles.skeletonLineSm} />
-      </View>
-    ))}
-  </View>
-);
+const LoadingSkeleton = () => <SkeletonList rows={7} style={{ paddingHorizontal: 0 }} />;
 
 /**
  * BillsListScreen
@@ -107,6 +99,8 @@ export default function BillsListScreen({
   onFilterPress,
   onBack,
   loading = false,
+  refreshing = false,
+  onRefresh,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -186,13 +180,20 @@ export default function BillsListScreen({
           {loading ? (
             <LoadingSkeleton />
           ) : (
-            <FlatList
+            // FlashList recycles row views instead of creating one per bill, so a
+            // long list scrolls without dropping frames — the same list component
+            // Shopify built for exactly this kind of feed.
+            <FlashList
               data={filteredBills()}
               renderItem={renderItem}
               keyExtractor={keyExtractor}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={ListEmptyComponent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              refreshing={refreshing}
+              onRefresh={onRefresh}
             />
           )}
         </View>
@@ -202,6 +203,13 @@ export default function BillsListScreen({
 }
 
 const styles = StyleSheet.create({
+  invoiceNumber: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 2,
+    marginBottom: 6,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',

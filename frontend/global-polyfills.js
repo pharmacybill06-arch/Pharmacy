@@ -6,9 +6,22 @@
 import { Buffer } from 'buffer';
 import process from 'process/browser';
 
-// Inject Buffer and process into global scope
-global.Buffer = Buffer;
-global.process = process;
+// Only polyfill where there is no real Node runtime. When Expo renders the web build on
+// the server, this file runs INSIDE the Metro dev server's own Node process; replacing
+// Node's genuine `process` there with the browser shim (which has no `hrtime`) crashed
+// Metro with "process.hrtime is not a function" and cut off every phone connected to it.
+const isRealNode = typeof global.process?.versions?.node === 'string';
+
+if (!isRealNode) {
+  // Keep any env the platform already set rather than wiping it with the shim's.
+  const existingEnv = global.process?.env;
+  global.process = process;
+  global.process.env = { ...(process.env || {}), ...(existingEnv || {}) };
+}
+
+if (!global.Buffer) {
+  global.Buffer = Buffer;
+}
 
 // Ensure process.env exists
 if (!global.process.env) {

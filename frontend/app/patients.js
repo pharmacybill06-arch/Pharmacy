@@ -7,6 +7,7 @@ import PatientsListScreen from '@/components/screens/PatientsListScreen';
 import PatientFormScreen from '@/components/screens/PatientFormScreen';
 import PatientDetailScreen from '@/components/screens/PatientDetailScreen';
 import Toast from '@/components/ui/Toast';
+import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
  * Patients (Refill Reminders) Screen Content
@@ -164,9 +165,12 @@ function PatientsScreenContent() {
     setRefreshing(false);
   }, [userId, fetchPatients]);
 
+  // How deep the current in-place view is: list 0, detail 1, edit 2+.
+  const transition = useTransitionDirection(currentView === 'form' ? 2 : currentView === 'detail' ? 1 : 0);
+
   if (currentView === 'form') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="form" direction={transition}>
         <PatientFormScreen
           patient={editingPatient}
           onBack={handleBack}
@@ -174,13 +178,13 @@ function PatientsScreenContent() {
           isLoading={isLoading}
         />
         <Toast visible={toast.visible} message={toast.message} type={toast.type} title={toast.title} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   if (currentView === 'detail') {
     return (
-      <View style={{ flex: 1 }}>
+      <ScreenTransition key="detail" direction={transition}>
         <PatientDetailScreen
           patient={selectedPatient}
           onBack={handleBack}
@@ -192,12 +196,12 @@ function PatientsScreenContent() {
           actionLoading={actionLoading}
         />
         <Toast visible={toast.visible} message={toast.message} type={toast.type} title={toast.title} onHide={hideToast} />
-      </View>
+      </ScreenTransition>
     );
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScreenTransition key="list" direction={transition}>
       <PatientsListScreen
         patients={patients}
         onPatientPress={handlePatientPress}
@@ -208,7 +212,7 @@ function PatientsScreenContent() {
         refreshing={refreshing}
       />
       <Toast visible={toast.visible} message={toast.message} type={toast.type} title={toast.title} onHide={hideToast} />
-    </View>
+    </ScreenTransition>
   );
 }
 

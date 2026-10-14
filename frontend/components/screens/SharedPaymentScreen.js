@@ -403,7 +403,7 @@ export default function SharedPaymentScreen({
         message={toast.message}
         type={toast.type}
         title={toast.title}
-        onDismiss={() => setToast({ ...toast, visible: false })}
+        onHide={() => setToast((t) => ({ ...t, visible: false }))}
       />
     </ThemedView>
   );
