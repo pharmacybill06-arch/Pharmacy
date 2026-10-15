@@ -20,6 +20,17 @@ import DraftsPage from './pages/DraftsPage';
 import InventoryPage from './pages/InventoryPage';
 import ProfilePage from './pages/ProfilePage';
 import EmailBillsPage from './pages/EmailBillsPage';
+import LedgerPage from './pages/LedgerPage';
+import LedgerDetailPage from './pages/LedgerDetailPage';
+import PaymentFormPage from './pages/PaymentFormPage';
+import PaymentsPage from './pages/PaymentsPage';
+import ExpiryPage from './pages/ExpiryPage';
+import SalesPage from './pages/SalesPage';
+import QuickSellPage from './pages/QuickSellPage';
+import PatientsPage from './pages/PatientsPage';
+import PatientFormPage from './pages/PatientFormPage';
+import PatientDetailPage from './pages/PatientDetailPage';
+import ExportsPage from './pages/ExportsPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -65,6 +76,19 @@ function AppRoutes() {
         <Route path="invoices" element={<InvoicesPage />} />
         <Route path="invoices/create" element={<CreateInvoicePage />} />
         <Route path="inventory" element={<InventoryPage />} />
+        <Route path="ledger" element={<LedgerPage />} />
+        <Route path="payments" element={<PaymentsPage />} />
+        <Route path="expiry" element={<ExpiryPage />} />
+        <Route path="sales" element={<SalesPage />} />
+        <Route path="sales/new" element={<QuickSellPage />} />
+        <Route path="patients" element={<PatientsPage />} />
+        <Route path="patients/new" element={<PatientFormPage />} />
+        <Route path="patients/:patientId" element={<PatientDetailPage />} />
+        <Route path="patients/:patientId/edit" element={<PatientFormPage />} />
+        <Route path="exports" element={<ExportsPage />} />
+        <Route path="ledger/:distributorId" element={<LedgerDetailPage />} />
+        <Route path="ledger/:distributorId/pay" element={<PaymentFormPage />} />
+        <Route path="ledger/:distributorId/payments/:paymentId" element={<PaymentFormPage />} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
     </Routes>

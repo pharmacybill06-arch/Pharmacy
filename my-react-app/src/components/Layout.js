@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, ScanLine, FileText, Package, Truck,
-  Receipt, Warehouse, User, LogOut, Menu, X, Pill, Clock, Mail
+  Receipt, Warehouse, User, LogOut, Menu, X, Pill, Clock, Mail, Wallet, CalendarClock, IndianRupee, ShoppingCart, HeartPulse, Download
 } from 'lucide-react';
 
 const navItems = [
@@ -14,8 +14,14 @@ const navItems = [
   { to: '/drafts', icon: Clock, label: 'Drafts' },
   { to: '/products', icon: Package, label: 'Products' },
   { to: '/distributors', icon: Truck, label: 'Distributors' },
+  { to: '/ledger', icon: Wallet, label: 'Distributor Payments' },
+  { to: '/payments', icon: IndianRupee, label: 'Payment History' },
+  { to: '/sales', icon: ShoppingCart, label: 'Sales Register' },
   { to: '/invoices', icon: Receipt, label: 'Sales Invoices' },
   { to: '/inventory', icon: Warehouse, label: 'Inventory' },
+  { to: '/expiry', icon: CalendarClock, label: 'Expiry Manager' },
+  { to: '/patients', icon: HeartPulse, label: 'Refill Reminders' },
+  { to: '/exports', icon: Download, label: 'Export Data' },
 ];
 
 export default function Layout() {
