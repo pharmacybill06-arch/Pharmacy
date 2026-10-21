@@ -269,4 +269,48 @@ async function generateJsonWithOpenAI(prompt, { label = 'structured JSON', tempe
   return parseJsonResponse(content);
 }
 
-module.exports = { parseImageWithOpenAIVision, parseTextWithOpenAI, generateJsonWithOpenAI };
+/**
+ * Read a UPI payment receipt screenshot (PhonePe, Google Pay, Paytm, BHIM, bank apps).
+ * One small vision call, no item table, so this costs a fraction of a bill scan.
+ * Returns the raw model JSON; paymentScreenshotService normalizes it.
+ */
+async function extractUpiPaymentFromImage(base64Image, mimeType = 'image/jpeg') {
+  const prompt = `This is a screenshot of a UPI / bank payment receipt from an Indian payments app
+(PhonePe, Google Pay, Paytm, BHIM, Amazon Pay, CRED, WhatsApp Pay or a bank app).
+The shop owner PAID money TO the receiver. Extract exactly what is printed. Return JSON:
+{
+  "isPaymentReceipt": boolean,     // false if this is not a payment receipt at all
+  "status": "success" | "pending" | "failed" | null,
+  "amount": number | null,         // rupees paid, digits only (e.g. 12450.5). Not the balance.
+  "date": "YYYY-MM-DD" | null,     // transaction date as printed
+  "time": "HH:MM" | null,          // 24h, if printed
+  "transactionId": string | null,  // UPI transaction ID / UTR / UPI Ref No (prefer the 12-digit UTR / UPI Ref No when both are shown); no spaces
+  "otherReferenceIds": string[],   // any other ids shown (e.g. app transaction id, Google transaction ID)
+  "receiverName": string | null,   // name of who RECEIVED the money ("Paid to", "To", "Sent to")
+  "receiverUpiId": string | null,  // receiver VPA like name@okaxis, if shown
+  "receiverBank": string | null,
+  "payerName": string | null,      // who paid ("From", "Debited from")
+  "app": "phonepe" | "google_pay" | "paytm" | "bhim" | "amazon_pay" | "cred" | "whatsapp" | "bank" | "other" | null,
+  "note": string | null            // any message/remark the payer added
+}
+Rules: never guess a field that is not visible — use null. Dates in the image may be written like
+"21 Oct 2026", "21/10/26" or "Oct 21, 2026"; in India 05/10/2026 means 5 October.`;
+
+  const { content } = await chatCompletion(
+    [{
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
+      ],
+    }],
+    VISION_MODEL,
+    700,
+    0,
+    'UPI screenshot'
+  );
+  console.log(`[OpenAIService] UPI screenshot response:\n${truncateForLog(content)}`);
+  return parseJsonResponse(content);
+}
+
+module.exports = { parseImageWithOpenAIVision, parseTextWithOpenAI, generateJsonWithOpenAI, extractUpiPaymentFromImage };

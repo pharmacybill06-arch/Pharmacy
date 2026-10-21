@@ -372,6 +372,11 @@ async function recordPayment(userId, distributorId, data) {
     notes,
     allocations,
     force,
+    // From a scanned UPI screenshot (paymentScreenshotService)
+    transactionId,
+    payeeName,
+    payeeUpiId,
+    paymentApp,
   } = data;
 
   if (!amount || amount <= 0) {
@@ -384,6 +389,22 @@ async function recordPayment(userId, distributorId, data) {
   await assertDistributorOwnedByUser(userId, distributorId);
 
   const effectiveDate = paymentDate ? new Date(paymentDate) : new Date();
+
+  // A UPI transaction id is unique per user (schema constraint) — the same screenshot
+  // shared twice is a hard duplicate, not a warning
+  const txnId = transactionId ? String(transactionId).replace(/\s+/g, '') : null;
+  if (txnId) {
+    const sameTxn = await prisma.payment.findFirst({
+      where: { userId, transactionId: txnId },
+      select: { id: true, distributor: { select: { name: true } } },
+    });
+    if (sameTxn) {
+      const err = new Error(`This transaction (${txnId}) is already recorded${sameTxn.distributor ? ` for ${sameTxn.distributor.name}` : ''}`);
+      err.code = 'DUPLICATE_TRANSACTION';
+      err.existingPaymentId = sameTxn.id;
+      throw err;
+    }
+  }
 
   // Duplicate guard: warn, don't block
   let duplicateWarning = false;
@@ -428,10 +449,14 @@ async function recordPayment(userId, distributorId, data) {
         paymentMethod: mode || 'cash',
         paymentDate: effectiveDate,
         paymentStatus: 'success',
-        referenceNumber: referenceNumber?.trim() || null,
+        referenceNumber: referenceNumber?.trim() || txnId || null,
         screenshotPath: attachmentPath || null,
         attachmentSource: attachmentSource || null,
         notes: notes?.trim() || null,
+        transactionId: txnId,
+        payeeName: payeeName?.trim() || null,
+        payeeUpiId: payeeUpiId?.trim().toLowerCase() || null,
+        paymentApp: paymentApp || null,
       },
     });
 

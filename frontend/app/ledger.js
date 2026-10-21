@@ -12,6 +12,7 @@ import DateField from '@/components/ui/DateField';
 import DistributorLedgerListScreen from '@/components/screens/DistributorLedgerListScreen';
 import DistributorLedgerDetailScreen from '@/components/screens/DistributorLedgerDetailScreen';
 import RecordPaymentScreen from '@/components/screens/RecordPaymentScreen';
+import ScanPaymentScreen from '@/components/screens/ScanPaymentScreen';
 import Toast from '@/components/ui/Toast';
 import { ddmmyyyyToIso, isoToDdmmyyyy } from '@/utils/dateFormat';
 import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
@@ -182,7 +183,10 @@ function LedgerScreenContent() {
 
   const { distributors, fetchDistributors } = useDistributors();
 
-  const [view, setView] = useState('list'); // list | detail | pick-distributor | record | edit-payment
+  const [view, setView] = useState('list'); // list | detail | pick-distributor | record | edit-payment | scan
+  const [scanImage, setScanImage] = useState(null);
+  const [scanPrefill, setScanPrefill] = useState(null);
+  const [scanCache, setScanCache] = useState(null);
   const [recordingDistributor, setRecordingDistributor] = useState(null);
   const [editingPayment, setEditingPayment] = useState(null);
   const [allocationTargets, setAllocationTargets] = useState([]);
@@ -209,6 +213,18 @@ function LedgerScreenContent() {
   const hideToast = () => setToast((t) => ({ ...t, visible: false }));
 
   const handleBack = useCallback(() => {
+    if (view === 'scan') {
+      setScanImage(null);
+      setScanCache(null);
+      setView('list');
+      return;
+    }
+    if (view === 'record' && scanPrefill) {
+      // Back from a scanned draft returns to the scan result, not the list
+      setScanPrefill(null);
+      setView('scan');
+      return;
+    }
     if (view === 'edit-payment') {
       setEditingPayment(null);
       setView('detail');
@@ -220,7 +236,7 @@ function LedgerScreenContent() {
     } else {
       router.back();
     }
-  }, [view, recordingDistributor, distributorLedger, router, clearDistributorLedger]);
+  }, [view, scanPrefill, recordingDistributor, distributorLedger, router, clearDistributorLedger]);
 
   const handleDistributorPress = useCallback(async (distributor) => {
     await fetchDistributorLedger(distributor.id);
@@ -248,9 +264,17 @@ function LedgerScreenContent() {
     openRecordPaymentFor(distributor);
   }, [openRecordPaymentFor]);
 
+  const handleScanContinue = useCallback(async (distributor, prefill) => {
+    setScanPrefill(prefill);
+    await openRecordPaymentFor(distributor);
+  }, [openRecordPaymentFor]);
+
   const handleSavePayment = useCallback(async (data) => {
     try {
       const response = await recordPayment(userId, recordingDistributor.id, data);
+      setScanPrefill(null);
+      setScanImage(null);
+      setScanCache(null);
       if (response.duplicateWarning) {
         showToast('Saved — note: a payment with the same amount and date already exists for this distributor.', 'warning', 'Possible duplicate');
       } else {
@@ -264,7 +288,11 @@ function LedgerScreenContent() {
         setView('detail');
       }
     } catch (err) {
-      showToast(err.message || 'Failed to record payment', 'error', 'Error');
+      showToast(
+        err.message || 'Failed to record payment',
+        'error',
+        err.message?.includes('already recorded') ? 'Duplicate payment' : 'Error'
+      );
     }
   }, [recordPayment, userId, recordingDistributor, fetchSummary, distributorLedger, fetchDistributorLedger]);
 
@@ -355,7 +383,7 @@ function LedgerScreenContent() {
   }, [archivePayment, distributorLedger, fetchSummary, userId]);
 
   // How deep the current in-place view is: list 0, detail 1, edit 2+.
-  const transition = useTransitionDirection((view === 'edit-payment' && editingPayment) || view === 'record' ? 2 : view === 'detail' ? 1 : 0);
+  const transition = useTransitionDirection((view === 'edit-payment' && editingPayment) || view === 'record' ? 2 : view === 'detail' || view === 'scan' ? 1 : 0);
 
   if (view === 'edit-payment' && editingPayment) {
     return (
@@ -376,11 +404,30 @@ function LedgerScreenContent() {
     );
   }
 
+  if (view === 'scan') {
+    return (
+      <ScreenTransition key="scan" direction={transition}>
+        <ScanPaymentScreen
+          userId={userId}
+          imageUri={scanImage?.uri || null}
+          mimeType={scanImage?.mimeType}
+          distributors={distributors}
+          onBack={handleBack}
+          onContinue={handleScanContinue}
+          cached={scanCache}
+          onScanned={setScanCache}
+        />
+        <Toast {...toast} onHide={hideToast} />
+      </ScreenTransition>
+    );
+  }
+
   if (view === 'record') {
     return (
-      <ScreenTransition key="record" direction={transition}>
+      <ScreenTransition key={scanPrefill ? 'record-scan' : 'record'} direction={transition}>
         <RecordPaymentScreen
           distributor={recordingDistributor}
+          prefill={scanPrefill}
           userId={userId}
           allocationTargets={allocationTargets}
           onBack={handleBack}
@@ -434,6 +481,7 @@ function LedgerScreenContent() {
         onBack={() => router.back()}
         onDistributorPress={handleDistributorPress}
         onRecordPayment={handleRecordPaymentFromList}
+        onScanScreenshot={() => { setScanImage(null); setScanPrefill(null); setScanCache(null); setView('scan'); }}
         loading={isLoading}
         refreshing={refreshing}
         onRefresh={handleRefresh}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ledgerApi } from '../services/api';
-import { Wallet, AlertTriangle, Truck, Search, IndianRupee } from 'lucide-react';
+import { Wallet, AlertTriangle, Truck, Search, IndianRupee, ScanLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDDMMYYYYOr } from '../utils/dateFormat';
 import { formatINR, formatINRShort } from '../utils/money';
@@ -56,7 +56,10 @@ export default function LedgerPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700 }}>Distributor Payments</h2>
-        <Link to="/payments" className="btn btn-secondary"><Wallet size={16} /> All Payments</Link>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link to="/payments" className="btn btn-secondary"><Wallet size={16} /> All Payments</Link>
+          <Link to="/ledger/scan" className="btn btn-primary"><ScanLine size={16} /> Scan UPI Screenshot</Link>
+        </div>
       </div>
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>

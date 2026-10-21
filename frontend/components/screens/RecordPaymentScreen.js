@@ -88,17 +88,30 @@ export default function RecordPaymentScreen({
   // the same form that created it is a far better place to correct it.
   existingPayment = null,
   onArchive,
+  // Values read from a UPI screenshot (ScanPaymentScreen): { amount, paymentDate (ISO),
+  // referenceNumber, notes, attachmentPath (already uploaded), previewUri, extra }.
+  // `extra` (transactionId, payeeName, payeeUpiId, paymentApp) is sent along on save.
+  prefill = null,
 }) {
   const isEditing = !!existingPayment;
+  const seed = existingPayment ? null : prefill;
 
-  const [amount, setAmount] = useState(existingPayment ? String(existingPayment.amount ?? '') : '');
-  const [dateStr, setDateStr] = useState(
-    existingPayment?.paymentDate ? isoToDdmmyyyy(existingPayment.paymentDate) : todayDDMMYYYY()
+  const [amount, setAmount] = useState(
+    existingPayment ? String(existingPayment.amount ?? '') : seed?.amount ? String(seed.amount) : ''
   );
-  const [mode, setMode] = useState(existingPayment?.paymentMethod || 'cash');
-  const [referenceNumber, setReferenceNumber] = useState(existingPayment?.referenceNumber || '');
-  const [notes, setNotes] = useState(existingPayment?.notes || '');
-  const [attachment, setAttachment] = useState(null); // { uri, mimeType, source }
+  const [dateStr, setDateStr] = useState(
+    existingPayment?.paymentDate ? isoToDdmmyyyy(existingPayment.paymentDate)
+      : seed?.paymentDate ? isoToDdmmyyyy(seed.paymentDate) : todayDDMMYYYY()
+  );
+  const [mode, setMode] = useState(existingPayment?.paymentMethod || (seed ? 'upi' : 'cash'));
+  const [referenceNumber, setReferenceNumber] = useState(existingPayment?.referenceNumber || seed?.referenceNumber || '');
+  const [notes, setNotes] = useState(existingPayment?.notes || seed?.notes || '');
+  // { uri, mimeType, source, uploadedPath? } — uploadedPath means it is already on the server
+  const [attachment, setAttachment] = useState(
+    seed?.attachmentPath
+      ? { uri: seed.previewUri, mimeType: 'image/jpeg', source: 'share', uploadedPath: seed.attachmentPath }
+      : null
+  );
   const [uploading, setUploading] = useState(false);
 
   // Validation and failure messages live in the form, not in a blocking Alert the user
@@ -211,8 +224,8 @@ export default function RecordPaymentScreen({
   const handleSave = useCallback(async () => {
     if (!validate()) return;
 
-    let attachmentPath = null;
-    if (attachment) {
+    let attachmentPath = attachment?.uploadedPath || null;
+    if (attachment && !attachment.uploadedPath) {
       try {
         setUploading(true);
         attachmentPath = await onUploadAttachment(userId, attachment.uri, attachment.mimeType);
@@ -248,8 +261,9 @@ export default function RecordPaymentScreen({
       attachmentSource: attachment?.source || null,
       notes: notes.trim() || null,
       allocations,
+      ...(seed?.extra || {}),
     });
-  }, [validate, attachment, onUploadAttachment, userId, allocationMode, manualSelections, onSave, amountNum, dateStr, mode, referenceNumber, notes]);
+  }, [validate, attachment, onUploadAttachment, userId, allocationMode, manualSelections, onSave, amountNum, dateStr, mode, referenceNumber, notes, seed]);
 
   const busy = isLoading || uploading;
 
@@ -264,6 +278,15 @@ export default function RecordPaymentScreen({
               <View style={styles.distributorBanner}>
                 <ThemedText style={styles.distributorBannerLabel}>Paying</ThemedText>
                 <ThemedText style={styles.distributorBannerName}>{distributor.name}</ThemedText>
+              </View>
+            )}
+
+            {seed && (
+              <View style={styles.scannedBanner}>
+                <Ionicons name="scan-outline" size={18} color="#047857" />
+                <ThemedText style={styles.scannedBannerText}>
+                  Filled from your payment screenshot — check the details and save.
+                </ThemedText>
               </View>
             )}
 
@@ -501,6 +524,11 @@ export default function RecordPaymentScreen({
 }
 
 const styles = StyleSheet.create({
+  scannedBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ECFDF5',
+    borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#A7F3D0',
+  },
+  scannedBannerText: { flex: 1, fontSize: 13, color: '#065F46' },
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   errorBanner: {
     flexDirection: 'row',

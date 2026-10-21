@@ -1,4 +1,5 @@
 const ledgerService = require('../services/ledgerService');
+const paymentScreenshotService = require('../services/paymentScreenshotService');
 
 /**
  * Ledger Controller
@@ -7,6 +8,9 @@ const ledgerService = require('../services/ledgerService');
 
 function handleServiceError(res, error, fallback) {
   console.error(fallback, error.message);
+  if (error.code === 'DUPLICATE_TRANSACTION') {
+    return res.status(409).json({ error: error.message, code: error.code, existingPaymentId: error.existingPaymentId });
+  }
   if (error.message.includes('not found') || error.message.includes('does not belong')) {
     return res.status(404).json({ error: error.message });
   }
@@ -68,6 +72,28 @@ exports.getAllocationTargets = async (req, res) => {
 };
 
 // Flow C — record a payment (auto-allocates FIFO unless allocations[] provided)
+// Scan a UPI payment screenshot: saves it as the attachment and returns a pre-filled
+// payment draft (amount, date, transaction id, receiver, matched distributor, duplicate).
+exports.scanPaymentScreenshot = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No screenshot uploaded' });
+    }
+    const result = await paymentScreenshotService.scanScreenshot(req.params.userId, req.file);
+    res.json({ message: 'Screenshot scanned', ...result });
+  } catch (error) {
+    if (error.code === 'NOT_A_RECEIPT') {
+      return res.status(422).json({ error: error.message, code: error.code });
+    }
+    console.error('Failed to scan payment screenshot', error.message);
+    // The upload itself succeeded — hand back the attachment so the user can fill the form by hand
+    res.status(502).json({
+      error: 'Could not read the screenshot. Please enter the details manually.',
+      attachmentPath: req.file ? `/uploads/payments/${req.file.filename}` : null,
+    });
+  }
+};
+
 exports.recordPayment = async (req, res) => {
   try {
     const { userId, distributorId } = req.params;

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ledgerApi } from '../services/api';
-import { ArrowLeft, Check, Archive, Paperclip, X } from 'lucide-react';
+import { ArrowLeft, Check, Archive, Paperclip, X, ScanLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ddmmyyyyToIso, isoToDdmmyyyy, formatDDMMYYYYOr } from '../utils/dateFormat';
 import {
@@ -27,6 +27,9 @@ export default function PaymentFormPage() {
   const isEditing = !!paymentId;
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Draft from a scanned UPI screenshot (ScanPaymentPage), passed as router state
+  const location = useLocation();
+  const prefill = !isEditing ? location.state?.prefill || null : null;
 
   const [distributor, setDistributor] = useState(null);
   const [targets, setTargets] = useState([]);
@@ -34,11 +37,11 @@ export default function PaymentFormPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [amount, setAmount] = useState('');
-  const [dateStr, setDateStr] = useState(todayDDMMYYYY());
-  const [mode, setMode] = useState('cash');
-  const [reference, setReference] = useState('');
-  const [notes, setNotes] = useState('');
+  const [amount, setAmount] = useState(prefill?.amount ? String(prefill.amount) : '');
+  const [dateStr, setDateStr] = useState((prefill?.paymentDate && isoToDdmmyyyy(prefill.paymentDate)) || todayDDMMYYYY());
+  const [mode, setMode] = useState(prefill ? 'upi' : 'cash');
+  const [reference, setReference] = useState(prefill?.referenceNumber || '');
+  const [notes, setNotes] = useState(prefill?.notes || '');
   const [file, setFile] = useState(null);
 
   // 'auto' = FIFO (backend allocates), 'manual' = user splits it, 'later' = on account
@@ -132,7 +135,8 @@ export default function PaymentFormPage() {
     if (!validate()) return;
     setSaving(true);
     try {
-      let attachmentPath;
+      // A scanned screenshot is already uploaded; a newly chosen file replaces it
+      let attachmentPath = !file && prefill?.attachmentPath ? prefill.attachmentPath : undefined;
       if (file) {
         try {
           const up = await ledgerApi.uploadAttachment(user.id, file, file.type);
@@ -167,6 +171,7 @@ export default function PaymentFormPage() {
         notes: notes.trim() || null,
         ...(attachmentPath ? { attachmentPath, attachmentSource: 'upload' } : {}),
         allocations,
+        ...(prefill?.extra || {}),
       };
 
       if (isEditing) {
@@ -203,12 +208,20 @@ export default function PaymentFormPage() {
   return (
     <form onSubmit={save} style={{ maxWidth: 760 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <button type="button" className="btn btn-ghost btn-icon" onClick={() => navigate(`/ledger/${distributorId}`)} aria-label="Back"><ArrowLeft size={18} /></button>
+        <button type="button" className="btn btn-ghost btn-icon" onClick={() => (prefill ? navigate(-1) : navigate(`/ledger/${distributorId}`))} aria-label="Back"><ArrowLeft size={18} /></button>
         <div>
           <h2 style={{ fontSize: 24, fontWeight: 700 }}>{isEditing ? 'Edit Payment' : 'Record Payment'}</h2>
           <p style={{ color: '#6b7280', fontSize: 14 }}>Paying {distributor?.name}</p>
         </div>
       </div>
+
+      {prefill && (
+        <div className="card" style={{ background: '#ecfdf5', borderColor: '#a7f3d0', marginBottom: 16 }}>
+          <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#065f46', fontSize: 14 }}>
+            <ScanLine size={16} /> Filled from your payment screenshot — check the details and save.
+          </div>
+        </div>
+      )}
 
       {formError && (
         <div className="card" style={{ background: '#fef2f2', borderColor: '#fecaca', marginBottom: 16 }}>
@@ -254,7 +267,7 @@ export default function PaymentFormPage() {
             <div className="form-group">
               <label className="form-label">Receipt / Screenshot (optional)</label>
               <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex' }}>
-                <Paperclip size={14} /> {file ? file.name : existing?.screenshotPath ? 'Replace attachment' : 'Attach file'}
+                <Paperclip size={14} /> {file ? file.name : existing?.screenshotPath || prefill?.attachmentPath ? 'Replace attachment' : 'Attach file'}
                 <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }}
                   onChange={(e) => setFile(e.target.files?.[0] || null)} />
               </label>
@@ -341,7 +354,7 @@ export default function PaymentFormPage() {
           )}
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate(`/ledger/${distributorId}`)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => (prefill ? navigate(-1) : navigate(`/ledger/${distributorId}`))}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={saving}><Check size={16} /> {saving ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Payment'}</button>
         </div>
       </div>

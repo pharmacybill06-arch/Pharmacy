@@ -4,11 +4,13 @@ import {
   StyleSheet,
   FlatList,
   RefreshControl,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
@@ -73,6 +75,7 @@ export default function DistributorLedgerListScreen({
   onBack,
   onDistributorPress,
   onRecordPayment,
+  onScanScreenshot,
   loading = false,
   refreshing = false,
   onRefresh,
@@ -132,6 +135,16 @@ export default function DistributorLedgerListScreen({
           }
         />
 
+        {onScanScreenshot && (
+          <Pressable
+            style={({ pressed }) => [styles.scanFab, pressed && { opacity: 0.85 }]}
+            onPress={onScanScreenshot}
+            accessibilityLabel="Scan UPI payment screenshot"
+          >
+            <Ionicons name="scan-outline" size={20} color="#FFFFFF" />
+            <ThemedText style={styles.scanFabText}>Scan UPI Screenshot</ThemedText>
+          </Pressable>
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -140,7 +153,13 @@ export default function DistributorLedgerListScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   safeArea: { flex: 1 },
-  listContent: { padding: 16, paddingBottom: 32 },
+  listContent: { padding: 16, paddingBottom: 96 },
+  scanFab: {
+    position: 'absolute', right: 16, bottom: 24, flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#4F46E5', borderRadius: 999, paddingHorizontal: 18, paddingVertical: 14,
+    shadowColor: '#4F46E5', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
+  },
+  scanFabText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 
   summaryCard: { padding: 20, marginBottom: 16 },
   summaryRow: { flexDirection: 'row', alignItems: 'center' },

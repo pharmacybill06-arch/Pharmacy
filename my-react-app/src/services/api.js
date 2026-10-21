@@ -51,7 +51,13 @@ async function apiUpload(endpoint, formData) {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || `Upload Error: ${response.status}`);
+      // Keep the server's body: some endpoints return useful fields with an error
+      // (e.g. scan-screenshot hands back the uploaded attachmentPath on failure)
+      const err = new Error(data.error || `Upload Error: ${response.status}`);
+      err.status = response.status;
+      err.code = data.code || null;
+      err.data = data;
+      throw err;
     }
 
     return data;
@@ -667,6 +673,21 @@ export const ledgerApi = {
     const formData = new FormData();
     formData.append('attachment', file, file?.name || `payment.${extension}`);
     return apiUpload(`/ledger/user/${userId}/upload-attachment`, formData);
+  },
+
+  /**
+   * Scan a UPI payment screenshot (PhonePe / Google Pay / Paytm…). Uploads it as the
+   * payment attachment and returns { attachmentPath, extracted, match, duplicate, missing }.
+   * On a read failure the thrown error carries err.data.attachmentPath.
+   * @param {string} userId
+   * @param {File|Blob} file
+   */
+  scanScreenshot: async (userId, file) => {
+    const type = file?.type || 'image/jpeg';
+    const extension = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
+    const formData = new FormData();
+    formData.append('attachment', file, file?.name || `upi-screenshot.${extension}`);
+    return apiUpload(`/ledger/user/${userId}/scan-screenshot`, formData);
   },
 
   /**

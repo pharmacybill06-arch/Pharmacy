@@ -31,6 +31,7 @@ import PatientsPage from './pages/PatientsPage';
 import PatientFormPage from './pages/PatientFormPage';
 import PatientDetailPage from './pages/PatientDetailPage';
 import ExportsPage from './pages/ExportsPage';
+import ScanPaymentPage from './pages/ScanPaymentPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -77,6 +78,7 @@ function AppRoutes() {
         <Route path="invoices/create" element={<CreateInvoicePage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="ledger" element={<LedgerPage />} />
+        <Route path="ledger/scan" element={<ScanPaymentPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="expiry" element={<ExpiryPage />} />
         <Route path="sales" element={<SalesPage />} />
