@@ -72,8 +72,8 @@ exports.getAllocationTargets = async (req, res) => {
 };
 
 // Flow C — record a payment (auto-allocates FIFO unless allocations[] provided)
-// Scan a UPI payment screenshot: saves it as the attachment and returns a pre-filled
-// payment draft (amount, date, transaction id, receiver, matched distributor, duplicate).
+// Scan a UPI payment screenshot into a pre-filled payment draft (amount, date,
+// transaction id, receiver, matched distributor, duplicate). The image is not stored.
 exports.scanPaymentScreenshot = async (req, res) => {
   try {
     if (!req.file) {
@@ -86,11 +86,7 @@ exports.scanPaymentScreenshot = async (req, res) => {
       return res.status(422).json({ error: error.message, code: error.code });
     }
     console.error('Failed to scan payment screenshot', error.message);
-    // The upload itself succeeded — hand back the attachment so the user can fill the form by hand
-    res.status(502).json({
-      error: 'Could not read the screenshot. Please enter the details manually.',
-      attachmentPath: req.file ? `/uploads/payments/${req.file.filename}` : null,
-    });
+    res.status(502).json({ error: 'Could not read the screenshot. Please enter the details manually.' });
   }
 };
 

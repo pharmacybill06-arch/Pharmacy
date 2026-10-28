@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const ledgerController = require('../controllers/ledgerController');
 const paymentAttachmentUpload = require('../config/paymentAttachmentUpload');
+const paymentScanUpload = require('../config/paymentScanUpload');
 
 // Screen A — distributor list with outstanding/overdue
 router.get('/user/:userId/summary', ledgerController.getSummary);
@@ -15,8 +16,9 @@ router.get('/user/:userId/archived-payments', ledgerController.getArchivedPaymen
 // Upload a payment attachment (screenshot or photographed receipt)
 router.post('/user/:userId/upload-attachment', paymentAttachmentUpload.single('attachment'), ledgerController.uploadAttachment);
 
-// Scan a UPI receipt screenshot (PhonePe / Google Pay / Paytm…) into a pre-filled payment draft
-router.post('/user/:userId/scan-screenshot', paymentAttachmentUpload.single('attachment'), ledgerController.scanPaymentScreenshot);
+// Scan a UPI receipt screenshot (PhonePe / Google Pay / Paytm…) into a pre-filled payment draft.
+// The image is read in memory only and never stored.
+router.post('/user/:userId/scan-screenshot', paymentScanUpload.single('attachment'), ledgerController.scanPaymentScreenshot);
 
 // Flow C — record a payment for a distributor
 router.post('/user/:userId/distributor/:distributorId/payments', ledgerController.recordPayment);

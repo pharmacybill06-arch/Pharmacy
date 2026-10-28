@@ -44,7 +44,6 @@ export default function ScanPaymentPage() {
   const [status, setStatus] = useState(restored ? 'done' : 'idle'); // idle | scanning | done | error
   const [result, setResult] = useState(restored?.result || null);
   const [error, setError] = useState(null);
-  const [fallbackPath, setFallbackPath] = useState(null);
   const [selected, setSelected] = useState(restored?.selected || null);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -80,7 +79,6 @@ export default function ScanPaymentPage() {
     setStatus('scanning');
     setResult(null);
     setError(null);
-    setFallbackPath(null);
     setSelected(null);
     try {
       const res = await ledgerApi.scanScreenshot(user.id, file);
@@ -91,7 +89,6 @@ export default function ScanPaymentPage() {
     } catch (err) {
       if (mine !== seq.current) return;
       setError(err.message || 'Could not read the screenshot.');
-      setFallbackPath(err.data?.attachmentPath || null);
       setStatus('error');
     }
   }, [user?.id]);
@@ -133,7 +130,6 @@ export default function ScanPaymentPage() {
       paymentDate: x.paymentDate,
       referenceNumber: x.transactionId || '',
       notes: note,
-      attachmentPath: result.attachmentPath,
       extra: {
         transactionId: x.transactionId || null,
         payeeName: x.receiverName || null,
@@ -198,18 +194,14 @@ export default function ScanPaymentPage() {
           {status === 'error' && (
             <div className="card"><div className="card-body">
               <div style={banner('#fef2f2', '#fecaca', '#991b1b')}><AlertCircle size={18} /> {error}</div>
-              {fallbackPath && (
-                <>
-                  <p style={{ fontSize: 14, color: '#4b5563', marginBottom: 8 }}>Pick the distributor to enter it manually — the screenshot stays attached.</p>
-                  <select className="form-input" defaultValue="" onChange={(e) => {
-                    const d = distributors.find((y) => y.id === e.target.value);
-                    if (d) goToForm(d, { attachmentPath: fallbackPath });
-                  }}>
-                    <option value="" disabled>Choose distributor…</option>
-                    {distributors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </>
-              )}
+              <p style={{ fontSize: 14, color: '#4b5563', marginBottom: 8 }}>Or pick the distributor and enter the payment manually.</p>
+              <select className="form-input" defaultValue="" onChange={(e) => {
+                const d = distributors.find((y) => y.id === e.target.value);
+                if (d) goToForm(d, null);
+              }}>
+                <option value="" disabled>Choose distributor…</option>
+                {distributors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
             </div></div>
           )}
 

@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const prisma = require('../models/prisma');
 const { extractUpiPaymentFromImage } = require('../utils/openaiService');
 
@@ -147,17 +145,15 @@ async function findDuplicate(userId, ids) {
 
 /**
  * @param {string} userId
- * @param {{ path: string, mimetype: string, filename: string }} file - multer file (already saved)
+ * @param {{ buffer: Buffer, mimetype: string }} file - multer in-memory file
  */
 async function scanScreenshot(userId, file) {
-  const attachmentPath = `/uploads/payments/${file.filename}`;
-  const base64 = fs.readFileSync(path.resolve(file.path)).toString('base64');
+  // In-memory upload (config/paymentScanUpload): read, never stored
+  const base64 = file.buffer.toString('base64');
 
   const raw = await extractUpiPaymentFromImage(base64, file.mimetype || 'image/jpeg');
 
   if (raw?.isPaymentReceipt === false) {
-    // Not a receipt — don't keep the upload around as an orphan attachment
-    fs.promises.unlink(path.resolve(file.path)).catch(() => {});
     const err = new Error('This image does not look like a UPI payment receipt. Share the receipt screen from your UPI app.');
     err.code = 'NOT_A_RECEIPT';
     throw err;
@@ -187,7 +183,7 @@ async function scanScreenshot(userId, file) {
 
   const missing = ['amount', 'paymentDate', 'transactionId', 'receiverName'].filter((k) => !extracted[k]);
 
-  return { attachmentPath, extracted, match, duplicate, missing };
+  return { extracted, match, duplicate, missing };
 }
 
 module.exports = { scanScreenshot, matchDistributor, findDuplicate, nameScore };

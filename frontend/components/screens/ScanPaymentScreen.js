@@ -73,7 +73,6 @@ export default function ScanPaymentScreen({
   const [status, setStatus] = useState(cached ? 'done' : initialUri ? 'scanning' : 'idle'); // idle | scanning | done | error
   const [result, setResult] = useState(cached?.result || null);
   const [errorMessage, setErrorMessage] = useState(null);
-  const [fallbackPath, setFallbackPath] = useState(null);
   const [selected, setSelected] = useState(cached?.selected || null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -84,7 +83,6 @@ export default function ScanPaymentScreen({
     setStatus('scanning');
     setResult(null);
     setErrorMessage(null);
-    setFallbackPath(null);
     setSelected(null);
     try {
       // Phone screenshots are ~1080px wide already; re-encode so PNGs stay under the 5 MB cap
@@ -104,7 +102,6 @@ export default function ScanPaymentScreen({
     } catch (err) {
       if (seq !== scanSeq.current) return;
       setErrorMessage(err.message || 'Could not read the screenshot.');
-      setFallbackPath(err.data?.attachmentPath || null);
       setStatus('error');
     }
   }, [userId, onScanned]);
@@ -150,27 +147,24 @@ export default function ScanPaymentScreen({
       paymentDate: x.paymentDate,
       referenceNumber: x.transactionId || '',
       notes: noteParts.join(' '),
-      attachmentPath: result?.attachmentPath || fallbackPath,
-      previewUri: image?.uri,
+      // The screenshot is only read, not stored, so the payment carries no attachment
       extra: {
         transactionId: x.transactionId || null,
         payeeName: x.receiverName || null,
         payeeUpiId: x.receiverUpiId || null,
         paymentApp: x.app || null,
-        attachmentSource: 'gallery',
       },
     });
-  }, [selected, x, result, fallbackPath, image, onContinue, onScanned]);
+  }, [selected, x, result, image, onContinue, onScanned]);
 
-  // Manual path after a failed read: keep the uploaded screenshot, fill the rest by hand
+  // Manual path after a failed read: show the empty result so the user picks the
+  // distributor and fills every field on the next step
   const continueManually = useCallback(() => {
-    if (!selected) { setPickerOpen(true); return; }
-    onContinue(selected, {
-      attachmentPath: fallbackPath,
-      previewUri: image?.uri,
-      extra: { attachmentSource: 'gallery' },
-    });
-  }, [selected, fallbackPath, image, onContinue]);
+    setResult({ extracted: {}, match: { distributor: null, candidates: [] }, duplicate: null, missing: [] });
+    setSelected(null);
+    setPickerOpen(true);
+    setStatus('done');
+  }, []);
 
   const failed = x.status === 'failed';
   const pending = x.status === 'pending';
@@ -215,9 +209,7 @@ export default function ScanPaymentScreen({
             </View>
             <View style={styles.buttonRow}>
               <View style={{ flex: 1 }}><SecondaryButton title="Choose Another" icon="images-outline" onPress={pickScreenshot} /></View>
-              {fallbackPath && (
-                <View style={{ flex: 1 }}><PrimaryButton title="Enter Manually" onPress={continueManually} /></View>
-              )}
+              <View style={{ flex: 1 }}><PrimaryButton title="Enter Manually" onPress={continueManually} /></View>
             </View>
           </Card>
         )}
