@@ -1,28 +1,54 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { billApi, productApi, invoiceApi, distributorApi } from '../services/api';
+import { billApi, productApi, invoiceApi, distributorApi, ledgerApi, expiryApi } from '../services/api';
 import { formatDDMMYYYYOr } from '../utils/dateFormat';
+import { formatINR } from '../utils/money';
 import {
   FileText, Package, Truck, Receipt, ScanLine,
-  Plus, AlertTriangle, Clock
+  Plus, AlertTriangle, Clock, ShoppingCart, AlertCircle, ChevronRight, CalendarClock,
+  ClipboardList, Download, Wallet, IndianRupee, HeartPulse,
 } from 'lucide-react';
+
+/** Same grouping as the mobile home screen's Quick Actions. */
+const QUICK_ACTIONS = [
+  { label: 'Sales', items: [
+    { to: '/sales', Icon: ClipboardList, title: 'Daily Sales', sub: 'Sale register', color: '#059669', bg: '#ecfdf5' },
+    { to: '/sales/new', Icon: ShoppingCart, title: 'Quick Sell', sub: 'Record a sale', color: '#4f46e5', bg: '#eef2ff' },
+  ] },
+  { label: 'Inventory', items: [
+    { to: '/products', Icon: Package, title: 'Products', sub: 'Manage catalog', color: '#4f46e5', bg: '#eef2ff' },
+    { to: '/distributors', Icon: Truck, title: 'Distributors', sub: 'Manage suppliers', color: '#d97706', bg: '#fef3c7' },
+    { to: '/exports', Icon: Download, title: 'Export Data', sub: 'Excel & CSV', color: '#0d9488', bg: '#f0fdfa' },
+  ] },
+  { label: 'Payments & Care', items: [
+    { to: '/ledger', Icon: Wallet, title: 'Distributor Dues', sub: 'Khata & payments', color: '#dc2626', bg: '#fef2f2' },
+    { to: '/payments', Icon: IndianRupee, title: 'UPI Payments', sub: 'Payment history', color: '#059669', bg: '#f0fdf4' },
+    { to: '/patients', Icon: HeartPulse, title: 'Refill Reminders', sub: 'Medication sync', color: '#dc2626', bg: '#fef2f2' },
+  ] },
+];
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const [stats, setStats] = useState({ bills: 0, products: 0, distributors: 0, invoices: 0 });
   const [recentBills, setRecentBills] = useState([]);
   const [lowStock, setLowStock] = useState([]);
+  const [overdue, setOverdue] = useState({ totalOverdue: 0, distributorsWithOverdue: 0 });
+  const [expiry, setExpiry] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadDashboard = useCallback(async () => {
     try {
-      const [billsRes, productsRes, distributorsRes, invoiceStats] = await Promise.all([
+      const [billsRes, productsRes, distributorsRes, invoiceStats, overdueRes, windowRes] = await Promise.all([
         billApi.getUserBills(user.id).catch(() => ({ bills: [] })),
-        productApi.getProducts(user.id, { limit: 100 }).catch(() => ({ products: [], total: 0 })),
+        productApi.getAllProducts(user.id).catch(() => ({ products: [], total: 0 })),
         distributorApi.getDistributors(user.id).catch(() => ({ distributors: [] })),
-        invoiceApi.getStats(user.id).catch(() => ({ totalInvoices: 0 })),
+        invoiceApi.getInvoices(user.id, { page: 1, limit: 1 }).catch(() => null),
+        ledgerApi.getOverdueAlert(user.id).catch(() => null),
+        expiryApi.getWindow(user.id).catch(() => null),
       ]);
+      if (overdueRes) setOverdue(overdueRes);
+      if (windowRes) setExpiry({ count: windowRes.items?.length || 0, summary: windowRes.summary });
 
       const bills = billsRes.bills || [];
       const products = productsRes.products || [];
@@ -32,7 +58,7 @@ export default function DashboardPage() {
         bills: bills.length,
         products: productsRes.total || products.length,
         distributors: distributors.length,
-        invoices: invoiceStats.totalInvoices || 0,
+        invoices: invoiceStats?.pagination?.total || 0,
       });
 
       setRecentBills(bills.slice(0, 5));
@@ -59,6 +85,33 @@ export default function DashboardPage() {
         <h2 style={{ fontSize: 24, fontWeight: 700 }}>Welcome, {user?.name || 'User'}!</h2>
         <p style={{ color: '#6b7280', fontSize: 14 }}>{user?.shopName || 'Pharmacy Dashboard'}</p>
       </div>
+
+      {/* The counter path and the scan path are never more than a click away */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <Link to="/sales/new" className="btn btn-primary"><ShoppingCart size={16} /> Sell</Link>
+        <Link to="/scan" className="btn btn-secondary"><ScanLine size={16} /> Scan For Expiry</Link>
+      </div>
+
+      {overdue.totalOverdue > 0 && (
+        <Link to="/ledger" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 12, borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', textDecoration: 'none', fontWeight: 600 }}>
+          <AlertCircle size={20} />
+          <span style={{ flex: 1 }}>{formatINR(overdue.totalOverdue)} overdue across {overdue.distributorsWithOverdue} distributor{overdue.distributorsWithOverdue !== 1 ? 's' : ''}</span>
+          <ChevronRight size={18} />
+        </Link>
+      )}
+
+      {expiry && (
+        <Link to="/expiry" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 20, borderRadius: 10, textDecoration: 'none', fontWeight: 600,
+          background: expiry.count ? '#fff7ed' : '#f0fdf4', border: `1px solid ${expiry.count ? '#fed7aa' : '#bbf7d0'}`, color: expiry.count ? '#9a3412' : '#166534' }}>
+          <CalendarClock size={20} />
+          <span style={{ flex: 1 }}>
+            {expiry.count
+              ? `${expiry.count} batch${expiry.count === 1 ? '' : 'es'} expiring within ${expiry.summary?.windowDays || 90} days${expiry.summary?.totalValueAtRisk ? ` — ${formatINR(expiry.summary.totalValueAtRisk)} at risk` : ' — enter what is left to see the value at risk'}`
+              : 'All clear — nothing needs action in the expiry window'}
+          </span>
+          <ChevronRight size={18} />
+        </Link>
+      )}
 
       {/* Stats Grid */}
       <div className="stats-grid">
@@ -104,12 +157,29 @@ export default function DashboardPage() {
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3>Quick Actions</h3>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link to="/products/new" className="btn btn-ghost btn-sm"><Plus size={14} /> Product</Link>
+            <Link to="/distributors/new" className="btn btn-ghost btn-sm"><Plus size={14} /> Distributor</Link>
+            <Link to="/invoices/create" className="btn btn-ghost btn-sm"><Plus size={14} /> Invoice</Link>
+          </div>
         </div>
-        <div className="card-body" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Link to="/scan" className="btn btn-primary"><ScanLine size={16} /> Scan Bill</Link>
-          <Link to="/products/new" className="btn btn-secondary"><Plus size={16} /> Add Product</Link>
-          <Link to="/distributors/new" className="btn btn-secondary"><Plus size={16} /> Add Distributor</Link>
-          <Link to="/invoices/create" className="btn btn-secondary"><Plus size={16} /> Create Invoice</Link>
+        <div className="card-body">
+          {QUICK_ACTIONS.map((group) => (
+            <div key={group.label} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>{group.label}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
+                {group.items.map(({ to, Icon, title, sub, color, bg }) => (
+                  <Link key={to} to={to} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, border: '1px solid #e5e7eb', borderRadius: 10, textDecoration: 'none', color: 'inherit' }}>
+                    <span style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', background: bg, color, flexShrink: 0 }}><Icon size={18} /></span>
+                    <span>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>{sub}</div>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

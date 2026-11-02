@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { billApi } from '../services/api';
-import { ArrowLeft, Trash2, FileText } from 'lucide-react';
+import { ArrowLeft, Trash2, FileText, Pencil, History, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/AuthContext';
+import { QuickDateModal, HeaderEditModal, ItemEditModal, HistoryModal } from '../components/BillEditModals';
 import { formatDDMMYYYYOr, billDisplayDate } from '../utils/dateFormat';
 
 export default function BillDetailsPage() {
@@ -11,6 +13,12 @@ export default function BillDetailsPage() {
   const [bill, setBill] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const [quickDate, setQuickDate] = useState(null); // { field, label }
+  const [headerOpen, setHeaderOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [history, setHistory] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const loadBill = useCallback(async () => {
     try {
@@ -32,8 +40,72 @@ export default function BillDetailsPage() {
     loadBill();
   }, [loadBill]);
 
+  const showWarnings = (result) => {
+    if (result?.warnings?.length) toast(result.warnings.join('\n'), { icon: '⚠️', duration: 6000 });
+  };
+
+  const saveQuickDate = async (iso) => {
+    setSaving(true);
+    try {
+      const result = await billApi.updateBillHeader(billId, { [quickDate.field]: iso });
+      setQuickDate(null);
+      await loadBill();
+      showWarnings(result);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save date');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveHeader = async (header, other) => {
+    setSaving(true);
+    try {
+      const result = await billApi.updateBillHeader(billId, header);
+      if (other.paymentType !== bill.paymentType || other.remarks !== (bill.remarks || null)) {
+        await billApi.updateBill(billId, other);
+      }
+      setHeaderOpen(false);
+      await loadBill();
+      showWarnings(result);
+      toast.success('Bill updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveItem = async (changes) => {
+    setSaving(true);
+    try {
+      const result = await billApi.updateBillItemFields(editingItem.id, changes);
+      setEditingItem(null);
+      await loadBill();
+      showWarnings(result);
+      toast.success('Item updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save item');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openHistory = async () => {
+    try {
+      const res = await billApi.getBillEditHistory(billId);
+      setHistory(res.history || []);
+    } catch (err) {
+      toast.error('Failed to load edit history');
+    }
+  };
+
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete this bill?')) return;
+    // State the consequence: deleting reverses the stock this bill added
+    const impact = await billApi.getBillDeleteImpact(billId).catch(() => null);
+    const lines = impact?.stockAffectedCount || 0;
+    const detail = lines > 0 ? ` This takes stock from ${lines} line${lines === 1 ? '' : 's'} back off the shelf.` : '';
+    if (!window.confirm(`Delete this bill?${detail} This cannot be undone.`)) return;
     try {
       await billApi.deleteBill(billId);
       toast.success('Bill deleted');
@@ -74,7 +146,10 @@ export default function BillDetailsPage() {
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setHeaderOpen(true)}><Pencil size={14} /> Edit bill details</button>
+          <button className="btn btn-secondary btn-sm" onClick={openHistory}><History size={14} /> Edit history</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => window.print()}><Printer size={14} /> Print / PDF</button>
           <button className="btn btn-danger btn-sm" onClick={handleDelete}>
             <Trash2 size={14} /> Delete
           </button>
@@ -97,6 +172,16 @@ export default function BillDetailsPage() {
                     than quietly replaced by the upload date, which is a different fact. */}
                 <p style={{ fontWeight: 500, color: bill.invoiceDate ? undefined : '#b45309' }}>
                   {formatDDMMYYYYOr(bill.invoiceDate, 'Not on bill')}
+                  <button className="btn btn-ghost btn-icon btn-sm no-print" title="Fix invoice date" aria-label="Fix invoice date"
+                    onClick={() => setQuickDate({ field: 'invoiceDate', label: 'Invoice Date' })}><Pencil size={12} style={{ color: '#4f46e5' }} /></button>
+                </p>
+              </div>
+              <div>
+                <p style={{ fontSize: 12, color: '#6b7280' }}>Due Date</p>
+                <p style={{ fontWeight: 500 }}>
+                  {formatDDMMYYYYOr(bill.dueDate, '—')}
+                  <button className="btn btn-ghost btn-icon btn-sm no-print" title="Fix due date" aria-label="Fix due date"
+                    onClick={() => setQuickDate({ field: 'dueDate', label: 'Due Date' })}><Pencil size={12} style={{ color: '#4f46e5' }} /></button>
                 </p>
               </div>
               <div>
@@ -203,7 +288,7 @@ export default function BillDetailsPage() {
 
         <div className="card">
         <div className="card-header">
-          <h3>Bill Items ({items.length})</h3>
+          <h3>Bill Items ({items.length}) <span className="no-print" style={{ fontWeight: 400, fontSize: 13, color: '#6b7280' }}>— click a row to edit</span></h3>
         </div>
         <div className="table-container">
           <table>
@@ -231,7 +316,7 @@ export default function BillDetailsPage() {
                 // Strictly show itemTotal as rate × quantity, ignore discount and GST in this column
                 const baseAmount = (item.rate || 0) * (item.quantity || 0);
                 return (
-                  <tr key={item.id || i}>
+                  <tr key={item.id || i} style={{ cursor: 'pointer' }} onClick={() => setEditingItem(item)}>
                     <td>{i + 1}</td>
                     <td style={{ fontWeight: 500 }}>{item.name}</td>
                     <td>{item.batchNumber || '-'}</td>
@@ -273,6 +358,11 @@ export default function BillDetailsPage() {
           </table>
         </div>
       </div>
+
+      {quickDate && <QuickDateModal label={quickDate.label} value={bill[quickDate.field]} saving={saving} onClose={() => setQuickDate(null)} onSave={saveQuickDate} />}
+      {headerOpen && <HeaderEditModal bill={bill} userId={user.id} saving={saving} onClose={() => setHeaderOpen(false)} onSave={saveHeader} />}
+      {editingItem && <ItemEditModal item={editingItem} userId={user.id} saving={saving} onClose={() => setEditingItem(null)} onSave={saveItem} />}
+      {history && <HistoryModal history={history} onClose={() => setHistory(null)} />}
     </div>
   );
 }

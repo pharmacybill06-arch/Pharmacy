@@ -6,34 +6,9 @@ import { CalendarClock, CheckCircle2, Undo2, Trash2, AlertTriangle, Search, Shie
 import toast from 'react-hot-toast';
 import { formatDDMMYYYY } from '../utils/dateFormat';
 import { formatINR, formatINRShort } from '../utils/money';
+import { parseExpiryDate } from '../utils/expiry';
 
 const STOCK_PAGE = 50;
-
-/**
- * Batch expiry — mirrors mobile's parser (app/(tabs)/index.js) exactly, so both clients
- * show the same "days left" for the same line. MM/YY expires at the end of that month.
- */
-function parseExpiryDate(value) {
-  if (!value) return null;
-  const text = String(value).trim();
-  let m = text.match(/^(\d{1,2})[/-](\d{2,4})$/);
-  if (m) {
-    const month = Number(m[1]);
-    const year = Number(m[2].length === 2 ? `20${m[2]}` : m[2]);
-    if (month >= 1 && month <= 12) return new Date(year, month, 0);
-  }
-  m = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (m) {
-    const first = Number(m[1]);
-    const second = Number(m[2]);
-    const year = Number(m[3].length === 2 ? `20${m[3]}` : m[3]);
-    const day = first > 12 ? first : second;
-    const month = first > 12 ? second : first;
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return new Date(year, month - 1, day);
-  }
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
 
 function daysLabel(days) {
   if (days == null) return { text: '—', color: '#9ca3af' };
@@ -61,6 +36,7 @@ export default function ExpiryPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [qtyEdit, setQtyEdit] = useState(null); // { id, value }
+  const [showAll, setShowAll] = useState(false); // false = "review by exception"
   const [search, setSearch] = useState('');
   const [stockFilter, setStockFilter] = useState('upcoming'); // upcoming | expired | all
   const [visible, setVisible] = useState(STOCK_PAGE);
@@ -107,10 +83,13 @@ export default function ExpiryPage() {
       await expiryApi.applyAction(item.id, 'update_qty', qty);
       setWindowData((w) => ({
         ...w,
-        items: w.items.map((i) => (i.id === item.id ? { ...i, remainingQty: qty, valueAtRisk: qty * (i.unitCost || 0) } : i)),
+        // Qty 0 clears the batch as Sold/Finished on the server, so it leaves the list
+        items: qty === 0
+          ? w.items.filter((i) => i.id !== item.id)
+          : w.items.map((i) => (i.id === item.id ? { ...i, remainingQty: qty, valueAtRisk: qty * (i.unitCost || 0) } : i)),
       }));
       setQtyEdit(null);
-      toast.success('Quantity updated');
+      toast.success(qty === 0 ? `${item.name} cleared as finished` : 'Quantity updated');
     } catch (err) {
       toast.error(err.message || 'Failed to update quantity');
     } finally {
@@ -142,6 +121,15 @@ export default function ExpiryPage() {
       .filter((i) => !q || (i.name || '').toLowerCase().includes(q) || (i.batchNumber || '').toLowerCase().includes(q)
         || (i.bill?.distributor?.name || i.bill?.pharmacyName || '').toLowerCase().includes(q));
   }, [stock, search, stockFilter]);
+
+  // Review by exception: only batches that entered the window in the last 30 days,
+  // unless the pharmacist asks to review everything. Same rule as mobile.
+  const newInWindow = useMemo(() => windowData.items.filter((i) => {
+    if (!i.firstEnteredWindowAt) return true;
+    return Date.now() - new Date(i.firstEnteredWindowAt).getTime() <= 30 * 86_400_000;
+  }), [windowData.items]);
+  const displayed = showAll ? windowData.items : newInWindow;
+  const hiddenCount = windowData.items.length - newInWindow.length;
 
   const expiredCount = stock.filter((i) => i.days != null && i.days < 0).length;
   const within90 = stock.filter((i) => i.days != null && i.days >= 0 && i.days <= 90).length;
@@ -179,12 +167,23 @@ export default function ExpiryPage() {
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3>Action Required{s ? ` — expiring within ${s.windowDays} days` : ''}</h3>
+          {hiddenCount > 0 && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? 'Show new only' : `Review all ${windowData.items.length} in window (${hiddenCount} older)`}
+            </button>
+          )}
         </div>
         {windowData.items.length === 0 ? (
           <div className="empty-state">
             <ShieldCheck size={44} style={{ color: '#16a34a' }} />
             <h3>All clear</h3>
             <p>No batches expiring in the next {s?.windowDays || 90} days need attention.</p>
+          </div>
+        ) : displayed.length === 0 ? (
+          <div className="empty-state">
+            <ShieldCheck size={40} style={{ color: '#059669' }} />
+            <h3>Nothing new this month</h3>
+            <p>{hiddenCount} older batch{hiddenCount === 1 ? '' : 'es'} in the window.</p>
           </div>
         ) : (
           <div className="table-container">
@@ -193,9 +192,9 @@ export default function ExpiryPage() {
                 <tr><th>Medicine</th><th>Batch</th><th>Expiry</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>At Risk</th><th>Return</th><th></th></tr>
               </thead>
               <tbody>
-                {windowData.items.map((item) => {
+                {displayed.map((item) => {
                   const d = daysLabel(item.daysUntilExpiry);
-                  const qty = item.remainingQty ?? item.quantity;
+                  const qty = item.remainingQty;
                   const busy = busyId === item.id;
                   return (
                     <tr key={item.id}>
@@ -217,8 +216,8 @@ export default function ExpiryPage() {
                             <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveQty(item)}>Save</button>
                           </span>
                         ) : (
-                          <button className="btn btn-ghost btn-sm" title="Correct the remaining quantity" onClick={() => setQtyEdit({ id: item.id, value: String(qty) })}>
-                            {qty} <Pencil size={12} />
+                          <button className="btn btn-ghost btn-sm" title="How many are left? Zero clears the batch as finished" onClick={() => setQtyEdit({ id: item.id, value: qty != null ? String(qty) : '' })}>
+                            {qty != null ? qty : 'Enter qty'} <Pencil size={12} />
                           </button>
                         )}
                       </td>
@@ -229,10 +228,13 @@ export default function ExpiryPage() {
                           : <span className="badge badge-warning" title={`Opens ${formatDDMMYYYY(item.returnOpenDate)}`}>Opens {formatDDMMYYYY(item.returnOpenDate)}</span>}
                       </td>
                       <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                        {/* Actions need a known quantity first, as on mobile */}
+                        {qty == null || qty <= 0 ? <span style={{ fontSize: 12, color: '#9ca3af' }}>Enter qty first</span> : (<>
                         <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => act(item, 'sold')} title="Sold / finished"><CheckCircle2 size={14} style={{ color: '#047857' }} /> Sold</button>
                         <button className="btn btn-ghost btn-sm" disabled={busy || !item.returnEligible} onClick={() => act(item, 'returned')}
                           title={item.returnEligible ? 'Return to distributor' : 'Return window not open yet'}><Undo2 size={14} style={{ color: item.returnEligible ? '#1d4ed8' : '#9ca3af' }} /> Return</button>
                         <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => act(item, 'writeoff')} title="Write off"><Trash2 size={14} style={{ color: '#b45309' }} /> Write off</button>
+                        </>)}
                       </td>
                     </tr>
                   );
@@ -245,7 +247,7 @@ export default function ExpiryPage() {
 
       <div className="card">
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <h3>All Tracked Stock</h3>
+          <h3>All Tracked Stock <Link to="/scan" style={{ fontSize: 13, fontWeight: 500, marginLeft: 8 }}>Add stock</Link></h3>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div className="search-bar" style={{ width: 260 }}>
               <Search size={16} />

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { distributorApi, billApi } from '../services/api';
-import { ArrowLeft, Edit, FileText, Phone, MapPin, Trash2, Loader2 } from 'lucide-react';
+import { distributorApi, billApi, paymentApi } from '../services/api';
+import { ArrowLeft, Edit, FileText, Phone, MapPin, Trash2, Loader2, CreditCard, Wallet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDDMMYYYYOr } from '../utils/dateFormat';
+import { formatINR } from '../utils/money';
 
 export default function DistributorDetailPage() {
   const { distributorId } = useParams();
@@ -12,6 +13,18 @@ export default function DistributorDetailPage() {
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingBillId, setDeletingBillId] = useState(null);
+  const [payments, setPayments] = useState({ payments: [], stats: null });
+
+  const handleDeleteDistributor = async () => {
+    if (!window.confirm(`Delete “${distributor.name}”? This cannot be undone.`)) return;
+    try {
+      await distributorApi.deleteDistributor(distributorId);
+      toast.success('Distributor deleted');
+      navigate('/distributors');
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete distributor');
+    }
+  };
 
   /**
    * Delete an uploaded bill. This is destructive and it moves stock, so the confirm
@@ -64,12 +77,14 @@ export default function DistributorDetailPage() {
 
   const loadDistributor = useCallback(async () => {
     try {
-      const [distRes, billsRes] = await Promise.all([
+      const [distRes, billsRes, payRes] = await Promise.all([
         distributorApi.getDistributorById(distributorId),
         distributorApi.getDistributorBills(distributorId).catch(() => ({ bills: [] })),
+        paymentApi.getDistributorPayments(distributorId, { limit: 3 }).catch(() => null),
       ]);
       setDistributor(distRes.distributor || distRes);
       setBills(billsRes.bills || []);
+      if (payRes) setPayments({ payments: payRes.payments || [], stats: payRes.stats || null });
     } catch (err) {
       toast.error('Distributor not found');
       navigate('/distributors');
@@ -101,9 +116,17 @@ export default function DistributorDetailPage() {
             </p>
           </div>
         </div>
-        <Link to={`/distributors/${distributorId}/edit`} className="btn btn-secondary">
-          <Edit size={14} /> Edit
-        </Link>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link to={`/ledger/${distributorId}`} className="btn btn-secondary"><Wallet size={14} /> Ledger</Link>
+          <Link to={`/distributors/${distributorId}/edit`} className="btn btn-secondary"><Edit size={14} /> Edit</Link>
+          <button className="btn btn-ghost" style={{ color: '#dc2626' }} onClick={handleDeleteDistributor}><Trash2 size={14} /> Delete</button>
+        </div>
+      </div>
+
+      <div className="stats-grid" style={{ marginBottom: 24 }}>
+        <div className="stat-card"><div><div className="stat-card-label">Total Bills</div><div className="stat-card-value">{distributor.totalBills ?? bills.length}</div></div></div>
+        <div className="stat-card"><div><div className="stat-card-label">Products</div><div className="stat-card-value">{distributor.totalProducts || 0}</div></div></div>
+        <div className="stat-card"><div><div className="stat-card-label">Total Purchase</div><div className="stat-card-value" style={{ color: '#059669' }}>{formatINR(distributor.totalAmount || 0)}</div></div></div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
@@ -146,11 +169,44 @@ export default function DistributorDetailPage() {
                 <p style={{ fontWeight: 500 }}>{distributor.dlNumber || 'Not provided'}</p>
               </div>
               <div>
-                <p style={{ fontSize: 12, color: '#6b7280' }}>Total Bills</p>
-                <p style={{ fontWeight: 500 }}>{bills.length}</p>
+                <p style={{ fontSize: 12, color: '#6b7280' }}>Last Transaction</p>
+                <p style={{ fontWeight: 500 }}>{formatDDMMYYYYOr(distributor.lastTransaction, '-')}</p>
               </div>
+              {distributor.notes && (
+                <div>
+                  <p style={{ fontSize: 12, color: '#6b7280' }}>Notes</p>
+                  <p>{distributor.notes}</p>
+                </div>
+              )}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CreditCard size={16} /> Payment History</h3>
+          <Link to={`/ledger/${distributorId}`} className="btn btn-ghost btn-sm">View All</Link>
+        </div>
+        <div className="card-body">
+          {payments.stats?.totalPayments ? (
+            <>
+              <div style={{ display: 'flex', gap: 32, marginBottom: 12 }}>
+                <div><div style={{ fontSize: 18, fontWeight: 700 }}>{formatINR(payments.stats.totalPaid)}</div><div style={{ fontSize: 12, color: '#6b7280' }}>Total Paid</div></div>
+                <div><div style={{ fontSize: 18, fontWeight: 700, color: '#4f46e5' }}>{payments.stats.totalPayments}</div><div style={{ fontSize: 12, color: '#6b7280' }}>Payments</div></div>
+              </div>
+              {payments.payments.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: '1px solid #f1f5f9', fontSize: 14 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.paymentStatus === 'success' ? '#059669' : '#d97706' }} />
+                  <strong>{formatINR(p.amount)}</strong>
+                  <span style={{ color: '#6b7280' }}>{formatDDMMYYYYOr(p.paymentDate, '-')}</span>
+                  {p.paymentApp && <span style={{ marginLeft: 'auto', color: '#6b7280', textTransform: 'capitalize' }}>{p.paymentApp.replace('_', ' ')}</span>}
+                </div>
+              ))}
+            </>
+          ) : (
+            <p style={{ color: '#6b7280' }}>No payments recorded yet.</p>
+          )}
         </div>
       </div>
 

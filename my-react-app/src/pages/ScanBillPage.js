@@ -18,6 +18,7 @@ export default function ScanBillPage() {
   const [processing, setProcessing] = useState(false);
   const [stage, setStage] = useState('upload'); // upload | ocr | review | parsing
   const [dragging, setDragging] = useState(false);
+  const [importing, setImporting] = useState(null); // progress text while importing
 
   // Compress image client-side before uploading (key for accuracy)
   const compressImage = useCallback(async (file, maxWidth = 2000, quality = 0.85) => {
@@ -64,6 +65,70 @@ export default function ScanBillPage() {
       img.src = URL.createObjectURL(file);
     });
   }, []);
+
+  // Several pages of one bill: read each, keep the first page's header, join the items
+  const importPages = async (fileList) => {
+    const files = [...fileList].slice(0, 10);
+    if (!files.length) return;
+    setImporting(`Reading page 1 of ${files.length}…`);
+    const results = [];
+    for (let i = 0; i < files.length; i++) {
+      setImporting(`Reading page ${i + 1} of ${files.length}…`);
+      try {
+        const res = await aiApi.parseImage(await compressImage(files[i]), '');
+        const data = res.data || res.parsedData;
+        if (data) results.push(data);
+      } catch (err) {
+        console.warn(`[ScanBill] Page ${i + 1} failed:`, err.message);
+      }
+    }
+    setImporting(null);
+    if (!results.length) {
+      toast.error('No bill data could be read. You can still enter it manually.');
+      navigate('/bill-form', { state: { parsedData: null, ocrText: '' } });
+      return;
+    }
+    const merged = { ...results[0] };
+    if (results.length > 1) {
+      merged.items = results.flatMap((r) => r.items || []).map((item, idx) => ({ ...item, sn: idx + 1 }));
+      toast.success(`Scanned ${results.length} pages — ${merged.items.length} items found`);
+    }
+    navigate('/bill-form', { state: { parsedData: merged, ocrText: '' } });
+  };
+
+  const importPdf = async (file) => {
+    if (!file) return;
+    setImporting('Reading PDF…');
+    try {
+      const res = await aiApi.parseImage(file, '');
+      navigate('/bill-form', { state: { parsedData: res.data || res.parsedData || null, ocrText: res.ocrText || '' } });
+    } catch (err) {
+      toast.error(err.message || 'Failed to read the PDF. You can still enter it manually.');
+      navigate('/bill-form', { state: { parsedData: null, ocrText: '' } });
+    } finally {
+      setImporting(null);
+    }
+  };
+
+  const importSpreadsheet = async (file) => {
+    if (!file) return;
+    setImporting('Reading spreadsheet…');
+    try {
+      // Loaded on demand: the Excel library is large and most sessions never use it
+      const { parseSpreadsheetFile, isSpreadsheetFile } = await import('../utils/spreadsheetParser');
+      if (!isSpreadsheetFile(file.type, file.name)) {
+        toast.error('Please select a CSV or Excel (.xlsx) file');
+        return;
+      }
+      const parsedData = await parseSpreadsheetFile(file);
+      toast.success(`${parsedData.items?.length || 0} items imported from spreadsheet`);
+      navigate('/bill-form', { state: { parsedData, ocrText: '' } });
+    } catch (err) {
+      toast.error(err.message || 'Failed to read the spreadsheet. Ensure it has a header row with column names.');
+    } finally {
+      setImporting(null);
+    }
+  };
 
   const handleFileSelect = useCallback(async (file) => {
     if (!file) return;
@@ -332,6 +397,30 @@ export default function ScanBillPage() {
                   style={{ display: 'none' }}
                   onChange={(e) => handleFileSelect(e.target.files[0])}
                 />
+
+                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+                  <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+                    Multiple pages
+                    <input type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} disabled={!!importing}
+                      onChange={(e) => { importPages(e.target.files); e.target.value = ''; }} />
+                  </label>
+                  <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+                    Import PDF bill
+                    <input type="file" accept="application/pdf" style={{ display: 'none' }} disabled={!!importing}
+                      onChange={(e) => { importPdf(e.target.files[0]); e.target.value = ''; }} />
+                  </label>
+                  <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+                    Import CSV / Excel
+                    <input type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} disabled={!!importing}
+                      onChange={(e) => { importSpreadsheet(e.target.files[0]); e.target.value = ''; }} />
+                  </label>
+                </div>
+                {importing && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, color: '#4b5563', fontSize: 14 }}>
+                    <div className="spinner" style={{ width: 16, height: 16 }} /> {importing}
+                  </div>
+                )}
+                <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 10 }}>For CSV/Excel, make sure there is a header row with column names.</p>
               </>
             ) : (
               <div>

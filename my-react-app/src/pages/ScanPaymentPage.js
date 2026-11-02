@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ledgerApi, distributorApi } from '../services/api';
+import { ledgerApi, distributorApi, paymentApi } from '../services/api';
+import { parseUpiPaymentText } from '../utils/paymentParser';
 import { ArrowLeft, ScanLine, Upload, AlertCircle, Copy, AlertTriangle, Sparkles, Search, ArrowRight, Check } from 'lucide-react';
 import { formatDDMMYYYY } from '../utils/dateFormat';
 import { formatINR } from '../utils/money';
@@ -47,6 +48,7 @@ export default function ScanPaymentPage() {
   const [selected, setSelected] = useState(restored?.selected || null);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [pasted, setPasted] = useState('');
   const seq = useRef(0);
   const fileInput = useRef(null);
 
@@ -92,6 +94,36 @@ export default function ScanPaymentPage() {
       setStatus('error');
     }
   }, [user?.id]);
+
+  // A UPI app can also share the receipt as text (or the bank sends it as an SMS)
+  const readPastedText = async () => {
+    const parsed = parseUpiPaymentText(pasted);
+    const d = parsed?.data;
+    if (!d?.amount && !d?.transactionId) {
+      setError('Could not find payment details in that text.');
+      setStatus('error');
+      return;
+    }
+    seq.current++;
+    const extracted = {
+      amount: d.amount || null,
+      paymentDate: d.paymentDate ? String(d.paymentDate).slice(0, 10) : null,
+      time: null,
+      transactionId: d.transactionId || d.upiRefNumber || null,
+      receiverName: d.payeeName || null,
+      receiverUpiId: d.payeeUpiId || null,
+      app: d.paymentApp || null,
+      status: d.paymentStatus || null,
+      note: null,
+    };
+    const match = d.payeeName ? await paymentApi.matchDistributor(user.id, d.payeeName).catch(() => null) : null;
+    const distributor = match?.matched ? match.distributor : null;
+    setPreview(null);
+    setResult({ extracted, match: { distributor, candidates: [], reason: distributor ? `Name matches “${distributor.name}”` : null }, duplicate: null });
+    setSelected(distributor);
+    setError(null);
+    setStatus('done');
+  };
 
   // Ctrl+V a screenshot straight from the clipboard (e.g. copied from WhatsApp Web)
   useEffect(() => {
@@ -180,6 +212,12 @@ export default function ScanPaymentPage() {
           </button>
           <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }}
             onChange={(e) => { scan(e.target.files?.[0]); e.target.value = ''; }} />
+          <div style={{ marginTop: 14 }}>
+            <label className="form-label">Or paste the payment message</label>
+            <textarea className="form-input" rows={3} placeholder="Paste the text shared by your UPI app or bank SMS" value={pasted}
+              onPaste={(e) => e.stopPropagation()} onChange={(e) => setPasted(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }} disabled={!pasted.trim()} onClick={readPastedText}>Read text</button>
+          </div>
         </div>
 
         <div>

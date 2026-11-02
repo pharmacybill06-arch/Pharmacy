@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { productApi, batchApi, salesApi } from '../services/api';
 import { ArrowLeft, Search, Plus, Minus, X, Trash2, GitBranch, AlertCircle, ShieldCheck, Check } from 'lucide-react';
@@ -166,7 +166,8 @@ export default function QuickSellPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [active, setActive] = useState(null);
+  // "Sell" on a Products row lands here with that product already picked
+  const [active, setActive] = useState(useLocation().state?.product || null);
   const [cart, setCart] = useState([]);
   const [customerName, setCustomerName] = useState('');
   const [doctorName, setDoctorName] = useState('');

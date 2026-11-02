@@ -12,7 +12,7 @@ export default function DistributorFormPage() {
   const isEditing = !!distributorId;
 
   const [form, setForm] = useState({
-    name: '', phone: '', gstin: '', dlNumber: '', address: '', email: '',
+    name: '', phone: '', gstin: '', dlNumber: '', address: '', email: '', notes: '',
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -32,6 +32,7 @@ export default function DistributorFormPage() {
             dlNumber: d.dlNumber || '',
             address: d.address || '',
             email: d.email || '',
+            notes: d.notes || '',
           });
         })
         .catch(() => { toast.error('Distributor not found'); navigate('/distributors'); })
@@ -74,6 +75,10 @@ export default function DistributorFormPage() {
     e.preventDefault();
     if (!form.name.trim()) {
       toast.error('Distributor name is required');
+      return;
+    }
+    if (form.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(form.gstin.toUpperCase())) {
+      toast.error('Invalid GSTIN format');
       return;
     }
     setSaving(true);

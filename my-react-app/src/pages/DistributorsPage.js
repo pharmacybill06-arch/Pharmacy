@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { distributorApi } from '../services/api';
-import { Truck, Search, Plus, Eye, Edit, Trash2 } from 'lucide-react';
+import { Truck, Search, Plus, Eye, Edit, Trash2, FileText, Package, IndianRupee } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatINR, formatINRShort } from '../utils/money';
 
 export default function DistributorsPage() {
   const { user } = useAuth();
@@ -46,6 +47,12 @@ export default function DistributorsPage() {
       (d.gstin || '').toLowerCase().includes(q);
   });
 
+  const totals = distributors.reduce((t, d) => ({
+    bills: t.bills + (d.totalBills || 0),
+    products: t.products + (d.totalProducts || 0),
+    amount: t.amount + (d.totalAmount || 0),
+  }), { bills: 0, products: 0, amount: 0 });
+
   if (loading) {
     return <div className="loading-spinner"><div className="spinner" /></div>;
   }
@@ -55,6 +62,17 @@ export default function DistributorsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700 }}>Distributors ({distributors.length})</h2>
         <Link to="/distributors/new" className="btn btn-primary"><Plus size={16} /> Add Distributor</Link>
+      </div>
+
+      <div className="stats-grid" style={{ marginBottom: 20 }}>
+        <div className="stat-card"><div className="stat-card-icon" style={{ background: '#fef3c7', color: '#d97706' }}><Truck size={20} /></div>
+          <div><div className="stat-card-label">Distributors</div><div className="stat-card-value">{distributors.length}</div></div></div>
+        <div className="stat-card"><div className="stat-card-icon" style={{ background: '#dbeafe', color: '#2563eb' }}><FileText size={20} /></div>
+          <div><div className="stat-card-label">Total Bills</div><div className="stat-card-value">{totals.bills}</div></div></div>
+        <div className="stat-card"><div className="stat-card-icon" style={{ background: '#dcfce7', color: '#16a34a' }}><Package size={20} /></div>
+          <div><div className="stat-card-label">Products</div><div className="stat-card-value">{totals.products}</div></div></div>
+        <div className="stat-card"><div className="stat-card-icon" style={{ background: '#f3e8ff', color: '#7c3aed' }}><IndianRupee size={20} /></div>
+          <div><div className="stat-card-label">Total Value</div><div className="stat-card-value">{formatINRShort(totals.amount)}</div></div></div>
       </div>
 
       <div className="search-bar" style={{ marginBottom: 20, maxWidth: 400 }}>
@@ -82,6 +100,9 @@ export default function DistributorsPage() {
                   <th>GSTIN</th>
                   <th>DL Number</th>
                   <th>Address</th>
+                  <th style={{ textAlign: 'right' }}>Bills</th>
+                  <th style={{ textAlign: 'right' }}>Products</th>
+                  <th style={{ textAlign: 'right' }}>Purchases</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -98,6 +119,9 @@ export default function DistributorsPage() {
                     <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {d.address || '-'}
                     </td>
+                    <td style={{ textAlign: 'right' }}>{d.totalBills || 0}</td>
+                    <td style={{ textAlign: 'right' }}>{d.totalProducts || 0}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatINR(d.totalAmount || 0)}</td>
                     <td>
                       <span className={`badge ${d.isActive ? 'badge-success' : 'badge-danger'}`}>
                         {d.isActive ? 'Active' : 'Inactive'}

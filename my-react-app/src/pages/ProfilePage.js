@@ -1,17 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { authApi } from '../services/api';
-import { User, Save, Loader, Phone } from 'lucide-react';
+import { authApi, billApi } from '../services/api';
+import { User, Save, Loader, Phone, LogOut } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDDMMYYYYOr } from '../utils/dateFormat';
 
 export default function ProfilePage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
+  const navigate = useNavigate();
+  const [billCount, setBillCount] = useState(null);
 
   const [form, setForm] = useState({
     name: user?.name || '',
     shopName: user?.shopName || '',
+    email: user?.email || '',
   });
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    billApi.getUserBills(user.id).then((r) => setBillCount((r.bills || []).length)).catch(() => {});
+  }, [user?.id]);
+
+  const signOut = () => {
+    if (!window.confirm('Are you sure you want to logout?')) return;
+    logout();
+    navigate('/login');
+  };
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
@@ -23,8 +39,9 @@ export default function ProfilePage() {
     }
     setSaving(true);
     try {
-      const result = await authApi.updateProfile(user.id, form);
-      updateUser(result.user || { ...user, ...form });
+      const payload = { ...form, email: form.email.trim() || null };
+      const result = await authApi.updateProfile(user.id, payload);
+      updateUser(result.user || { ...user, ...payload });
       toast.success('Profile updated!');
     } catch (err) {
       toast.error(err.message || 'Failed to update profile');
@@ -55,6 +72,10 @@ export default function ProfilePage() {
               </p>
             </div>
           </div>
+          <div style={{ display: 'flex', gap: 32 }}>
+            <div><div style={{ fontSize: 20, fontWeight: 700 }}>{billCount ?? '—'}</div><div style={{ fontSize: 12, color: '#6b7280' }}>Bills Uploaded</div></div>
+            <div><div style={{ fontSize: 20, fontWeight: 700 }}>{formatDDMMYYYYOr(user?.createdAt, 'N/A')}</div><div style={{ fontSize: 12, color: '#6b7280' }}>Member Since</div></div>
+          </div>
         </div>
       </div>
 
@@ -71,6 +92,10 @@ export default function ProfilePage() {
               <input className="form-input" value={form.shopName} onChange={e => updateField('shopName', e.target.value)} placeholder="Your shop name" />
             </div>
             <div className="form-group">
+              <label className="form-label">Email (optional)</label>
+              <input className="form-input" type="email" value={form.email} onChange={e => updateField('email', e.target.value)} placeholder="Your email" />
+            </div>
+            <div className="form-group">
               <label className="form-label">Phone Number</label>
               <input className="form-input" value={user?.phone || ''} disabled style={{ background: '#f3f4f6' }} />
               <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Phone number cannot be changed</p>
@@ -81,6 +106,9 @@ export default function ProfilePage() {
         <button type="submit" className="btn btn-primary" disabled={saving}>
           {saving ? <Loader size={16} className="spinner" /> : <Save size={16} />}
           Save Changes
+        </button>
+        <button type="button" className="btn btn-ghost" style={{ color: '#dc2626', marginLeft: 8 }} onClick={signOut}>
+          <LogOut size={16} /> Logout
         </button>
       </form>
     </div>

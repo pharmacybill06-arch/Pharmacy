@@ -355,3 +355,9 @@ table tr:hover { background: var(--gray-50); }
 @media (max-width: 900px) {
   .quick-sell-grid { grid-template-columns: minmax(0, 1fr) !important; }
 }
+
+/* Print / PDF of a bill: only the document, no app chrome */
+@media print {
+  .sidebar, .page-header, .no-print { display: none !important; }
+  .main-content { margin: 0 !important; }
+}

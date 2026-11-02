@@ -43,11 +43,18 @@ export default function CreateInvoicePage() {
   }, [user?.id]);
 
   const selectProduct = (index, product) => {
+    if (items.some((item, i) => i !== index && item.productId === product.id)) {
+      toast.error(`${product.name} is already in the invoice`);
+      setSearchResults([]);
+      setActiveSearchIndex(-1);
+      return;
+    }
     setItems(prev => prev.map((item, i) => {
       if (i !== index) return item;
       return {
         ...item,
         productId: product.id,
+        stock: product.stock,
         name: product.name,
         mrp: product.defaultMrp || '',
         rate: product.sellingRate || product.defaultMrp || '',
@@ -116,6 +123,15 @@ export default function CreateInvoicePage() {
     const validItems = items.filter(i => i.name.trim());
     if (validItems.length === 0) {
       toast.error('Add at least one item');
+      return;
+    }
+    if (!invoiceData.customerName.trim()) {
+      toast.error('Please enter customer name');
+      return;
+    }
+    const short = validItems.find(i => i.stock != null && Number(i.quantity) > i.stock);
+    if (short) {
+      toast.error(`${short.name}: Available ${short.stock}, Requested ${short.quantity}`);
       return;
     }
     setSaving(true);

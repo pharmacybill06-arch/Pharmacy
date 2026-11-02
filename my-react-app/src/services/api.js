@@ -231,6 +231,21 @@ export const productApi = {
     return apiFetch(`/products/${userId}${queryString ? `?${queryString}` : ''}`);
   },
 
+  /**
+   * The whole catalog. The list endpoint caps a page at 100, so walk every page.
+   */
+  getAllProducts: async (userId, options = {}) => {
+    const first = await productApi.getProducts(userId, { ...options, page: 1, limit: 100 });
+    const pages = first.pagination?.totalPages || 1;
+    const rest = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, i) => productApi.getProducts(userId, { ...options, page: i + 2, limit: 100 }))
+    );
+    return {
+      products: [first, ...rest].flatMap((r) => r.products || []),
+      total: first.pagination?.total ?? (first.products || []).length,
+    };
+  },
+
   searchProducts: async (userId, query, limit = 10, fuzzy = false) => {
     const params = new URLSearchParams({
       q: query,

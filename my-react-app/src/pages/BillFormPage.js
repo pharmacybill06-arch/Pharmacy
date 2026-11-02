@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { billApi, distributorApi, productApi } from '../services/api';
-import { Save, Plus, Trash2, Loader } from 'lucide-react';
+import { billApi, distributorApi, productApi, gstinApi } from '../services/api';
+import { Save, Plus, Trash2, Loader, Check, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const emptyItem = {
@@ -35,6 +35,44 @@ export default function BillFormPage() {
   const [saving, setSaving] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
+  const [gstin, setGstin] = useState('');
+  const [gstLoading, setGstLoading] = useState(false);
+
+  // GSTIN → an existing distributor if we have one, otherwise a new one created from
+  // the GST record, so the bill links to a real distributor either way
+  const lookupGst = async () => {
+    const value = gstin.trim().toUpperCase();
+    if (value.length !== 15) { toast.error('Enter a valid 15-character GSTIN'); return; }
+    setGstLoading(true);
+    try {
+      const found = await distributorApi.searchDistributors(user.id, value).catch(() => null);
+      let dist = found?.distributors?.[0];
+      if (dist) {
+        toast.success(`Existing distributor “${dist.name}” matched by GSTIN`);
+      } else {
+        const res = await gstinApi.lookupGstin(value);
+        const d = res.data;
+        if (!res.valid || !d) { toast.error('No details found for this GSTIN'); return; }
+        const created = await distributorApi.createDistributor(user.id, {
+          name: d.tradeName || d.legalName || d.businessName,
+          gstin: value,
+          address: d.address?.full || (typeof d.address === 'string' ? d.address : ''),
+        });
+        dist = created.distributor || created;
+        setDistributors((prev) => [...prev, dist]);
+        toast.success(`Distributor “${dist.name}” added from GST`);
+      }
+      setBillData((prev) => ({ ...prev, distributorId: dist.id, pharmacyName: dist.name }));
+    } catch (err) {
+      toast.error(err.message || 'GST lookup failed');
+    } finally {
+      setGstLoading(false);
+    }
+  };
+
+  const verifyRow = (index) => setItems((prev) => prev.map((it, i) => (i === index ? { ...it, humanVerified: true, needsReview: false, reviewReason: [] } : it)));
+  // Only clean rows: anything the AI flagged still has to be looked at individually
+  const verifyClean = () => setItems((prev) => prev.map((it) => (it.needsReview ? it : { ...it, humanVerified: true })));
 
   const searchProducts = async (query, index) => {
     if (!query || query.length < 2) {
@@ -113,6 +151,11 @@ export default function BillFormPage() {
           gstPercent: toStr(item.gstPercent ?? item.gst_percent ?? item.gst),
           discount: toStr(item.discount),
           itemTotal: toStr(item.itemTotal ?? item.item_total ?? item.amount ?? item.total),
+          // Scanned rows must be checked by a person before the bill can be saved
+          fromScan: true,
+          humanVerified: false,
+          needsReview: !!item.needsReview,
+          reviewReason: item.reviewReason || [],
         })));
       }
     }
@@ -126,6 +169,7 @@ export default function BillFormPage() {
     setItems(prev => prev.map((item, i) => {
       if (i !== index) return item;
       const updated = { ...item, [field]: value };
+      if (item.fromScan) updated.humanVerified = false; // an edited row is checked again
       // Auto-calc item total (pre-tax: qty × rate × (1 - disc%))
       if (['quantity', 'rate', 'discount', 'gstPercent'].includes(field)) {
         const qty = parseFloat(updated.quantity) || 0;
@@ -243,9 +287,40 @@ export default function BillFormPage() {
     };
   };
 
+  // Park an unfinished bill. Nothing touches stock or the ledger until it is confirmed.
+  const handleSaveDraft = async () => {
+    setSaving(true);
+    try {
+      const totals = calculateTotals();
+      const draftData = {
+        ...billData,
+        subtotal: parseFloat(totals.subtotal),
+        cgst: parseFloat(billData.cgstOverride || totals.cgst),
+        sgst: parseFloat(billData.sgstOverride || totals.sgst),
+        totalGst: parseFloat(totals.totalGst),
+        grandTotal: parseFloat(billData.grandTotalOverride || totals.grandTotal),
+        items: items.filter((item) => item.name.trim()),
+        billType: 'purchase',
+      };
+      await billApi.saveDraft(user.id, draftData, ocrText || '', '');
+      if (draftId) await billApi.deleteBill(draftId).catch(() => {}); // the new draft replaces it
+      toast.success('Saved as draft');
+      navigate('/drafts');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save draft');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!items[0]?.name) {
       toast.error('Please add at least one item');
+      return;
+    }
+    const pending = items.filter((it) => it.fromScan && it.name.trim() && (it.needsReview || !it.humanVerified)).length;
+    if (pending > 0) {
+      toast.error(`Please verify ${pending} item row${pending === 1 ? '' : 's'} before saving.`);
       return;
     }
     setSaving(true);
@@ -259,7 +334,7 @@ export default function BillFormPage() {
         sgst: parseFloat(billData.sgstOverride || totals.sgst),
         totalGst: parseFloat(totals.totalGst),
         grandTotal: parseFloat(billData.grandTotalOverride || totals.grandTotal),
-        items: items.filter(item => item.name.trim()),
+        items: items.filter(item => item.name.trim()).map(({ fromScan, reviewReason, ...item }) => item),
         billType: 'purchase',
       };
 
@@ -312,6 +387,7 @@ export default function BillFormPage() {
             {draftId ? 'Edit the draft and save as a final bill' : 'Review and edit parsed bill data'}
           </p>
         </div>
+        <button className="btn btn-secondary" style={{ marginRight: 8 }} onClick={handleSaveDraft} disabled={saving}>Save as Draft</button>
         <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? <Loader size={16} className="spinner" /> : <Save size={16} />}
           Save Bill
@@ -356,6 +432,15 @@ export default function BillFormPage() {
               <input className="form-input" value={billData.pharmacyName} onChange={e => updateBillField('pharmacyName', e.target.value)} placeholder="Distributor name" />
             </div>
           </div>
+          <div className="form-group" style={{ maxWidth: 420 }}>
+            <label className="form-label">Find distributor by GSTIN</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="form-input" maxLength={15} placeholder="e.g. 27AAPFU0939F1ZV" value={gstin} onChange={e => setGstin(e.target.value.toUpperCase())} />
+              <button type="button" className="btn btn-secondary" disabled={gstLoading} onClick={lookupGst}>
+                {gstLoading ? <Loader size={14} className="spinner" /> : <Search size={14} />} Lookup
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -363,9 +448,14 @@ export default function BillFormPage() {
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3>Bill Items ({items.length})</h3>
-          <button className="btn btn-secondary btn-sm" onClick={addItem}>
-            <Plus size={14} /> Add Item
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {items.some((it) => it.fromScan && !it.needsReview && !it.humanVerified) && (
+              <button className="btn btn-secondary btn-sm" onClick={verifyClean}><Check size={14} /> Verify unflagged rows</button>
+            )}
+            <button className="btn btn-secondary btn-sm" onClick={addItem}>
+              <Plus size={14} /> Add Item
+            </button>
+          </div>
         </div>
         <div className="table-container">
           <table className="bill-items-table">
@@ -396,7 +486,8 @@ export default function BillFormPage() {
                 const afterDisc = base - (base * disc / 100);
                 const gstAmt = afterDisc * gstPct / 100;
                 return (
-                <tr key={index}>
+                <tr key={index} title={(item.reviewReason || []).join(' • ') || undefined}
+                  style={{ background: item.needsReview ? '#fffbeb' : item.fromScan && !item.humanVerified ? '#f8fafc' : undefined }}>
                   <td>{index + 1}</td>
                   <td style={{ position: 'relative' }}>
                     <input 
@@ -463,8 +554,14 @@ export default function BillFormPage() {
                     {gstAmt > 0 ? `₹${gstAmt.toFixed(2)}` : '—'}
                   </td>
                   <td style={{ fontWeight: 600 }}>₹{item.itemTotal || '0.00'}</td>
-                  <td>
-                    <button className="btn btn-ghost btn-icon" onClick={() => removeItem(index)}>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {item.fromScan && (item.humanVerified
+                      ? <Check size={15} style={{ color: '#059669', verticalAlign: 'middle' }} aria-label="Verified" />
+                      : <button type="button" className={`btn btn-sm ${item.needsReview ? 'btn-primary' : 'btn-secondary'}`}
+                          title={(item.reviewReason || []).join(' • ') || 'Confirm this row matches the bill'} onClick={() => verifyRow(index)}>
+                          {item.needsReview ? 'Review ✓' : 'Verify'}
+                        </button>)}
+                    <button className="btn btn-ghost btn-icon" aria-label="Remove item" onClick={() => removeItem(index)}>
                       <Trash2 size={14} style={{ color: '#dc2626' }} />
                     </button>
                   </td>
