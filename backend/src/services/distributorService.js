@@ -235,10 +235,29 @@ async function getDistributorById(distributorId) {
  * Get bills for a distributor
  */
 async function getDistributorBills(distributorId, options = {}) {
-  const { page = 1, limit = 20 } = options;
-  
+  const { page = 1, limit = 20, search } = options;
+
+  // Invoice-number search, same matching as the main bills list: case-insensitive, and
+  // separators ignored on both sides so "A017863" finds "A-017863" and vice versa.
+  // Matching happens before pagination, so a search reaches bills not yet loaded.
+  let where = { distributorId };
+  const rawSearch = String(search || '').trim();
+  if (rawSearch) {
+    const normalize = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const needle = normalize(rawSearch);
+    const lower = rawSearch.toLowerCase();
+    const candidates = await prisma.bill.findMany({
+      where: { distributorId, invoiceNumber: { not: null } },
+      select: { id: true, invoiceNumber: true },
+    });
+    const ids = candidates
+      .filter((b) => b.invoiceNumber.toLowerCase().includes(lower) || (needle && normalize(b.invoiceNumber).includes(needle)))
+      .map((b) => b.id);
+    where = { distributorId, id: { in: ids } };
+  }
+
   const bills = await prisma.bill.findMany({
-    where: { distributorId },
+    where,
     include: {
       items: {
         select: {
@@ -261,9 +280,7 @@ async function getDistributorBills(distributorId, options = {}) {
     take: limit
   });
   
-  const total = await prisma.bill.count({
-    where: { distributorId }
-  });
+  const total = await prisma.bill.count({ where });
   
   return {
     bills,

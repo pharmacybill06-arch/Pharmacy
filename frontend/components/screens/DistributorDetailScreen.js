@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedView } from '@/components/themed-view';
@@ -103,6 +104,11 @@ export default function DistributorDetailScreen({
   onBillPress,
   onBillDelete,
   onLoadMoreBills,
+  // Invoice-number search (run on the server by the parent)
+  billsTotal = 0,
+  billSearch = '',
+  onBillSearchChange,
+  searchingBills = false,
   loading = false,
   hasMoreBills = false,
   // Payment props
@@ -159,7 +165,9 @@ export default function DistributorDetailScreen({
   };
 
 
-  const ListHeader = () => (
+  // A JSX element, not a component: a component defined here would be a new type each
+  // render, remounting the search box and closing the keyboard on every keystroke.
+  const listHeader = (
     <>
       {/* Profile Card */}
       <Card style={styles.profileCard}>
@@ -334,15 +342,46 @@ export default function DistributorDetailScreen({
       {/* Bills Section Header */}
       <View style={styles.billsHeader}>
         <ThemedText style={styles.sectionTitle}>Bills History</ThemedText>
-        <ThemedText style={styles.billsCount}>{bills.length} bills</ThemedText>
+        <ThemedText style={styles.billsCount}>
+          {billSearch.trim()
+            ? `${billsTotal} match${billsTotal === 1 ? '' : 'es'}`
+            : `${billsTotal || bills.length} bills`}
+        </ThemedText>
       </View>
+
+      {onBillSearchChange && (
+        <View style={styles.billSearchBar}>
+          <Ionicons name="search" size={18} color="#94A3B8" />
+          <TextInput
+            style={styles.billSearchInput}
+            value={billSearch}
+            onChangeText={onBillSearchChange}
+            placeholder="Search by invoice number"
+            placeholderTextColor="#94A3B8"
+            autoCapitalize="characters"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {searchingBills ? (
+            <ActivityIndicator size="small" color="#4F46E5" />
+          ) : billSearch.length > 0 ? (
+            <Pressable onPress={() => onBillSearchChange('')} hitSlop={8} accessibilityLabel="Clear invoice search">
+              <Ionicons name="close-circle" size={18} color="#CBD5E1" />
+            </Pressable>
+          ) : null}
+        </View>
+      )}
     </>
   );
 
   const ListEmpty = () => (
     <View style={styles.emptyBills}>
-      <Ionicons name="receipt-outline" size={48} color="#CBD5E1" />
-      <ThemedText style={styles.emptyText}>No bills found</ThemedText>
+      <Ionicons name={billSearch.trim() ? 'search-outline' : 'receipt-outline'} size={48} color="#CBD5E1" />
+      <ThemedText style={styles.emptyText}>
+        {billSearch.trim()
+          ? searchingBills ? 'Searching…' : `No invoice matching "${billSearch.trim()}"`
+          : 'No bills found'}
+      </ThemedText>
     </View>
   );
 
@@ -375,7 +414,8 @@ export default function DistributorDetailScreen({
           data={bills}
           renderItem={renderBill}
           keyExtractor={keyExtractor}
-          ListHeaderComponent={ListHeader}
+          ListHeaderComponent={listHeader}
+          keyboardShouldPersistTaps="handled"
           ListEmptyComponent={ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={styles.listContent}
@@ -666,6 +706,23 @@ const styles = StyleSheet.create({
   billsCount: {
     fontSize: 14,
     color: '#64748B',
+  },
+  billSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  billSearchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#0F172A',
   },
   billRow: {
     backgroundColor: '#FFFFFF',

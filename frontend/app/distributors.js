@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -42,6 +42,12 @@ function DistributorsScreenContent() {
   const [distributorBills, setDistributorBills] = useState([]);
   const [billsPage, setBillsPage] = useState(1);
   const [hasMoreBills, setHasMoreBills] = useState(false);
+  // Invoice-number search inside one distributor's bills
+  const [billSearch, setBillSearch] = useState('');
+  const [billsTotal, setBillsTotal] = useState(0);
+  const [searchingBills, setSearchingBills] = useState(false);
+  const loadedSearch = useRef('');
+  const searchSeq = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
 
@@ -83,6 +89,8 @@ function DistributorsScreenContent() {
       setCurrentView('list');
       clearSelectedDistributor();
       setDistributorBills([]);
+      setBillSearch('');
+      loadedSearch.current = '';
     } else {
       router.back();
     }
@@ -96,10 +104,34 @@ function DistributorsScreenContent() {
     const billsResult = await getDistributorBills(distributor.id, { page: 1, limit: 10 });
     setDistributorBills(billsResult.bills || []);
     setBillsPage(1);
+    setBillsTotal(billsResult.total || 0);
     setHasMoreBills((billsResult.bills?.length || 0) < (billsResult.total || 0));
-    
+    setBillSearch('');
+    loadedSearch.current = '';
+
     setCurrentView('detail');
   }, [getDistributor, getDistributorBills]);
+
+  // Re-query the distributor's bills when the search text settles. Server-side, so a
+  // search also finds older invoices that "Load More" has not brought in yet.
+  useEffect(() => {
+    if (currentView !== 'detail' || !selectedDistributor?.id) return undefined;
+    const query = billSearch.trim();
+    if (query === loadedSearch.current) return undefined;
+    const seq = ++searchSeq.current;
+    setSearchingBills(true);
+    const timer = setTimeout(async () => {
+      const result = await getDistributorBills(selectedDistributor.id, { page: 1, limit: 10, search: query });
+      if (seq !== searchSeq.current) return; // a newer search is in flight
+      loadedSearch.current = query;
+      setDistributorBills(result.bills || []);
+      setBillsPage(1);
+      setBillsTotal(result.total || 0);
+      setHasMoreBills((result.bills?.length || 0) < (result.total || 0));
+      setSearchingBills(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [billSearch, currentView, selectedDistributor?.id, getDistributorBills]);
 
   // Fetch payment stats when viewing distributor detail
   useEffect(() => {
@@ -175,10 +207,15 @@ function DistributorsScreenContent() {
     if (!selectedDistributor || !hasMoreBills) return;
     
     const nextPage = billsPage + 1;
-    const billsResult = await getDistributorBills(selectedDistributor.id, { page: nextPage, limit: 10 });
-    
+    const billsResult = await getDistributorBills(selectedDistributor.id, {
+      page: nextPage,
+      limit: 10,
+      search: loadedSearch.current || undefined,
+    });
+
     setDistributorBills(prev => [...prev, ...(billsResult.bills || [])]);
     setBillsPage(nextPage);
+    setBillsTotal(billsResult.total || 0);
     setHasMoreBills(distributorBills.length + (billsResult.bills?.length || 0) < (billsResult.total || 0));
   }, [selectedDistributor, hasMoreBills, billsPage, distributorBills.length, getDistributorBills]);
 
@@ -209,11 +246,12 @@ function DistributorsScreenContent() {
     if (!selectedDistributor?.id) return;
     try {
       const [billsResult, paymentResult] = await Promise.all([
-        getDistributorBills(selectedDistributor.id, { page: 1, limit: 10 }),
+        getDistributorBills(selectedDistributor.id, { page: 1, limit: 10, search: loadedSearch.current || undefined }),
         paymentApi.getDistributorPayments(selectedDistributor.id, { page: 1, limit: 5 }).catch(() => null),
       ]);
       setDistributorBills(billsResult.bills || []);
       setBillsPage(1);
+      setBillsTotal(billsResult.total || 0);
       setHasMoreBills((billsResult.bills?.length || 0) < (billsResult.total || 0));
       if (paymentResult) {
         setDistributorPaymentStats(paymentResult.stats || null);
@@ -384,6 +422,10 @@ function DistributorsScreenContent() {
         <DistributorDetailScreen
           distributor={selectedDistributor}
           bills={distributorBills}
+          billsTotal={billsTotal}
+          billSearch={billSearch}
+          onBillSearchChange={setBillSearch}
+          searchingBills={searchingBills}
           onBack={handleBack}
           onEdit={handleEditPress}
           onDelete={handleDelete}

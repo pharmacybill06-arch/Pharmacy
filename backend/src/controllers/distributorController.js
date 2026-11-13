@@ -54,11 +54,12 @@ exports.getDistributorById = async (req, res) => {
 exports.getDistributorBills = async (req, res) => {
   try {
     const { distributorId } = req.params;
-    const { page, limit } = req.query;
+    const { page, limit, search } = req.query;
 
     const result = await distributorService.getDistributorBills(distributorId, {
       page: page ? parseInt(page) : 1,
-      limit: limit ? parseInt(limit) : 20
+      limit: limit ? parseInt(limit) : 20,
+      search,
     });
 
     res.json({
