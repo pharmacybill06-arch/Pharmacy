@@ -381,6 +381,8 @@ export const distributorApi = {
     const params = new URLSearchParams();
     if (options.page) params.append('page', options.page);
     if (options.limit) params.append('limit', options.limit);
+    // Invoice-number search (server-side, so it reaches bills not loaded yet)
+    if (options.search) params.append('search', options.search);
 
     const queryString = params.toString();
     return apiFetch(`/distributors/${distributorId}/bills${queryString ? `?${queryString}` : ''}`);

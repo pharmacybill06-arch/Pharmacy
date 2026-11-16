@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { distributorApi, billApi, paymentApi } from '../services/api';
-import { ArrowLeft, Edit, FileText, Phone, MapPin, Trash2, Loader2, CreditCard, Wallet } from 'lucide-react';
+import { ArrowLeft, Edit, FileText, Phone, MapPin, Trash2, Loader2, CreditCard, Wallet, Search, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDDMMYYYYOr } from '../utils/dateFormat';
 import { formatINR } from '../utils/money';
@@ -14,6 +14,40 @@ export default function DistributorDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deletingBillId, setDeletingBillId] = useState(null);
   const [payments, setPayments] = useState({ payments: [], stats: null });
+  // Bills are paged; the invoice-number search runs on the server, so it also finds
+  // bills that "Load more" has not brought in yet. Same matching as mobile.
+  const [billSearch, setBillSearch] = useState('');
+  const [billPage, setBillPage] = useState(1);
+  const [billTotal, setBillTotal] = useState(0);
+  const [billsLoading, setBillsLoading] = useState(false);
+  const loadedSearch = useRef('');
+  const billSeq = useRef(0);
+  const BILLS_PAGE = 20;
+
+  const loadBills = useCallback(async (page, search) => {
+    const seq = ++billSeq.current;
+    setBillsLoading(true);
+    try {
+      const res = await distributorApi.getDistributorBills(distributorId, { page, limit: BILLS_PAGE, search: search || undefined });
+      if (seq !== billSeq.current) return; // a newer request is in flight
+      loadedSearch.current = search;
+      setBills((prev) => (page === 1 ? res.bills || [] : [...prev, ...(res.bills || [])]));
+      setBillPage(page);
+      setBillTotal(res.total || 0);
+    } catch (err) {
+      if (seq === billSeq.current) toast.error(err.message || 'Failed to load bills');
+    } finally {
+      if (seq === billSeq.current) setBillsLoading(false);
+    }
+  }, [distributorId]);
+
+  useEffect(() => {
+    if (loading) return undefined;
+    const query = billSearch.trim();
+    if (query === loadedSearch.current) return undefined;
+    const t = setTimeout(() => loadBills(1, query), 300);
+    return () => clearTimeout(t);
+  }, [billSearch, loading, loadBills]);
 
   const handleDeleteDistributor = async () => {
     if (!window.confirm(`Delete “${distributor.name}”? This cannot be undone.`)) return;
@@ -61,6 +95,7 @@ export default function DistributorDetailPage() {
     try {
       const res = await billApi.deleteBill(bill.id);
       setBills(prev => prev.filter(b => b.id !== bill.id));
+      setBillTotal(t => Math.max(0, t - 1));
       const warnings = res?.stock?.warnings || [];
       if (warnings.length > 0) {
         // Stock went negative — the pharmacist had already sold beyond this bill.
@@ -79,11 +114,14 @@ export default function DistributorDetailPage() {
     try {
       const [distRes, billsRes, payRes] = await Promise.all([
         distributorApi.getDistributorById(distributorId),
-        distributorApi.getDistributorBills(distributorId).catch(() => ({ bills: [] })),
+        distributorApi.getDistributorBills(distributorId, { page: 1, limit: BILLS_PAGE }).catch(() => ({ bills: [], total: 0 })),
         paymentApi.getDistributorPayments(distributorId, { limit: 3 }).catch(() => null),
       ]);
       setDistributor(distRes.distributor || distRes);
       setBills(billsRes.bills || []);
+      setBillTotal(billsRes.total || 0);
+      setBillPage(1);
+      loadedSearch.current = '';
       if (payRes) setPayments({ payments: payRes.payments || [], stats: payRes.stats || null });
     } catch (err) {
       toast.error('Distributor not found');
@@ -124,7 +162,7 @@ export default function DistributorDetailPage() {
       </div>
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
-        <div className="stat-card"><div><div className="stat-card-label">Total Bills</div><div className="stat-card-value">{distributor.totalBills ?? bills.length}</div></div></div>
+        <div className="stat-card"><div><div className="stat-card-label">Total Bills</div><div className="stat-card-value">{distributor.totalBills ?? billTotal}</div></div></div>
         <div className="stat-card"><div><div className="stat-card-label">Products</div><div className="stat-card-value">{distributor.totalProducts || 0}</div></div></div>
         <div className="stat-card"><div><div className="stat-card-label">Total Purchase</div><div className="stat-card-value" style={{ color: '#059669' }}>{formatINR(distributor.totalAmount || 0)}</div></div></div>
       </div>
@@ -212,14 +250,25 @@ export default function DistributorDetailPage() {
 
       {/* Bills from this distributor */}
       <div className="card">
-        <div className="card-header">
-          <h3>Purchase Bills ({bills.length})</h3>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <h3>
+            Purchase Bills ({billTotal})
+            {loadedSearch.current && <span style={{ fontWeight: 400, fontSize: 13, color: '#6b7280' }}> — {billTotal} match{billTotal === 1 ? '' : 'es'}</span>}
+          </h3>
+          <div className="search-bar" style={{ width: 280 }}>
+            <Search size={16} />
+            <input className="form-input" placeholder="Search by invoice number" value={billSearch} onChange={(e) => setBillSearch(e.target.value)} aria-label="Search invoices by number" />
+            {billsLoading ? <Loader2 size={15} style={{ color: '#6b7280', animation: 'spin 1s linear infinite' }} />
+              : billSearch && <button className="btn btn-ghost btn-icon btn-sm" aria-label="Clear invoice search" onClick={() => setBillSearch('')}><X size={14} /></button>}
+          </div>
         </div>
         <div className="table-container">
           {bills.length === 0 ? (
             <div className="empty-state" style={{ padding: 32 }}>
-              <FileText size={32} />
-              <p>No bills from this distributor yet</p>
+              {billSearch.trim() ? <Search size={32} /> : <FileText size={32} />}
+              <p>{billSearch.trim()
+                ? (billsLoading ? 'Searching…' : `No invoice matching “${billSearch.trim()}”`)
+                : 'No bills from this distributor yet'}</p>
             </div>
           ) : (
             <table>
@@ -260,6 +309,13 @@ export default function DistributorDetailPage() {
             </table>
           )}
         </div>
+        {bills.length < billTotal && (
+          <div style={{ padding: 16, textAlign: 'center' }}>
+            <button className="btn btn-secondary" disabled={billsLoading} onClick={() => loadBills(billPage + 1, loadedSearch.current)}>
+              {billsLoading ? 'Loading…' : `Load more (${billTotal - bills.length} remaining)`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
