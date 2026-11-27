@@ -27,7 +27,7 @@ async function apiFetch(endpoint, options = {}) {
       // duplicate-invoice 409) instead of only having a string to match on.
       const error = new Error(data.message || data.error || `API Error: ${response.status}`);
       error.status = response.status;
-      error.code = data.error;
+      error.code = data.code || data.error;
       error.details = data;
       throw error;
     }
@@ -108,12 +108,18 @@ export const authApi = {
 // BILL API
 // ============================================================================
 export const billApi = {
-  saveBill: async (userId, parsedData, ocrText, imageUri) => {
+  // Rejections: error.code INVALID_BILL_DETAILS (400, details.errors per field) or
+  // CONFIRM_OLD_INVOICE_DATE (422: ask, resend with confirmOldDate). Success may carry
+  // onAccountPrompt — ASK the user, never adjust silently.
+  saveBill: async (userId, parsedData, ocrText, imageUri, { confirmOldDate = false } = {}) => {
     return apiFetch(`/bills/${userId}/save`, {
       method: 'POST',
-      body: JSON.stringify({ parsedData, ocrText, imageUri }),
+      body: JSON.stringify({ parsedData, ocrText, imageUri, confirmOldDate }),
     });
   },
+
+  /** Bills missing invoice number/date ("Needs details") */
+  getBillsNeedingDetails: async (userId) => apiFetch(`/bills/user/${userId}/needs-details`),
 
   /**
    * Bills for a user, newest-first by the date printed ON the bill (not upload time).
@@ -673,6 +679,22 @@ export const ledgerApi = {
   getAllocationTargets: async (distributorId) => {
     return apiFetch(`/ledger/distributor/${distributorId}/allocation-targets`);
   },
+
+  /** Server FIFO preview — the same rule the save runs. paymentId when editing. */
+  previewAllocation: async (distributorId, { amount, paymentDate, paymentId } = {}) => {
+    const params = new URLSearchParams();
+    if (amount !== undefined) params.set('amount', String(amount));
+    if (paymentDate) params.set('paymentDate', paymentDate);
+    if (paymentId) params.set('paymentId', paymentId);
+    return apiFetch(`/ledger/distributor/${distributorId}/allocation-preview?${params.toString()}`);
+  },
+
+  /** Is there advance (on-account) money for this bill? -> { prompt } */
+  getOnAccountPrompt: async (billId) => apiFetch(`/ledger/bills/${billId}/on-account-prompt`),
+
+  /** User said "Haan": move advance money onto this bill */
+  applyOnAccount: async (billId) =>
+    apiFetch(`/ledger/bills/${billId}/apply-on-account`, { method: 'POST', body: JSON.stringify({}) }),
 
   /**
    * Upload a payment attachment (UPI screenshot or photographed receipt/cheque/credit note).

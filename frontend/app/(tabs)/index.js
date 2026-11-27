@@ -131,6 +131,15 @@ export default function BillsHomeScreen() {
   // spinner on every focus while it refetched data it already had; now cached bills
   // render instantly and the refetch happens behind them.
   const queryClient = useQueryClient();
+  // "X bills me details baaki" — bills missing invoice number/date
+  const needsDetailsQuery = useQuery({
+    queryKey: queryKeys.needsDetails(userId),
+    // Same key + shape as the needs-details screen (the list), so the cache is shared
+    queryFn: async () => (await billApi.getBillsNeedingDetails(userId)).bills || [],
+    enabled: !!userId,
+  });
+  const needsDetailsCount = Array.isArray(needsDetailsQuery.data) ? needsDetailsQuery.data.length : 0;
+
   const billsQuery = useQuery({
     queryKey: queryKeys.bills(userId),
     queryFn: async () => (await billApi.getUserBills(userId)).bills || [],
@@ -195,6 +204,7 @@ export default function BillsHomeScreen() {
       if (userId) {
         // Marks the cache stale and refetches in the background; what is on screen stays.
         queryClient.invalidateQueries({ queryKey: queryKeys.bills(userId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.needsDetails(userId) });
         ledgerApi.getOverdueAlert(userId)
           .then(setOverdueAlert)
           .catch((err) => console.log('Could not fetch overdue alert:', err.message));
@@ -228,12 +238,12 @@ export default function BillsHomeScreen() {
     setViewingBill(bill);
   }, []);
 
-  const handleSaveBill = useCallback(async (formData) => {
+  const handleSaveBill = useCallback(async (formData, { confirmOldDate = false } = {}) => {
     try {
       console.log('Saving edited bill:', formData);
       
       // Update bill via API
-      await billApi.updateBill(editingBill.id, formData);
+      await billApi.updateBill(editingBill.id, { ...formData, confirmOldDate });
       
       // Update the local state
       setBills(prevBills =>
@@ -250,7 +260,7 @@ export default function BillsHomeScreen() {
       showToast('Expiry items have been updated successfully.', 'success', 'Items Updated');
     } catch (err) {
       console.error('Error saving bill:', err);
-      showToast('Failed to save bill. Please try again.', 'error', 'Error');
+      showToast(err.message || 'Failed to save bill. Please try again.', 'error', 'Error');
     }
   }, [editingBill, setBills, userId]);
 
@@ -402,6 +412,24 @@ export default function BillsHomeScreen() {
               </Pressable>
             </View>
           </View>
+
+          {/* Bills missing invoice number/date — tap to fill them all in one place */}
+          {needsDetailsCount > 0 && (
+            <Pressable
+              style={({ pressed }) => [styles.needsDetailsCard, pressed && styles.overdueAlertCardPressed]}
+              onPress={() => router.push('/needs-details')}
+            >
+              <View style={styles.overdueAlertIcon}>
+                <MaterialIcons name="edit-note" size={22} color="#B45309" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={styles.needsDetailsText}>
+                  {needsDetailsCount} bill{needsDetailsCount !== 1 ? 's' : ''} me details baaki
+                </ThemedText>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#B45309" />
+            </Pressable>
+          )}
 
           {/* Overdue distributor dues alert */}
           {overdueAlert.totalOverdue > 0 && (
@@ -897,6 +925,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA',
     gap: 12,
+  },
+  needsDetailsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    gap: 12,
+  },
+  needsDetailsText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
   },
   overdueAlertCardPressed: {
     opacity: 0.8,

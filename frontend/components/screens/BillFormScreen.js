@@ -8,6 +8,8 @@ import {
   Platform,
   TextInput,
   KeyboardAvoidingView,
+  Image,
+  Modal,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -22,6 +24,7 @@ import GSTLookup from '@/components/ui/GSTLookup';
 import UnitPickerField from '@/components/ui/UnitPickerField';
 import { PACK_LABELS, BASE_UNITS, capitalize } from '@/constants/units';
 import { useAuth } from '@/contexts/AuthContext';
+import { checkBillHeader, isExpiryBeforeInvoice, DATE_MESSAGES } from '@/utils/dateRules';
 
 const REVIEW_COLUMNS = [
   { key: 'name', label: 'ITEM NAME', width: 230 },
@@ -46,7 +49,7 @@ const REVIEW_TABLE_WIDTH = REVIEW_COLUMNS.reduce((sum, column) => sum + column.w
 /**
  * Item Row Component for column-based human review
  */
-const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
+const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove, invoiceDate }) => {
   const isVerified = item.humanVerified === true;
   const needsReview = item.needsReview || !isVerified;
   const [unitsExpanded, setUnitsExpanded] = useState(false);
@@ -197,6 +200,14 @@ const ItemReviewRow = ({ item, index, onUpdateCell, onVerify, onRemove }) => {
       })}
     </View>
 
+    {/* Warning only, never a block: a short-dated or wrongly-read expiry */}
+    {isExpiryBeforeInvoice(item.expiryDate, invoiceDate) && (
+      <View style={styles.expiryWarning}>
+        <Ionicons name="warning-outline" size={13} color="#B45309" />
+        <ThemedText style={styles.expiryWarningText}>{DATE_MESSAGES.expiryBeforeInvoice}</ThemedText>
+      </View>
+    )}
+
     {unitsExpanded && (
       <View style={styles.unitsPanel}>
         <ThemedText style={styles.unitsPanelHint}>
@@ -265,16 +276,32 @@ export default function BillFormScreen({
   onGstLookupError,
   distributorMode = 'search', // 'search' | 'gst'
   onDistributorModeChange,
+  // The bill photo stays on screen while the user fills the mandatory fields
+  billImageUri = null,
+  // Field errors from the server (e.g. INVALID_BILL_DETAILS), keyed by field
+  serverFieldErrors = {},
 }) {
   // Get user ID for product suggestions
   const { user } = useAuth();
   const userId = user?.id;
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   const itemCount = formData.items?.length || 0;
   const pendingReviewCount = (formData.items || []).filter(
     (item) => item.needsReview || item.humanVerified !== true
   ).length;
-  const canSubmit = itemCount === 0 || pendingReviewCount === 0;
+
+  // Invoice number + date are mandatory; a future invoice date or a due date before
+  // the invoice date is impossible. Confirm stays disabled until they are fixed.
+  const headerCheck = checkBillHeader(formData);
+  const headerErrors = { ...serverFieldErrors, ...headerCheck.errors };
+  const headerOk = Object.keys(headerCheck.errors).length === 0;
+  const canSubmit = headerOk && (itemCount === 0 || pendingReviewCount === 0);
+  const submitTitle = !headerOk
+    ? 'Invoice number aur date sahi bharein'
+    : canSubmit
+      ? 'Save Expiry Items'
+      : `Verify ${pendingReviewCount} Row${pendingReviewCount === 1 ? '' : 's'} First`;
 
   return (
     <ThemedView style={styles.container}>
@@ -478,6 +505,15 @@ export default function BillFormScreen({
             icon="receipt-outline"
             defaultExpanded={true}
           >
+            {billImageUri ? (
+              <Pressable onPress={() => setPhotoOpen(true)} style={styles.billPhotoWrap}>
+                <Image source={{ uri: billImageUri }} style={styles.billPhoto} resizeMode="contain" />
+                <View style={styles.billPhotoHint}>
+                  <Ionicons name="expand-outline" size={12} color="#FFFFFF" />
+                  <ThemedText style={styles.billPhotoHintText}>Bill photo — tap to zoom</ThemedText>
+                </View>
+              </Pressable>
+            ) : null}
             <View style={styles.row}>
               <View style={styles.halfWidth}>
                 <FormInput
@@ -488,6 +524,8 @@ export default function BillFormScreen({
                   }
                   placeholder="INV-001"
                   uncertain={headerUncertainFields.includes('invoiceNumber')}
+                  required
+                  error={headerErrors.invoiceNumber}
                 />
               </View>
               <View style={styles.halfWidth}>
@@ -499,6 +537,8 @@ export default function BillFormScreen({
                   }
                   placeholder="DD-MM-YYYY"
                   uncertain={headerUncertainFields.includes('invoiceDate')}
+                  required
+                  error={headerErrors.invoiceDate}
                 />
               </View>
             </View>
@@ -511,6 +551,7 @@ export default function BillFormScreen({
                     onUpdateInvoiceMetadata({ dueDate: text })
                   }
                   placeholder="DD-MM-YYYY"
+                  error={headerErrors.dueDate}
                 />
               </View>
               <View style={styles.halfWidth}>
@@ -594,6 +635,7 @@ export default function BillFormScreen({
                         onUpdateCell={onUpdateItemCell}
                         onVerify={onVerifyItem}
                         onRemove={onRemoveItem}
+                        invoiceDate={formData.invoiceDate}
                       />
                     ))}
                   </View>
@@ -621,7 +663,7 @@ export default function BillFormScreen({
         {/* Sticky Bottom Actions */}
         <View style={styles.stickyActions}>
           <PrimaryButton
-            title={canSubmit ? 'Save Expiry Items' : `Verify ${pendingReviewCount} Row${pendingReviewCount === 1 ? '' : 's'} First`}
+            title={submitTitle}
             icon={canSubmit ? 'checkmark-circle-outline' : 'alert-circle-outline'}
             onPress={onSubmit}
             disabled={!canSubmit}
@@ -646,12 +688,40 @@ export default function BillFormScreen({
           )}
         </View>
         </KeyboardAvoidingView>
+
+        <Modal visible={photoOpen} transparent animationType="fade" onRequestClose={() => setPhotoOpen(false)}>
+          <Pressable style={styles.photoModal} onPress={() => setPhotoOpen(false)}>
+            {billImageUri ? (
+              <Image source={{ uri: billImageUri }} style={styles.photoModalImage} resizeMode="contain" />
+            ) : null}
+          </Pressable>
+        </Modal>
       </SafeAreaView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
+  billPhotoWrap: {
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#0F172A',
+    marginBottom: 14,
+  },
+  billPhoto: { width: '100%', height: '100%' },
+  billPhotoHint: {
+    position: 'absolute', right: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(15,23,42,0.7)', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  billPhotoHintText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  photoModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center' },
+  photoModalImage: { width: '100%', height: '90%' },
+  expiryWarning: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#FFFBEB', paddingHorizontal: 10, paddingVertical: 5,
+  },
+  expiryWarningText: { fontSize: 11, color: '#92400E', fontWeight: '600' },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',

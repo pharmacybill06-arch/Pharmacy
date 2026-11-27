@@ -1,8 +1,16 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
+const { PrismaClient } = require('@prisma/client');
+
+// Tests (and any local Postgres) talk to the database directly. Production on Neon
+// goes through the serverless websocket adapter below.
+if (process.env.PRISMA_DRIVER === 'native') {
+  module.exports = new PrismaClient();
+  return;
+}
+
 const { Pool, neonConfig } = require('@neondatabase/serverless');
 const { PrismaNeon } = require('@prisma/adapter-neon');
-const { PrismaClient } = require('@prisma/client');
 const ws = require('ws');
 
 // Configure Neon to use the standard ws library for WebSockets

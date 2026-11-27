@@ -15,6 +15,9 @@ router.get('/user/:userId/drafts', billController.getUserDrafts);
 // Convert draft to completed bill (triggers product sync)
 router.post('/:billId/convert', billController.convertDraft);
 
+// Bills missing invoice number/date ("Needs details") — home badge + fill-in list
+router.get('/user/:userId/needs-details', billController.getBillsNeedingDetails);
+
 // Get all bills for a user
 router.get('/user/:userId', billController.getUserBills);
 

@@ -46,7 +46,7 @@ async function apiFetch(endpoint, options = {}) {
       // specific case instead of only having a string to match on.
       const error = new Error(data.message || data.error || `API Error: ${response.status}`);
       error.status = response.status;
-      error.code = data.error;
+      error.code = data.code || data.error;
       error.details = data;
       throw error;
     }
@@ -238,7 +238,10 @@ export const billApi = {
    * @param {string} imageUri - Image URI
    * @returns {Promise} Response with saved bill info
    */
-  saveBill: async (userId, parsedData, ocrText, imageUri, ocrEngine = 'vision-ai') => {
+  saveBill: async (userId, parsedData, ocrText, imageUri, ocrEngine = 'vision-ai', { confirmOldDate = false } = {}) => {
+    // Rejections carry error.code: INVALID_BILL_DETAILS (400, error.details.errors per
+    // field) or CONFIRM_OLD_INVOICE_DATE (422: ask, then resend with confirmOldDate).
+    // Success may carry onAccountPrompt — ASK the user, never adjust silently.
     return apiFetch(`/bills/${userId}/save`, {
       method: 'POST',
       body: JSON.stringify({
@@ -246,8 +249,16 @@ export const billApi = {
         ocrText,
         imageUri,
         ocrEngine,
+        confirmOldDate,
       }),
     });
+  },
+
+  /**
+   * Bills missing invoice number/date ("Needs details") — Home badge + fill-in list
+   */
+  getBillsNeedingDetails: async (userId) => {
+    return apiFetch(`/bills/user/${userId}/needs-details`);
   },
 
   /**
@@ -1026,6 +1037,32 @@ export const ledgerApi = {
    */
   getAllocationTargets: async (distributorId) => {
     return apiFetch(`/ledger/distributor/${distributorId}/allocation-targets`);
+  },
+
+  /**
+   * FIFO preview from the server — the SAME rule the save runs, so the screen shows
+   * exactly what will be stored. Pass paymentId when editing: the response then has
+   * currentAllocations and targets with currentAllocated (this payment's own bills).
+   */
+  previewAllocation: async (distributorId, { amount, paymentDate, paymentId } = {}) => {
+    const params = new URLSearchParams();
+    if (amount !== undefined) params.set('amount', String(amount));
+    if (paymentDate) params.set('paymentDate', paymentDate);
+    if (paymentId) params.set('paymentId', paymentId);
+    return apiFetch(`/ledger/distributor/${distributorId}/allocation-preview?${params.toString()}`);
+  },
+
+  /** Is there advance (on-account) money that could go on this bill? Returns { prompt } */
+  getOnAccountPrompt: async (billId) => {
+    return apiFetch(`/ledger/bills/${billId}/on-account-prompt`);
+  },
+
+  /** The user said "Haan": move advance money onto this bill */
+  applyOnAccount: async (billId, amount) => {
+    return apiFetch(`/ledger/bills/${billId}/apply-on-account`, {
+      method: 'POST',
+      body: JSON.stringify(amount !== undefined ? { amount } : {}),
+    });
   },
 
   /**

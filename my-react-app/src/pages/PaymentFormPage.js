@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ledgerApi } from '../services/api';
@@ -6,13 +6,11 @@ import { ArrowLeft, Check, Archive, Paperclip, X, ScanLine } from 'lucide-react'
 import toast from 'react-hot-toast';
 import { ddmmyyyyToIso, isoToDdmmyyyy, formatDDMMYYYYOr } from '../utils/dateFormat';
 import {
-  formatINR, round2, PAYMENT_MODES, REFERENCE_LABEL, autoAllocateFifo, allocationKey,
+  formatINR, round2, PAYMENT_MODES, REFERENCE_LABEL, allocationKey,
 } from '../utils/money';
+import { checkPaymentDate, todayIstDDMMYYYY, DATE_MESSAGES } from '../utils/dateRules';
 
-function todayDDMMYYYY() {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
-}
+const todayDDMMYYYY = todayIstDDMMYYYY;
 
 /**
  * Record a payment to a distributor, or edit one already recorded.
@@ -32,7 +30,6 @@ export default function PaymentFormPage() {
   const prefill = !isEditing ? location.state?.prefill || null : null;
 
   const [distributor, setDistributor] = useState(null);
-  const [targets, setTargets] = useState([]);
   const [existing, setExisting] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,8 +41,9 @@ export default function PaymentFormPage() {
   const [notes, setNotes] = useState(prefill?.notes || '');
   const [file, setFile] = useState(null);
 
-  // 'auto' = FIFO (backend allocates), 'manual' = user splits it, 'later' = on account
-  const [allocationMode, setAllocationMode] = useState('auto');
+  // 'current' = Edit default: the allocation the payment has now (save keeps it)
+  // 'auto'    = FIFO from the server preview, 'manual' = user splits it, 'later' = on account
+  const [allocationMode, setAllocationMode] = useState(isEditing ? 'current' : 'auto');
   const [manual, setManual] = useState({});
 
   const [fieldErrors, setFieldErrors] = useState({});
@@ -54,13 +52,8 @@ export default function PaymentFormPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [led, tgt] = await Promise.all([
-          ledgerApi.getDistributorLedger(distributorId),
-          ledgerApi.getAllocationTargets(distributorId),
-        ]);
+        const led = await ledgerApi.getDistributorLedger(distributorId);
         setDistributor(led.distributor);
-        let t = tgt.targets || [];
-
         if (isEditing) {
           const p = (led.payments || []).find((x) => x.id === paymentId);
           if (!p) throw new Error('Payment not found');
@@ -70,28 +63,7 @@ export default function PaymentFormPage() {
           setMode(p.paymentMethod || 'cash');
           setReference(p.referenceNumber || '');
           setNotes(p.notes || '');
-          // When editing, this payment's own allocations count as room on those bills,
-          // the same adjustment the backend makes before validating a new plan.
-          const own = new Map((p.allocations || []).map((a) => [
-            a.allocationType === 'opening_balance' ? 'opening_balance' : a.billId, a.allocatedAmount,
-          ]));
-          t = t.map((x) => (own.has(allocationKey(x)) ? { ...x, remaining: round2(x.remaining + own.get(allocationKey(x))) } : x));
-          for (const [key, amt] of own) {
-            if (!t.some((x) => allocationKey(x) === key)) {
-              const a = p.allocations.find((y) => (y.allocationType === 'opening_balance' ? 'opening_balance' : y.billId) === key);
-              t.push({
-                allocationType: a.allocationType, billId: a.billId, remaining: amt,
-                label: a.allocationType === 'opening_balance' ? 'Opening balance' : a.bill?.invoiceNumber || 'Bill',
-                invoiceDate: a.bill?.invoiceDate, dueDate: a.bill?.dueDate,
-              });
-            }
-          }
-          if ((p.allocations || []).length) {
-            setAllocationMode('manual');
-            setManual(Object.fromEntries([...own].map(([k, v]) => [k, String(v)])));
-          }
         }
-        setTargets(t);
       } catch (err) {
         toast.error(err.message || 'Failed to load');
         navigate(`/ledger/${distributorId}`);
@@ -102,21 +74,61 @@ export default function PaymentFormPage() {
   }, [distributorId, paymentId, isEditing, navigate]);
 
   const amountNum = parseFloat(amount) || 0;
-  const autoPlan = useMemo(() => autoAllocateFifo(amountNum, targets), [amountNum, targets]);
+  const isoDate = ddmmyyyyToIso(dateStr);
+  const dateCheck = checkPaymentDate(mode, isoDate);
+
+  // Server preview: the SAME FIFO the save runs (no local copy of the rule)
+  const [preview, setPreview] = useState(null);
+  const [previewKey, setPreviewKey] = useState(null);
+  const wantedKey = `${amountNum}|${isoDate || ''}|${paymentId || ''}`;
+  const seq = useRef(0);
+  useEffect(() => {
+    if (loading || !isoDate) return undefined;
+    const my = ++seq.current;
+    const t = setTimeout(async () => {
+      try {
+        const res = await ledgerApi.previewAllocation(distributorId, { amount: amountNum, paymentDate: isoDate, paymentId });
+        if (my !== seq.current) return;
+        setPreview(res);
+        setPreviewKey(wantedKey);
+      } catch (err) {
+        if (my === seq.current) setFormError(err.message || 'Allocation preview load nahi hua');
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [loading, distributorId, amountNum, isoDate, paymentId, wantedKey]);
+
+  const previewFresh = !!preview && previewKey === wantedKey;
+  const targets = useMemo(() => preview?.targets || [], [preview]);
+  const autoPlan = useMemo(() => ({ plan: preview?.plan || [], onAccount: preview?.onAccount || 0 }), [preview]);
+  const currentAllocations = useMemo(() => preview?.currentAllocations || [], [preview]);
+  const currentBillTotal = round2(currentAllocations.filter((a) => a.allocationType !== 'on_account').reduce((s2, a) => s2 + a.allocatedAmount, 0));
   const manualTotal = useMemo(
-    () => round2(Object.values(manual).reduce((s, v) => s + (parseFloat(v) || 0), 0)),
+    () => round2(Object.values(manual).reduce((s2, v) => s2 + (parseFloat(v) || 0), 0)),
     [manual]
   );
 
   const enterManual = useCallback(() => {
-    // Seed manual mode with the FIFO plan so the user edits a sensible starting point.
-    setManual(Object.fromEntries(autoPlan.plan.map((p) => [allocationKey(p), String(p.amount)])));
+    // Edit: start from what the payment holds now (its own bills ticked, even fully paid
+    // ones). New: start from the FIFO preview.
+    if (allocationMode === 'current' || (isEditing && allocationMode !== 'auto')) {
+      setManual(Object.fromEntries(targets.filter((t) => t.currentAllocated > 0.005).map((t) => [allocationKey(t), String(t.currentAllocated)])));
+    } else {
+      setManual(Object.fromEntries(autoPlan.plan.map((p) => [allocationKey(p), String(p.allocatedAmount)])));
+    }
     setAllocationMode('manual');
-  }, [autoPlan]);
+  }, [allocationMode, isEditing, targets, autoPlan.plan]);
 
   const validate = () => {
     if (amountNum <= 0) { setFieldErrors({ amount: 'Enter an amount greater than zero.' }); setFormError(null); return false; }
     if (!ddmmyyyyToIso(dateStr)) { setFieldErrors({ date: 'Enter the date as DD-MM-YYYY.' }); setFormError(null); return false; }
+    if (dateCheck.error) { setFieldErrors({ date: dateCheck.error }); setFormError(null); return false; }
+    if (allocationMode === 'current' && currentBillTotal > amountNum + 0.01) {
+      setFieldErrors({}); setFormError('Naya amount lagi hui allocation se kam hai. Choose bills se theek karein.'); return false;
+    }
+    if (allocationMode === 'auto' && !previewFresh) {
+      setFieldErrors({}); setFormError('Allocation preview load ho raha hai, ek second ruk kar save karein.'); return false;
+    }
     if (allocationMode === 'manual') {
       if (manualTotal > amountNum + 0.01) {
         setFieldErrors({}); setFormError('The amounts you allocated add up to more than the payment amount.'); return false;
@@ -149,7 +161,8 @@ export default function PaymentFormPage() {
       }
 
       let allocations;
-      if (allocationMode === 'later') allocations = [];
+      if (allocationMode === 'auto' && isEditing) allocations = preview?.allocations || [];
+      else if (allocationMode === 'later') allocations = [];
       else if (allocationMode === 'manual') {
         allocations = Object.entries(manual)
           .map(([key, v]) => {
@@ -161,7 +174,8 @@ export default function PaymentFormPage() {
           })
           .filter(Boolean);
       }
-      // 'auto' leaves allocations undefined so the backend FIFO-allocates canonically.
+      // New + 'auto': undefined -> the server runs the same plan the preview showed.
+      // Edit + 'current': undefined -> the allocation stays exactly as it is.
 
       const data = {
         amount: amountNum,
@@ -183,6 +197,22 @@ export default function PaymentFormPage() {
       }
       navigate(`/ledger/${distributorId}`);
     } catch (err) {
+      // Same transaction is sitting in the archive: offer to restore it
+      if (err.code === 'ARCHIVED_DUPLICATE_TRANSACTION' && err.details?.existingPaymentId) {
+        if (window.confirm('Ye payment archive me hai, wapas laayein?')) {
+          try {
+            await ledgerApi.unarchivePayment(err.details.existingPaymentId);
+            toast.success('Payment wapas aa gayi');
+            navigate(`/ledger/${distributorId}`);
+            return;
+          } catch (restoreErr) {
+            setFormError(restoreErr.message || 'Restore nahi ho payi');
+            return;
+          }
+        }
+        setFormError(err.message);
+        return;
+      }
       setFormError(err.message || 'Failed to save payment');
     } finally {
       setSaving(false);
@@ -245,7 +275,12 @@ export default function PaymentFormPage() {
               <label className="form-label">Payment Date</label>
               <input className={`form-input ${fieldErrors.date ? 'form-input-error' : ''}`} value={dateStr}
                 onChange={(e) => setDateStr(e.target.value)} placeholder="DD-MM-YYYY" />
-              {fieldErrors.date && <div className="form-error">{fieldErrors.date}</div>}
+              {dateCheck.isPostDated && (
+                <div style={{ display: 'inline-block', marginTop: 6, fontSize: 12, fontWeight: 700, color: '#6d28d9', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 999, padding: '2px 10px' }}>
+                  {DATE_MESSAGES.postDatedCheque}
+                </div>
+              )}
+              {(fieldErrors.date || dateCheck.error) && <div className="form-error">{fieldErrors.date || dateCheck.error}</div>}
             </div>
           </div>
 
@@ -285,7 +320,10 @@ export default function PaymentFormPage() {
         <div className="card-header"><h3>Settle Against</h3></div>
         <div className="card-body">
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-            <button type="button" className={`btn btn-sm ${allocationMode === 'auto' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setAllocationMode('auto')}>Oldest bills first</button>
+            {isEditing && (
+              <button type="button" className={`btn btn-sm ${allocationMode === 'current' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setAllocationMode('current')}>Current allocation</button>
+            )}
+            <button type="button" className={`btn btn-sm ${allocationMode === 'auto' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setAllocationMode('auto')}>{isEditing ? 'FIFO se dobara' : 'Oldest bills first'}</button>
             <button type="button" className={`btn btn-sm ${allocationMode === 'manual' ? 'btn-primary' : 'btn-secondary'}`} onClick={enterManual}>Choose bills</button>
             <button type="button" className={`btn btn-sm ${allocationMode === 'later' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setAllocationMode('later')}>Adjust later</button>
           </div>
@@ -294,36 +332,82 @@ export default function PaymentFormPage() {
             <p style={{ fontSize: 14, color: '#6b7280' }}>Recorded on account — it reduces the outstanding total but isn't tied to specific bills yet.</p>
           )}
 
-          {allocationMode !== 'later' && targets.length === 0 && (
+          {allocationMode !== 'later' && !preview && (
+            <p style={{ fontSize: 14, color: '#6b7280' }}>Allocation load ho rahi hai…</p>
+          )}
+
+          {allocationMode === 'current' && preview && (
+            currentAllocations.length === 0 ? (
+              <p style={{ fontSize: 14, color: '#6b7280' }}>Ye payment abhi kisi bill pe nahi lagi.</p>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead><tr><th>Bill</th><th>Bill date</th><th style={{ textAlign: 'right' }}>This payment</th></tr></thead>
+                  <tbody>
+                    {currentAllocations.map((a, i) => (
+                      <tr key={`${a.allocationType}-${a.billId || i}`}>
+                        <td style={{ fontWeight: 500 }}>
+                          {a.label}
+                          {a.afterPaymentDate && <div style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Ye bill payment ke baad ka hai</div>}
+                        </td>
+                        <td>{formatDDMMYYYYOr(a.invoiceDate, '—')}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatINR(a.allocatedAmount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {allocationMode === 'auto' && preview && (
+            autoPlan.plan.length === 0 ? (
+              <p style={{ fontSize: 14, color: '#6b7280' }}>Payment date tak koi khula bill nahi — poora amount on account rahega.</p>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead><tr><th>Bill</th><th>Bill date</th><th style={{ textAlign: 'right' }}>This payment</th></tr></thead>
+                  <tbody>
+                    {autoPlan.plan.map((p) => (
+                      <tr key={allocationKey(p)}>
+                        <td style={{ fontWeight: 500 }}>{p.label}</td>
+                        <td>{formatDDMMYYYYOr(p.invoiceDate, '—')}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatINR(p.allocatedAmount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {allocationMode === 'manual' && preview && targets.length === 0 && (
             <p style={{ fontSize: 14, color: '#6b7280' }}>Nothing is due to this distributor right now, so this will be recorded on account.</p>
           )}
 
-          {allocationMode !== 'later' && targets.length > 0 && (
+          {allocationMode === 'manual' && targets.length > 0 && (
             <div className="table-container">
               <table>
                 <thead>
-                  <tr><th>Bill</th><th>Due</th><th style={{ textAlign: 'right' }}>Balance</th><th style={{ textAlign: 'right' }}>This payment</th></tr>
+                  <tr><th>Bill</th><th>Bill date</th><th>Due</th><th style={{ textAlign: 'right' }}>Balance</th><th style={{ textAlign: 'right' }}>This payment</th></tr>
                 </thead>
                 <tbody>
                   {targets.map((t) => {
                     const key = allocationKey(t);
-                    const autoAmt = autoPlan.plan.find((p) => allocationKey(p) === key)?.amount || 0;
                     return (
                       <tr key={key}>
                         <td style={{ fontWeight: 500 }}>
                           {t.label}
-                          {t.invoiceDate && <div style={{ fontSize: 12, color: '#6b7280' }}>{formatDDMMYYYYOr(t.invoiceDate, '')}</div>}
+                          {t.afterPaymentDate && <div style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Ye bill payment ke baad ka hai</div>}
+                          {t.needsDetails && <div style={{ fontSize: 12, color: '#b45309' }}>Is bill me details baaki hain</div>}
                         </td>
+                        <td>{formatDDMMYYYYOr(t.invoiceDate, '—')}</td>
                         <td>{formatDDMMYYYYOr(t.dueDate, '—')}</td>
                         <td style={{ textAlign: 'right' }}>{formatINR(t.remaining)}</td>
                         <td style={{ textAlign: 'right' }}>
-                          {allocationMode === 'auto' ? (
-                            <span style={{ fontWeight: autoAmt ? 600 : 400, color: autoAmt ? undefined : '#9ca3af' }}>{autoAmt ? formatINR(autoAmt) : '—'}</span>
-                          ) : (
-                            <input className="form-input" type="number" min="0" step="0.01" style={{ width: 120, textAlign: 'right', marginLeft: 'auto' }}
-                              value={manual[key] ?? ''} placeholder="0"
-                              onChange={(e) => setManual((m) => ({ ...m, [key]: e.target.value }))} />
-                          )}
+                          <input className="form-input" type="number" min="0" step="0.01" style={{ width: 120, textAlign: 'right', marginLeft: 'auto' }}
+                            value={manual[key] ?? ''} placeholder="0"
+                            onChange={(e) => setManual((m) => ({ ...m, [key]: e.target.value }))} />
                         </td>
                       </tr>
                     );
@@ -334,7 +418,7 @@ export default function PaymentFormPage() {
           )}
 
           {allocationMode === 'auto' && autoPlan.onAccount > 0 && (
-            <p style={{ fontSize: 13, color: '#6b7280', marginTop: 12 }}>{formatINR(autoPlan.onAccount)} more than is due — kept on account.</p>
+            <p style={{ fontSize: 13, color: '#6b7280', marginTop: 12 }}>{formatINR(autoPlan.onAccount)} on account rahega — payment ke baad wale bills pe apne aap nahi lagega.</p>
           )}
           {allocationMode === 'manual' && (
             <p style={{ fontSize: 13, marginTop: 12, color: manualTotal > amountNum + 0.01 ? '#b91c1c' : '#6b7280' }}>

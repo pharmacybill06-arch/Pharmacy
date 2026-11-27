@@ -34,11 +34,13 @@ export default function DashboardPage() {
   const [recentBills, setRecentBills] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   const [overdue, setOverdue] = useState({ totalOverdue: 0, distributorsWithOverdue: 0 });
+  const [needsDetailsCount, setNeedsDetailsCount] = useState(0);
   const [expiry, setExpiry] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadDashboard = useCallback(async () => {
     try {
+      billApi.getBillsNeedingDetails(user.id).then((r) => setNeedsDetailsCount(r.count || 0)).catch(() => {});
       const [billsRes, productsRes, distributorsRes, invoiceStats, overdueRes, windowRes] = await Promise.all([
         billApi.getUserBills(user.id).catch(() => ({ bills: [] })),
         productApi.getAllProducts(user.id).catch(() => ({ products: [], total: 0 })),
@@ -91,6 +93,13 @@ export default function DashboardPage() {
         <Link to="/sales/new" className="btn btn-primary"><ShoppingCart size={16} /> Sell</Link>
         <Link to="/scan" className="btn btn-secondary"><ScanLine size={16} /> Scan For Expiry</Link>
       </div>
+
+      {needsDetailsCount > 0 && (
+        <Link to="/bills/needs-details" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 12, borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', textDecoration: 'none', fontWeight: 600 }}>
+          <span style={{ flex: 1 }}>{needsDetailsCount} bill{needsDetailsCount !== 1 ? 's' : ''} me details baaki</span>
+          <span>›</span>
+        </Link>
+      )}
 
       {overdue.totalOverdue > 0 && (
         <Link to="/ledger" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 12, borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', textDecoration: 'none', fontWeight: 600 }}>

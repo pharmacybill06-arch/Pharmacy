@@ -19,12 +19,15 @@ export default function FormInput({
   onFocus,
   onBlur,
   uncertain = false,
+  // Validation message: red border + text under the field (e.g. a mandatory bill field)
+  error = null,
+  required = false,
 }) {
   return (
     <View style={styles.container}>
       {label && (
         <View style={styles.labelRow}>
-          <ThemedText style={styles.label}>{label}</ThemedText>
+          <ThemedText style={[styles.label, error && styles.labelError]}>{label}{required ? ' *' : ''}</ThemedText>
           {uncertain && (
             <Ionicons name="alert-circle" size={12} color="#D97706" style={styles.uncertainIcon} />
           )}
@@ -36,6 +39,7 @@ export default function FormInput({
           multiline && styles.multilineInput,
           !editable && styles.disabledInput,
           uncertain && styles.inputUncertain,
+          error && styles.inputError,
         ]}
         value={value}
         onChangeText={onChangeText}
@@ -48,6 +52,7 @@ export default function FormInput({
         onFocus={onFocus}
         onBlur={onBlur}
       />
+      {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
     </View>
   );
 }
@@ -90,6 +95,20 @@ const styles = StyleSheet.create({
   disabledInput: {
     backgroundColor: '#F9FAFB',
     color: '#94A3B8',
+  },
+  labelError: {
+    color: '#B91C1C',
+  },
+  inputError: {
+    borderColor: '#DC2626',
+    borderWidth: 2,
+    backgroundColor: '#FEF2F2',
+  },
+  errorText: {
+    color: '#B91C1C',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
   },
   inputUncertain: {
     borderColor: '#D97706',

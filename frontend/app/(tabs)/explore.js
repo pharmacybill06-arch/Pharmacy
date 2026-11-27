@@ -2,6 +2,9 @@ import React, { useState, useRef } from 'react';
 import { Pressable, SafeAreaView } from 'react-native';
 import BillUploadScreen from '@/components/screens/BillUploadScreen';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
+import OnAccountPromptDialog from '@/components/ui/OnAccountPromptDialog';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { DATE_MESSAGES } from '@/utils/dateRules';
 import Toast from '@/components/ui/Toast';
 import LoadingOverlay from '@/components/ui/LoadingOverlay';
 import { ThemedText } from '@/components/themed-text';
@@ -43,6 +46,10 @@ export default function ExploreScreen() {
   const [parsedFileData, setParsedFileData] = useState(null); // For CSV/Excel pre-parsed data
   const [fileOcrText, setFileOcrText] = useState(''); // CSV text for the AI parser fallback
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
+  // Server-side field errors on save, the on-account question, and the old-date retry
+  const [billFieldErrors, setBillFieldErrors] = useState({});
+  const [onAccountPrompt, setOnAccountPrompt] = useState(null);
+  const [oldDateRetry, setOldDateRetry] = useState(null);
   const cameraRef = useRef(null);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
 
@@ -452,7 +459,18 @@ export default function ExploreScreen() {
 
 
 
-  const handleSubmitBill = async (formData) => {
+  const resetAfterSave = () => {
+    setCurrentScreen('upload');
+    setRawOcrText('');
+    setPhotoUri('');
+    setOcrEngine('vision-ai');
+    setParsedFileData(null);
+    setFileOcrText('');
+    setCapturedPhotos([]);
+    setBillFieldErrors({});
+  };
+
+  const handleSubmitBill = async (formData, { confirmOldDate = false } = {}) => {
     console.log('Bill Form Submitted:', formData);
     
     // Check if user is authenticated
@@ -463,6 +481,7 @@ export default function ExploreScreen() {
     
     try {
       setSaving(true);
+      setBillFieldErrors({});
       
       // Save to backend
       const response = await billApi.saveBill(
@@ -470,22 +489,22 @@ export default function ExploreScreen() {
         formData,
         rawOcrText,
         photoUri,
-        ocrEngine
+        ocrEngine,
+        { confirmOldDate }
       );
       
       console.log('Bill saved to backend:', response);
       showToast('Expiry items saved successfully!', 'success', 'Expiry Saved');
+
+      // Distributor has advance money: ASK before adjusting (never automatic).
+      // The screen resets once the user answers.
+      if (response.onAccountPrompt) {
+        setOnAccountPrompt(response.onAccountPrompt);
+        return;
+      }
       
       // Navigate back after a short delay to show the toast
-      setTimeout(() => {
-        setCurrentScreen('upload');
-        setRawOcrText('');
-        setPhotoUri('');
-        setOcrEngine('vision-ai');
-        setParsedFileData(null);
-        setFileOcrText('');
-        setCapturedPhotos([]);
-      }, 1500);
+      setTimeout(resetAfterSave, 1500);
     } catch (error) {
       console.error('Error saving bill:', error);
       // A duplicate isn't a failure to fix — the bill is already in the books, and
@@ -496,6 +515,14 @@ export default function ExploreScreen() {
           'warning',
           'Already Saved'
         );
+      } else if (error.code === 'CONFIRM_OLD_INVOICE_DATE') {
+        // Server saw a >12-month-old date the screen did not flag (clock skew): ask.
+        setOldDateRetry(formData);
+      } else if (error.code === 'INVALID_BILL_DETAILS') {
+        const fieldErrors = {};
+        for (const e of error.details?.errors || []) fieldErrors[e.field] = e.message;
+        setBillFieldErrors(fieldErrors);
+        showToast(error.message, 'error', 'Bill details');
       } else {
         showToast(error.message || 'Failed to save bill', 'error', 'Save Failed');
       }
@@ -696,6 +723,31 @@ export default function ExploreScreen() {
           onSaveDraft={handleSaveDraft}
           onCancel={handleCancel}
           initialData={parsedFileData}
+          billImageUri={photoUri && !/\.pdf($|\?)/i.test(photoUri) ? photoUri : null}
+          serverFieldErrors={billFieldErrors}
+        />
+        <OnAccountPromptDialog
+          prompt={onAccountPrompt}
+          onDone={({ applied, error }) => {
+            setOnAccountPrompt(null);
+            if (error) showToast(error.message || 'Advance adjust nahi ho paya', 'error', 'Advance');
+            else if (applied > 0) showToast(`₹${applied.toLocaleString('en-IN')} advance is bill me adjust ho gaya`, 'success', 'Advance adjusted');
+            setTimeout(resetAfterSave, 1200);
+          }}
+        />
+        <ConfirmDialog
+          visible={!!oldDateRetry}
+          title="Purani date"
+          message={DATE_MESSAGES.oldInvoice}
+          type="warning"
+          confirmText="Haan, save karein"
+          cancelText="Date badlein"
+          onConfirm={() => {
+            const data = oldDateRetry;
+            setOldDateRetry(null);
+            handleSubmitBill(data, { confirmOldDate: true });
+          }}
+          onCancel={() => setOldDateRetry(null)}
         />
         <LoadingOverlay
           visible={saving}

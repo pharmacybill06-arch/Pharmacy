@@ -8,6 +8,31 @@ const { PACK_LABELS, BASE_UNITS } = require('../utils/unitInference');
 const { parseInvoiceDate } = require('../utils/dateUtils');
 const { findDuplicateBill } = require('../services/billDuplicateService');
 const batchService = require('../services/batchService');
+const billDetailsService = require('../services/billDetailsService');
+const ledgerService = require('../services/ledgerService');
+
+// Errors thrown by the date/detail rules carry a status + code (+ field errors) for the app.
+function sendRuleError(res, error) {
+  if (!error || !error.status) return false;
+  res.status(error.status).json({
+    error: error.message,
+    message: error.message,
+    code: error.code,
+    errors: error.errors || [],
+    warnings: error.warnings || [],
+  });
+  return true;
+}
+
+// "₹X advance pada hai, is bill me adjust karein?" — only ever a question; never applied here.
+async function onAccountPromptFor(billId) {
+  try {
+    return await ledgerService.buildOnAccountPrompt(billId);
+  } catch (err) {
+    console.warn('[BILL] On-account check failed (non-fatal):', err.message);
+    return null;
+  }
+}
 
 // Invoice/due dates arrive as DD-MM-YYYY (what the AI prompt asks for and what Indian
 // invoices print). parseInvoiceDate reads them day-first and anchors to UTC midnight —
@@ -60,7 +85,26 @@ function normalizeExpiryItem(item = {}, index = 0) {
 exports.uploadBill = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { parsedData, ocrText, imageUri, ocrEngine } = req.body;
+    const { parsedData, ocrText, imageUri, ocrEngine, confirmOldDate } = req.body;
+
+    // The user is on the review screen: invoice number + date are mandatory and the
+    // date rules are enforced (future date blocked, due < invoice blocked, >12 months
+    // asks for confirmation). Expiry-before-invoice is only a line warning.
+    let dateWarnings = [];
+    try {
+      ({ warnings: dateWarnings } = billDetailsService.assertInteractiveBill(
+        {
+          invoiceNumber: parsedData?.invoiceNumber,
+          invoiceDate: parsedData?.invoiceDate,
+          dueDate: parsedData?.dueDate,
+          items: parsedData?.items,
+        },
+        { confirmOldDate: !!confirmOldDate }
+      ));
+    } catch (ruleError) {
+      if (sendRuleError(res, ruleError)) return;
+      throw ruleError;
+    }
 
     // Auto-create user if doesn't exist
     let user = await prisma.user.findUnique({
@@ -197,7 +241,9 @@ exports.uploadBill = async (req, res) => {
         fileName: bill.fileName,
         status: bill.status,
         createdAt: bill.createdAt
-      }
+      },
+      warnings: dateWarnings,
+      onAccountPrompt: await onAccountPromptFor(bill.id),
     });
 
   } catch (error) {
@@ -415,6 +461,26 @@ exports.updateBill = async (req, res) => {
       }
     }
 
+    // Date rules + "needs details" status on the header as it will be after this edit.
+    let wasCompleted = false;
+    if (data.invoiceNumber !== undefined || data.invoiceDate !== undefined || data.dueDate !== undefined) {
+      const merged = { ...bill, ...data };
+      if (data.invoiceDate !== undefined || data.dueDate !== undefined) {
+        try {
+          billDetailsService.assertInteractiveBill(
+            { invoiceNumber: merged.invoiceNumber, invoiceDate: merged.invoiceDate, dueDate: merged.dueDate, items: updateData.items },
+            { requireDetails: false, confirmOldDate: !!updateData.confirmOldDate || data.invoiceDate === undefined }
+          );
+        } catch (ruleError) {
+          if (sendRuleError(res, ruleError)) return;
+          throw ruleError;
+        }
+      }
+      const nextStatus = billDetailsService.statusAfterEdit(bill.status, merged);
+      if (nextStatus !== bill.status) data.status = nextStatus;
+      wasCompleted = bill.status === 'needs_details' && nextStatus === 'completed';
+    }
+
     // Ledger: grand total (Phase 1 — always manually confirmed by the user)
     if (updateData.grandTotal !== undefined) data.grandTotal = updateData.grandTotal === null ? null : parseFloat(updateData.grandTotal);
 
@@ -438,7 +504,8 @@ exports.updateBill = async (req, res) => {
 
     res.json({
       message: 'Bill updated successfully',
-      bill: updatedBill
+      bill: updatedBill,
+      onAccountPrompt: wasCompleted ? await onAccountPromptFor(billId) : null,
     });
   } catch (error) {
     console.error('Error updating bill:', error.message);
@@ -753,6 +820,23 @@ exports.convertDraft = async (req, res) => {
       return res.status(400).json({ error: 'Bill is not a draft' });
     }
 
+    // Converting a draft is an interactive "this is a real bill now" step — same rules
+    // as a direct save.
+    try {
+      billDetailsService.assertInteractiveBill(
+        {
+          invoiceNumber: parsedData?.invoiceNumber || bill.invoiceNumber,
+          invoiceDate: parsedData?.invoiceDate || bill.invoiceDate,
+          dueDate: parsedData?.dueDate || bill.dueDate,
+          items: parsedData?.items || bill.items,
+        },
+        { confirmOldDate: !!req.body.confirmOldDate }
+      );
+    } catch (ruleError) {
+      if (sendRuleError(res, ruleError)) return;
+      throw ruleError;
+    }
+
     // Find or create distributor
     let distributorId = null;
     const distName = parsedData?.pharmacyName || bill.pharmacyName;
@@ -838,7 +922,8 @@ exports.convertDraft = async (req, res) => {
 
     res.json({
       message: 'Draft converted to bill successfully',
-      bill: updatedBill
+      bill: updatedBill,
+      onAccountPrompt: await onAccountPromptFor(billId),
     });
   } catch (error) {
     console.error('Error converting draft:', error.message);
@@ -889,9 +974,13 @@ exports.updateBillHeaderFields = async (req, res) => {
       message: result.diffs.length > 0 ? 'Bill updated' : 'No changes',
       bill: result.bill,
       changes: result.diffs,
+      warnings: result.warnings,
+      // Filling in a "Needs details" bill makes it a real bill — ask about advance money.
+      onAccountPrompt: result.completedNow ? await onAccountPromptFor(billId) : null,
     });
   } catch (error) {
     console.error('[BILL EDIT] Header update error:', error.message);
+    if (sendRuleError(res, error)) return;
     if (error.message === 'Bill not found') return res.status(404).json({ error: error.message });
     res.status(500).json({ error: 'Failed to update bill' });
   }
@@ -928,5 +1017,17 @@ exports.getBillEditHistory = async (req, res) => {
     console.error('[BILL EDIT] History fetch error:', error.message);
     if (error.message === 'Bill not found') return res.status(404).json({ error: error.message });
     res.status(500).json({ error: 'Failed to fetch edit history' });
+  }
+};
+
+// "X bills me details baaki" — every purchase bill missing invoice number/date (new
+// needs_details imports and older bills), so they can all be filled in one place.
+exports.getBillsNeedingDetails = async (req, res) => {
+  try {
+    const bills = await billDetailsService.listBillsNeedingDetails(req.params.userId);
+    res.json({ count: bills.length, bills });
+  } catch (error) {
+    console.error('Error fetching bills needing details:', error.message);
+    res.status(500).json({ error: 'Failed to fetch bills needing details' });
   }
 };

@@ -29,6 +29,16 @@ router.get('/distributor/:distributorId', ledgerController.getDistributorLedger)
 // Flow C, step 5 — allocation targets
 router.get('/distributor/:distributorId/allocation-targets', ledgerController.getAllocationTargets);
 
+// FIFO preview (same rule the save uses)
+router.get('/distributor/:distributorId/allocation-preview', ledgerController.previewAllocation);
+
+// On-account (advance) money: ask, then adjust only on "Haan"
+router.get('/bills/:billId/on-account-prompt', ledgerController.getOnAccountPrompt);
+router.post('/bills/:billId/apply-on-account', ledgerController.applyOnAccount);
+
+// Read-only report: allocations where bill date > payment date
+router.get('/user/:userId/reports/bill-after-payment', ledgerController.getLateBillAllocations);
+
 // Distributor opening balance
 router.put('/distributor/:distributorId/opening-balance', ledgerController.updateOpeningBalance);
 

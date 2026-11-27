@@ -9,6 +9,7 @@ import BillsListScreen from '@/components/screens/BillsListScreen';
 import BillDetailsScreen from '@/components/screens/BillDetailsScreen';
 import BillFormRedesigned from '@/components/bill-form/BillFormRedesigned';
 import Toast from '@/components/ui/Toast';
+import OnAccountPromptDialog from '@/components/ui/OnAccountPromptDialog';
 import ScreenTransition, { useTransitionDirection } from '@/components/ui/ScreenTransition';
 
 /**
@@ -74,14 +75,25 @@ export default function BillsRoute() {
     [setBills, userId]
   );
 
+  const [editFieldErrors, setEditFieldErrors] = useState({});
+  const [onAccountPrompt, setOnAccountPrompt] = useState(null);
+
   const handleSaveBillEdit = useCallback(
-    async (formData) => {
+    async (formData, { confirmOldDate = false } = {}) => {
       try {
-        await billApi.updateBill(editingBill.id, formData);
+        setEditFieldErrors({});
+        const res = await billApi.updateBill(editingBill.id, { ...formData, confirmOldDate });
         setEditingBill(null);
         showToast('Bill updated successfully', 'success', 'Updated');
         await invalidateBillData(userId);
+        // Completing a "Needs details" bill: ask about advance money, never auto-adjust
+        if (res?.onAccountPrompt) setOnAccountPrompt(res.onAccountPrompt);
       } catch (err) {
+        if (err.code === 'INVALID_BILL_DETAILS') {
+          const fe = {};
+          for (const e of err.details?.errors || []) fe[e.field] = e.message;
+          setEditFieldErrors(fe);
+        }
         showToast(err.message || 'Failed to save bill', 'error', 'Error');
       }
     },
@@ -98,6 +110,7 @@ export default function BillsRoute() {
           initialData={editingBill}
           onSubmit={handleSaveBillEdit}
           onCancel={() => setEditingBill(null)}
+          serverFieldErrors={editFieldErrors}
         />
         <Toast {...toast} onHide={hideToast} />
       </ScreenTransition>
@@ -131,6 +144,17 @@ export default function BillsRoute() {
         onRefresh={fetchBills}
         onBillPress={setViewingBill}
         onBack={() => router.back()}
+      />
+      <OnAccountPromptDialog
+        prompt={onAccountPrompt}
+        onDone={async ({ applied, error }) => {
+          setOnAccountPrompt(null);
+          if (error) showToast(error.message, 'error', 'Advance');
+          else if (applied > 0) {
+            showToast(`₹${applied.toLocaleString('en-IN')} advance adjust ho gaya`, 'success', 'Advance');
+            await invalidateBillData(userId);
+          }
+        }}
       />
       <Toast {...toast} onHide={hideToast} />
     </ScreenTransition>

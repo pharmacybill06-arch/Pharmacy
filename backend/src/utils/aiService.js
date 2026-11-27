@@ -9,6 +9,8 @@
  */
 
 const { inferPackUnits } = require('./unitInference');
+const { parseInvoiceDate } = require('./dateUtils');
+const { isFutureIst } = require('./istDate');
 
 const MAX_AI_LOG_CHARS = Number(process.env.AI_LOG_MAX_CHARS || 20000);
 
@@ -419,14 +421,11 @@ function normalizeBillData(parsed, sourceText = '') {
   // Date sanity: reject future dates and nonsense dates
   function isValidBillDate(dateStr) {
     if (!dateStr) return true; // missing is handled elsewhere
-    const parts = String(dateStr).split(/[-/]/);
-    if (parts.length !== 3) return false;
-    const [d, m, y] = parts.map(Number);
-    if (!d || !m || !y) return false;
-    const date = new Date(y < 100 ? 2000 + y : y, m - 1, d);
-    if (isNaN(date.getTime())) return false;
-    const now = new Date();
-    if (date > now) return false; // invoice date in the future
+    const date = parseInvoiceDate(dateStr);
+    if (!date) return false;
+    // IST calendar days — the server is on UTC, so a raw `date > now` flagged today's
+    // bill as "future" between 00:00 and 05:30 IST.
+    if (isFutureIst(date)) return false;
     return true;
   }
   const invoiceDateValid = isValidBillDate(parsed.invoiceDate);

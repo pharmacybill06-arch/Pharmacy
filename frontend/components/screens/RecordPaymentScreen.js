@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -19,7 +19,9 @@ import AppBar from '@/components/ui/AppBar';
 import Card from '@/components/ui/Card';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import DateField from '@/components/ui/DateField';
-import { ddmmyyyyToIso, isoToDdmmyyyy } from '@/utils/dateFormat';
+import { ddmmyyyyToIso, isoToDdmmyyyy, formatDDMMYYYY } from '@/utils/dateFormat';
+import { checkPaymentDate, todayIstDDMMYYYY, DATE_MESSAGES } from '@/utils/dateRules';
+import { ledgerApi } from '@/services/api';
 
 const MODES = [
   { key: 'upi', label: 'UPI', icon: 'phone-portrait-outline' },
@@ -42,31 +44,13 @@ function formatAmount(amount) {
   return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
-function todayDDMMYYYY() {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}-${mm}-${d.getFullYear()}`;
-}
-
-
 function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-/** Mirrors backend FIFO allocation for the on-screen preview */
-function autoAllocateFifo(amount, targets) {
-  let remaining = round2(amount);
-  const plan = [];
-  for (const target of targets) {
-    if (remaining <= 0.005) break;
-    const take = round2(Math.min(remaining, target.remaining));
-    if (take <= 0.005) continue;
-    plan.push({ ...target, amount: take });
-    remaining = round2(remaining - take);
-  }
-  return { plan, onAccount: remaining > 0.005 ? remaining : 0 };
-}
+// FIFO is NOT computed here any more. The server's allocation-preview runs the exact
+// rule the save runs (bills dated on/before the payment, oldest first, rest on account),
+// so the preview and the saved allocation cannot drift apart.
 
 function targetKey(target) {
   return target.allocationType === 'opening_balance' ? 'opening_balance' : target.billId;
@@ -78,7 +62,7 @@ function targetKey(target) {
 export default function RecordPaymentScreen({
   distributor,
   userId,
-  allocationTargets = [],
+  allocationTargets = [], // deprecated: the screen loads the server preview itself
   onBack,
   onSave,
   onUploadAttachment, // (userId, uri, mimeType) => Promise<attachmentPath>
@@ -101,7 +85,7 @@ export default function RecordPaymentScreen({
   );
   const [dateStr, setDateStr] = useState(
     existingPayment?.paymentDate ? isoToDdmmyyyy(existingPayment.paymentDate)
-      : seed?.paymentDate ? isoToDdmmyyyy(seed.paymentDate) : todayDDMMYYYY()
+      : seed?.paymentDate ? isoToDdmmyyyy(seed.paymentDate) : todayIstDDMMYYYY()
   );
   const [mode, setMode] = useState(existingPayment?.paymentMethod || (seed ? 'upi' : 'cash'));
   const [referenceNumber, setReferenceNumber] = useState(existingPayment?.referenceNumber || seed?.referenceNumber || '');
@@ -119,26 +103,70 @@ export default function RecordPaymentScreen({
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState(null);
 
-  // allocationMode: 'auto' (FIFO, default) | 'manual' (user-edited) | 'later' (skip entirely)
-  const [allocationMode, setAllocationMode] = useState('auto');
+  // allocationMode:
+  //   'current' — Edit only, the default: the allocation this payment has right now.
+  //               Saving without touching it changes nothing.
+  //   'auto'    — FIFO from the server preview (default for a new payment)
+  //   'manual'  — Customize: tick bills, including ones dated after the payment
+  //   'later'   — skip allocation entirely
+  const [allocationMode, setAllocationMode] = useState(isEditing ? 'current' : 'auto');
   const [manualSelections, setManualSelections] = useState({}); // key -> amount string
 
   const amountNum = parseFloat(amount) || 0;
+  const isoDate = ddmmyyyyToIso(dateStr);
+  const dateCheck = checkPaymentDate(mode, isoDate);
 
-  const autoPlan = useMemo(
-    () => autoAllocateFifo(amountNum, allocationTargets),
-    [amountNum, allocationTargets]
+  // ---- Server preview (single source of the FIFO rule) ----
+  const [preview, setPreview] = useState(null);
+  const [previewKey, setPreviewKey] = useState(null);
+  const [previewError, setPreviewError] = useState(null);
+  const wantedKey = `${amountNum}|${isoDate || ''}|${existingPayment?.id || ''}`;
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    if (!distributor?.id || !isoDate) return undefined;
+    const seq = ++requestSeq.current;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await ledgerApi.previewAllocation(distributor.id, {
+          amount: amountNum,
+          paymentDate: isoDate,
+          paymentId: existingPayment?.id,
+        });
+        if (seq !== requestSeq.current) return;
+        setPreview(res);
+        setPreviewKey(wantedKey);
+        setPreviewError(null);
+      } catch (err) {
+        if (seq !== requestSeq.current) return;
+        setPreviewError(err.message || 'Allocation preview load nahi hua');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [distributor?.id, amountNum, isoDate, existingPayment?.id, wantedKey]);
+
+  const previewFresh = !!preview && previewKey === wantedKey;
+  const targets = useMemo(() => preview?.targets || [], [preview]);
+  const autoPlan = useMemo(() => ({ plan: preview?.plan || [], onAccount: preview?.onAccount || 0 }), [preview]);
+  const currentAllocations = useMemo(() => preview?.currentAllocations || [], [preview]);
+  const currentBillTotal = round2(
+    currentAllocations.filter((a) => a.allocationType !== 'on_account').reduce((s, a) => s + a.allocatedAmount, 0)
   );
 
-  // Reset manual selections to the current FIFO plan whenever the user switches into manual mode
+  // Customize: new payment seeds from the FIFO preview; Edit seeds from what the
+  // payment holds now, so its own bills (even fully paid ones) start ticked.
   const enterManualMode = useCallback(() => {
-    const seed = {};
-    for (const item of autoPlan.plan) {
-      seed[targetKey(item)] = String(item.amount);
+    const next = {};
+    if (allocationMode === 'current') {
+      for (const t of targets) {
+        if (t.currentAllocated > 0.005) next[targetKey(t)] = String(t.currentAllocated);
+      }
+    } else {
+      for (const item of autoPlan.plan) next[targetKey(item)] = String(item.allocatedAmount);
     }
-    setManualSelections(seed);
+    setManualSelections(next);
     setAllocationMode('manual');
-  }, [autoPlan]);
+  }, [allocationMode, targets, autoPlan.plan]);
 
   const manualTotal = useMemo(() => {
     return Object.values(manualSelections).reduce((s, v) => s + (parseFloat(v) || 0), 0);
@@ -211,15 +239,30 @@ export default function RecordPaymentScreen({
       setFormError(null);
       return false;
     }
+    if (dateCheck.error) {
+      setFieldErrors({ dateStr: dateCheck.error });
+      setFormError(null);
+      return false;
+    }
     if (allocationMode === 'manual' && manualTotal > amountNum + 0.01) {
       setFieldErrors({});
       setFormError('The amounts you allocated add up to more than the payment amount.');
       return false;
     }
+    if (allocationMode === 'current' && currentBillTotal > amountNum + 0.01) {
+      setFieldErrors({});
+      setFormError('Naya amount lagi hui allocation se kam hai. Customize karke bills theek karein.');
+      return false;
+    }
+    if ((allocationMode === 'auto') && !previewFresh) {
+      setFieldErrors({});
+      setFormError('Allocation preview abhi load ho raha hai, ek second ruk kar save karein.');
+      return false;
+    }
     setFieldErrors({});
     setFormError(null);
     return true;
-  }, [amountNum, dateStr, allocationMode, manualTotal]);
+  }, [amountNum, dateStr, dateCheck, allocationMode, manualTotal, currentBillTotal, previewFresh]);
 
   const handleSave = useCallback(async () => {
     if (!validate()) return;
@@ -238,7 +281,10 @@ export default function RecordPaymentScreen({
     }
 
     let allocations;
-    if (allocationMode === 'later') {
+    if (allocationMode === 'auto' && isEditing) {
+      // Edit + "FIFO se dobara": send exactly the plan the preview showed
+      allocations = preview?.allocations || [];
+    } else if (allocationMode === 'later') {
       allocations = [];
     } else if (allocationMode === 'manual') {
       allocations = Object.entries(manualSelections)
@@ -250,7 +296,8 @@ export default function RecordPaymentScreen({
         })
         .filter(Boolean);
     }
-    // allocationMode === 'auto' -> leave `allocations` undefined so the backend FIFO-allocates canonically
+    // New payment + 'auto' -> undefined: the server runs the same planFifo the preview showed.
+    // Edit + 'current' -> undefined: the payment keeps exactly the allocation it has.
 
     onSave?.({
       amount: amountNum,
@@ -263,7 +310,7 @@ export default function RecordPaymentScreen({
       allocations,
       ...(seed?.extra || {}),
     });
-  }, [validate, attachment, onUploadAttachment, userId, allocationMode, manualSelections, onSave, amountNum, dateStr, mode, referenceNumber, notes, seed]);
+  }, [validate, attachment, onUploadAttachment, userId, allocationMode, manualSelections, onSave, amountNum, dateStr, mode, referenceNumber, notes, seed, isEditing, preview]);
 
   const busy = isLoading || uploading;
 
@@ -321,7 +368,15 @@ export default function RecordPaymentScreen({
             {/* Date */}
             <Card style={styles.card}>
               <DateField label="Payment Date" value={dateStr} onChange={setDateStr} required />
-              {fieldErrors.dateStr && <ThemedText style={styles.fieldError}>{fieldErrors.dateStr}</ThemedText>}
+              {dateCheck.isPostDated && (
+                <View style={styles.postDatedBadge}>
+                  <Ionicons name="calendar-outline" size={13} color="#7C3AED" />
+                  <ThemedText style={styles.postDatedText}>{DATE_MESSAGES.postDatedCheque}</ThemedText>
+                </View>
+              )}
+              {(fieldErrors.dateStr || dateCheck.error) && (
+                <ThemedText style={styles.fieldError}>{fieldErrors.dateStr || dateCheck.error}</ThemedText>
+              )}
             </Card>
 
             {/* Mode */}
@@ -406,55 +461,125 @@ export default function RecordPaymentScreen({
                 )}
               </View>
 
+              {previewError && <ThemedText style={styles.fieldError}>{previewError}</ThemedText>}
+
               {allocationMode === 'later' ? (
                 <View style={styles.laterNotice}>
                   <Ionicons name="time-outline" size={16} color="#D97706" />
                   <ThemedText style={styles.laterNoticeText}>
                     This payment will reduce the outstanding balance without settling specific bills. Allocate it later from the payment detail screen.
                   </ThemedText>
-                  <Pressable onPress={() => setAllocationMode('auto')}>
+                  <Pressable onPress={() => setAllocationMode(isEditing ? 'current' : 'auto')}>
                     <ThemedText style={styles.linkText}>Undo</ThemedText>
                   </Pressable>
                 </View>
-              ) : allocationTargets.length === 0 ? (
+              ) : !preview ? (
+                <ThemedText style={styles.noTargetsText}>Allocation load ho rahi hai…</ThemedText>
+              ) : allocationMode === 'current' ? (
+                <>
+                  <View style={styles.autoNotice}>
+                    <ThemedText style={styles.autoNoticeText}>Abhi lagi hui allocation</ThemedText>
+                    <View style={{ flexDirection: 'row', gap: 14 }}>
+                      <Pressable onPress={() => setAllocationMode('auto')}>
+                        <ThemedText style={styles.linkText}>FIFO se dobara</ThemedText>
+                      </Pressable>
+                      <Pressable onPress={enterManualMode}>
+                        <ThemedText style={styles.linkText}>Customize</ThemedText>
+                      </Pressable>
+                    </View>
+                  </View>
+                  {currentAllocations.length === 0 ? (
+                    <ThemedText style={styles.noTargetsText}>Ye payment abhi kisi bill pe nahi lagi.</ThemedText>
+                  ) : (
+                    currentAllocations.map((a, i) => (
+                      <View key={`${a.allocationType}-${a.billId || i}`} style={styles.allocationRow}>
+                        <View style={styles.allocationLabelBlock}>
+                          <ThemedText style={styles.allocationLabel}>{a.label}</ThemedText>
+                          {a.invoiceDate ? (
+                            <ThemedText style={styles.allocationRemaining}>Bill date {formatDDMMYYYY(a.invoiceDate)}</ThemedText>
+                          ) : null}
+                          {a.afterPaymentDate && (
+                            <ThemedText style={styles.afterDateNote}>Ye bill payment ke baad ka hai</ThemedText>
+                          )}
+                        </View>
+                        <ThemedText style={styles.allocationAutoAmount}>{formatAmount(a.allocatedAmount)}</ThemedText>
+                      </View>
+                    ))
+                  )}
+                </>
+              ) : allocationMode === 'auto' ? (
+                <>
+                  <View style={styles.autoNotice}>
+                    <ThemedText style={styles.autoNoticeText}>
+                      FIFO: payment date tak ke bills, sabse purana pehle
+                    </ThemedText>
+                    <View style={{ flexDirection: 'row', gap: 14 }}>
+                      {isEditing && (
+                        <Pressable onPress={() => setAllocationMode('current')}>
+                          <ThemedText style={styles.linkText}>Undo</ThemedText>
+                        </Pressable>
+                      )}
+                      <Pressable onPress={enterManualMode}>
+                        <ThemedText style={styles.linkText}>Customize</ThemedText>
+                      </Pressable>
+                    </View>
+                  </View>
+                  {autoPlan.plan.length === 0 && (
+                    <ThemedText style={styles.noTargetsText}>
+                      Payment date tak koi khula bill nahi — poora amount on account rahega.
+                    </ThemedText>
+                  )}
+                  {autoPlan.plan.map((item) => (
+                    <View key={targetKey(item)} style={styles.allocationRow}>
+                      <View style={styles.allocationLabelBlock}>
+                        <ThemedText style={styles.allocationLabel}>{item.label}</ThemedText>
+                        {item.invoiceDate ? (
+                          <ThemedText style={styles.allocationRemaining}>Bill date {formatDDMMYYYY(item.invoiceDate)}</ThemedText>
+                        ) : null}
+                      </View>
+                      <ThemedText style={styles.allocationAutoAmount}>{formatAmount(item.allocatedAmount)}</ThemedText>
+                    </View>
+                  ))}
+                  {autoPlan.onAccount > 0 && (
+                    <View style={styles.onAccountNotice}>
+                      <ThemedText style={styles.onAccountText}>
+                        {formatAmount(autoPlan.onAccount)} on account rahega (payment ke baad wale bills pe apne aap nahi lagega)
+                      </ThemedText>
+                    </View>
+                  )}
+                </>
+              ) : targets.length === 0 ? (
                 <ThemedText style={styles.noTargetsText}>
                   No open bills or opening balance to settle — this payment will be recorded as an advance.
                 </ThemedText>
               ) : (
                 <>
-                  {allocationMode === 'auto' && (
-                    <View style={styles.autoNotice}>
-                      <ThemedText style={styles.autoNoticeText}>Auto-allocating oldest-first (FIFO)</ThemedText>
-                      <Pressable onPress={enterManualMode}>
-                        <ThemedText style={styles.linkText}>Customize</ThemedText>
-                      </Pressable>
-                    </View>
-                  )}
-
-                  {(allocationMode === 'auto' ? autoPlan.plan : allocationTargets).map((target) => {
+                  {targets.map((target) => {
                     const key = targetKey(target);
-                    const isAuto = allocationMode === 'auto';
-                    const checked = isAuto ? true : manualSelections[key] !== undefined;
-                    const value = isAuto ? String(target.amount) : (manualSelections[key] ?? '');
-
+                    const checked = manualSelections[key] !== undefined;
+                    const value = manualSelections[key] ?? '';
                     return (
                       <View key={key} style={styles.allocationRow}>
-                        {!isAuto && (
-                          <Pressable onPress={() => toggleManualTarget(target, !checked)} style={styles.checkbox}>
-                            <Ionicons
-                              name={checked ? 'checkbox' : 'square-outline'}
-                              size={20}
-                              color={checked ? '#4F46E5' : '#CBD5E1'}
-                            />
-                          </Pressable>
-                        )}
+                        <Pressable onPress={() => toggleManualTarget(target, !checked)} style={styles.checkbox}>
+                          <Ionicons
+                            name={checked ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={checked ? '#4F46E5' : '#CBD5E1'}
+                          />
+                        </Pressable>
                         <View style={styles.allocationLabelBlock}>
                           <ThemedText style={styles.allocationLabel}>{target.label}</ThemedText>
-                          <ThemedText style={styles.allocationRemaining}>Balance {formatAmount(target.remaining)}</ThemedText>
+                          <ThemedText style={styles.allocationRemaining}>
+                            {target.invoiceDate ? `Bill date ${formatDDMMYYYY(target.invoiceDate)} · ` : ''}Balance {formatAmount(target.remaining)}
+                          </ThemedText>
+                          {target.afterPaymentDate && (
+                            <ThemedText style={styles.afterDateNote}>Ye bill payment ke baad ka hai</ThemedText>
+                          )}
+                          {target.needsDetails && (
+                            <ThemedText style={styles.afterDateNote}>Is bill me details baaki hain</ThemedText>
+                          )}
                         </View>
-                        {isAuto ? (
-                          <ThemedText style={styles.allocationAutoAmount}>{formatAmount(target.amount)}</ThemedText>
-                        ) : checked ? (
+                        {checked ? (
                           <TextInput
                             style={styles.allocationInput}
                             value={value}
@@ -466,19 +591,10 @@ export default function RecordPaymentScreen({
                       </View>
                     );
                   })}
-
-                  {allocationMode === 'auto' && autoPlan.onAccount > 0 && (
-                    <View style={styles.onAccountNotice}>
-                      <ThemedText style={styles.onAccountText}>
-                        {formatAmount(autoPlan.onAccount)} exceeds open bills — kept as “on account”
-                      </ThemedText>
-                    </View>
-                  )}
-                  {allocationMode === 'manual' && (
-                    <ThemedText style={styles.manualTotalText}>
-                      Allocated {formatAmount(manualTotal)} of {formatAmount(amountNum)}
-                    </ThemedText>
-                  )}
+                  <ThemedText style={styles.manualTotalText}>
+                    Allocated {formatAmount(manualTotal)} of {formatAmount(amountNum)}
+                    {amountNum - manualTotal > 0.005 ? ` · ${formatAmount(amountNum - manualTotal)} on account` : ''}
+                  </ThemedText>
                 </>
               )}
             </Card>
@@ -619,6 +735,13 @@ const styles = StyleSheet.create({
   },
   onAccountNotice: { marginTop: 8, backgroundColor: '#EEF2FF', borderRadius: 10, padding: 10 },
   onAccountText: { fontSize: 11, color: '#4F46E5', fontWeight: '600' },
+  afterDateNote: { fontSize: 11, color: '#B45309', fontWeight: '600', marginTop: 2 },
+  postDatedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 8,
+    backgroundColor: '#F5F3FF', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#DDD6FE',
+  },
+  postDatedText: { fontSize: 12, color: '#6D28D9', fontWeight: '700' },
   manualTotalText: { fontSize: 12, color: '#64748B', marginTop: 10, textAlign: 'right', fontWeight: '600' },
 
   buttonContainer: { padding: 16, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E2E8F0' },

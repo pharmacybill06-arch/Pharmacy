@@ -42,6 +42,7 @@ export const queryKeys = {
   distributors: (userId) => ['distributors', userId],
   distributorBills: (distributorId) => ['distributor-bills', distributorId],
   ledgerSummary: (userId) => ['ledger-summary', userId],
+  needsDetails: (userId) => ['needs-details', userId],
 };
 
 /**
@@ -54,5 +55,6 @@ export function invalidateBillData(userId) {
     queryClient.invalidateQueries({ queryKey: ['bill'] }),
     queryClient.invalidateQueries({ queryKey: ['distributor-bills'] }),
     queryClient.invalidateQueries({ queryKey: ['ledger-summary', userId] }),
+    queryClient.invalidateQueries({ queryKey: ['needs-details', userId] }),
   ]);
 }

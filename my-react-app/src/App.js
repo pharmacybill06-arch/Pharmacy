@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ScanBillPage from './pages/ScanBillPage';
 import BillFormPage from './pages/BillFormPage';
+import NeedsDetailsPage from './pages/NeedsDetailsPage';
 import BillsListPage from './pages/BillsListPage';
 import BillDetailsPage from './pages/BillDetailsPage';
 import ProductsPage from './pages/ProductsPage';
@@ -65,6 +66,7 @@ function AppRoutes() {
         <Route path="email-bills" element={<EmailBillsPage />} />
         <Route path="bill-form" element={<BillFormPage />} />
         <Route path="bills" element={<BillsListPage />} />
+        <Route path="bills/needs-details" element={<NeedsDetailsPage />} />
         <Route path="bills/:billId" element={<BillDetailsPage />} />
         <Route path="drafts" element={<DraftsPage />} />
         <Route path="products" element={<ProductsPage />} />
