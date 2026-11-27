@@ -71,6 +71,9 @@ const BillRow = React.memo(({ bill, onPress }) => (
       </ThemedText>
       <Chip label={STATUS_LABEL[bill.status] || bill.status} variant={STATUS_VARIANT[bill.status] || 'default'} />
     </View>
+    {bill.needsDetails && (
+      <ThemedText style={styles.needsDetailsTag}>Details baaki · auto-allocation me nahi aayega</ThemedText>
+    )}
     <View style={styles.billCardDates}>
       <ThemedText style={styles.billDateText}>Billed {billDisplayDateShort(bill)}</ThemedText>
       {bill.dueDate && <ThemedText style={styles.billDateText}>· Due {formatDate(bill.dueDate)}</ThemedText>}
@@ -105,6 +108,7 @@ const PaymentRow = React.memo(({ payment, onPress }) => (
         <ThemedText style={styles.paymentAmount}>{formatAmount(payment.amount)}</ThemedText>
         <ThemedText style={styles.paymentMode}>{MODE_LABEL[payment.paymentMethod] || payment.paymentMethod}</ThemedText>
       </View>
+      {payment.isPostDated && <ThemedText style={styles.postDatedTag}>Post-dated cheque</ThemedText>}
       <ThemedText style={styles.paymentMeta}>
         {formatDate(payment.paymentDate)}
         {payment.referenceNumber ? ` · Ref ${payment.referenceNumber}` : ''}
@@ -159,6 +163,7 @@ export default function DistributorLedgerDetailScreen({
   ledgerRows = [],
   onBack,
   onRecordPayment,
+  onAdjustAdvance,
   onBillPress,
   onPaymentPress,
   onEditOpeningBalance,
@@ -226,6 +231,17 @@ export default function DistributorLedgerDetailScreen({
                   )}
                   <Ionicons name="create-outline" size={14} color="#94A3B8" style={{ marginLeft: 6 }} />
                 </View>
+              </Pressable>
+            )}
+
+            {/* Advance money sitting on account: ask before adjusting (never automatic) */}
+            {distributor.onAccountAvailable > 0.005 && onAdjustAdvance && bills.some((b) => b.balance > 0.005 && !b.needsDetails) && (
+              <Pressable onPress={onAdjustAdvance} style={styles.advanceBanner}>
+                <Ionicons name="wallet-outline" size={16} color="#4F46E5" />
+                <ThemedText style={styles.advanceBannerText}>
+                  {formatAmount(distributor.onAccountAvailable)} advance pada hai — bill me adjust karein?
+                </ThemedText>
+                <Ionicons name="chevron-forward" size={16} color="#4F46E5" />
               </Pressable>
             )}
 
@@ -312,6 +328,13 @@ const styles = StyleSheet.create({
   },
   overduePillText: { fontSize: 11, fontWeight: '700', color: '#DC2626' },
 
+  needsDetailsTag: { fontSize: 11, color: '#B45309', fontWeight: '600', marginTop: 2 },
+  postDatedTag: { fontSize: 11, color: '#6D28D9', fontWeight: '700', marginTop: 2 },
+  advanceBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#EEF2FF',
+    borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#C7D2FE',
+  },
+  advanceBannerText: { flex: 1, fontSize: 13, color: '#3730A3', fontWeight: '600' },
   openingBalanceRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 10, paddingHorizontal: 4, marginBottom: 12,

@@ -14,6 +14,7 @@ import {
   parseOcrText,
 } from './bill-parser';
 import { formatDDMMYYYY } from '@/utils/dateFormat';
+import { checkBillHeader, DATE_MESSAGES } from '@/utils/dateRules';
 
 /**
  * BillFormRedesigned Component
@@ -29,6 +30,10 @@ export default function BillFormRedesigned({
   onSaveDraft,
   onCancel,
   initialData,
+  // Shown next to the invoice fields so the user can read them off the bill
+  billImageUri = null,
+  // { invoiceNumber?, invoiceDate?, dueDate? } from a server rejection
+  serverFieldErrors = {},
 }) {
   const { user } = useAuth();
   const userId = user?.id;
@@ -138,6 +143,8 @@ export default function BillFormRedesigned({
 
   // Confirm dialog state for item removal
   const [removeDialog, setRemoveDialog] = useState({ visible: false, itemIndex: null });
+  // Invoice date older than 12 months: warn, let the user confirm and save
+  const [oldDateDialog, setOldDateDialog] = useState(false);
 
   const showToast = (message, type = 'info', title = '') => {
     setToast({ visible: true, message, type, title });
@@ -482,6 +489,19 @@ export default function BillFormRedesigned({
       return;
     }
 
+    // Invoice number + date are mandatory and must be possible dates. The button is
+    // already disabled in that state; this is the belt to that braces.
+    const { errors, oldDateWarning } = checkBillHeader(formData);
+    const firstError = Object.values(errors)[0];
+    if (firstError) {
+      showToast(firstError, 'error', 'Bill details');
+      return;
+    }
+    if (oldDateWarning) {
+      setOldDateDialog(true);
+      return;
+    }
+
     // Validation
     // if (!formData.pharmacyName.trim()) {
     //   showToast('Pharmacy name is required', 'error', 'Error');
@@ -536,6 +556,22 @@ export default function BillFormRedesigned({
         onGstLookupError={handleGstLookupError}
         distributorMode={distributorMode}
         onDistributorModeChange={handleDistributorModeChange}
+        billImageUri={billImageUri}
+        serverFieldErrors={serverFieldErrors}
+      />
+
+      <ConfirmDialog
+        visible={oldDateDialog}
+        title="Purani date"
+        message={DATE_MESSAGES.oldInvoice}
+        type="warning"
+        confirmText="Haan, save karein"
+        cancelText="Date badlein"
+        onConfirm={() => {
+          setOldDateDialog(false);
+          onSubmit(formData, { confirmOldDate: true });
+        }}
+        onCancel={() => setOldDateDialog(false)}
       />
 
       {/* Loading Overlay for AI parsing */}

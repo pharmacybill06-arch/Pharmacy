@@ -4,7 +4,8 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { LedgerProvider, useLedger } from '@/contexts/LedgerContext';
 import { DistributorProvider, useDistributors } from '@/contexts/DistributorContext';
-import { billApi } from '@/services/api';
+import { billApi, ledgerApi } from '@/services/api';
+import OnAccountPromptDialog from '@/components/ui/OnAccountPromptDialog';
 import { ThemedText } from '@/components/themed-text';
 import { Ionicons } from '@expo/vector-icons';
 import AppBar from '@/components/ui/AppBar';
@@ -194,6 +195,7 @@ function LedgerScreenContent() {
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info', title: '' });
   const [openingBalanceModalVisible, setOpeningBalanceModalVisible] = useState(false);
   const [billModal, setBillModal] = useState(null); // bill being confirmed
+  const [onAccountPrompt, setOnAccountPrompt] = useState(null); // "₹X advance pada hai…" question
 
   useEffect(() => {
     if (userId) {
@@ -288,6 +290,35 @@ function LedgerScreenContent() {
         setView('detail');
       }
     } catch (err) {
+      // Same UPI transaction id already exists but is archived: offer to bring it back
+      // instead of a dead-end "already recorded".
+      if (err.code === 'ARCHIVED_DUPLICATE_TRANSACTION' && err.details?.existingPaymentId) {
+        Alert.alert(
+          'Payment archive me hai',
+          'Ye payment archive me hai, wapas laayein?',
+          [
+            { text: 'Na', style: 'cancel' },
+            {
+              text: 'Haan, wapas laayein',
+              onPress: async () => {
+                try {
+                  await ledgerApi.unarchivePayment(err.details.existingPaymentId);
+                  setScanPrefill(null);
+                  setScanImage(null);
+                  setScanCache(null);
+                  showToast('Payment wapas aa gayi. Allocation badalni ho to payment pe tap karein.', 'success', 'Restored');
+                  await fetchSummary(userId);
+                  await fetchDistributorLedger(recordingDistributor.id);
+                  setView('detail');
+                } catch (restoreErr) {
+                  showToast(restoreErr.message || 'Restore nahi ho payi', 'error', 'Error');
+                }
+              },
+            },
+          ]
+        );
+        return;
+      }
       showToast(
         err.message || 'Failed to record payment',
         'error',
@@ -323,15 +354,42 @@ function LedgerScreenContent() {
 
   const handleSaveBill = useCallback(async (data) => {
     try {
-      await billApi.updateBill(billModal.id, data);
+      const res = await billApi.updateBill(billModal.id, data);
       setBillModal(null);
       showToast('Bill updated', 'success', 'Saved');
+      // Completing a "Needs details" bill: ask about advance money, never auto-adjust
+      if (res?.onAccountPrompt) setOnAccountPrompt(res.onAccountPrompt);
       await fetchDistributorLedger(distributorLedger.distributor.id);
       await fetchSummary(userId);
     } catch (err) {
       showToast(err.message || 'Failed to update bill', 'error', 'Error');
     }
   }, [billModal, fetchDistributorLedger, distributorLedger, fetchSummary, userId]);
+
+  // Advance banner: offer the oldest open, complete bill. Still only a question.
+  const handleAdjustAdvance = useCallback(async () => {
+    const bill = (distributorLedger?.bills || []).find((b) => b.balance > 0.005 && !b.needsDetails);
+    if (!bill) return;
+    try {
+      const { prompt } = await ledgerApi.getOnAccountPrompt(bill.id);
+      if (prompt) setOnAccountPrompt(prompt);
+    } catch (err) {
+      showToast(err.message || 'Advance check nahi ho paya', 'error', 'Error');
+    }
+  }, [distributorLedger]);
+
+  const handleOnAccountDone = useCallback(async ({ applied, error }) => {
+    setOnAccountPrompt(null);
+    if (error) {
+      showToast(error.message || 'Advance adjust nahi ho paya', 'error', 'Error');
+      return;
+    }
+    if (applied > 0) {
+      showToast(`₹${applied.toLocaleString('en-IN')} advance adjust ho gaya`, 'success', 'Advance');
+      if (distributorLedger?.distributor?.id) await fetchDistributorLedger(distributorLedger.distributor.id);
+      await fetchSummary(userId);
+    }
+  }, [distributorLedger, fetchDistributorLedger, fetchSummary, userId]);
 
   /** Tapping a payment opens it in the same form that created it, pre-filled. */
   const handlePaymentPress = useCallback((payment) => {
@@ -450,6 +508,7 @@ function LedgerScreenContent() {
           ledgerRows={distributorLedger?.ledgerRows || []}
           onBack={handleBack}
           onRecordPayment={handleRecordPaymentFromDetail}
+          onAdjustAdvance={handleAdjustAdvance}
           onBillPress={handleBillPress}
           onPaymentPress={handlePaymentPress}
           onEditOpeningBalance={handleEditOpeningBalance}
@@ -467,6 +526,7 @@ function LedgerScreenContent() {
           onSave={handleSaveBill}
           onClose={() => setBillModal(null)}
         />
+        <OnAccountPromptDialog prompt={onAccountPrompt} onDone={handleOnAccountDone} />
         <Toast {...toast} onHide={hideToast} />
       </ScreenTransition>
     );
