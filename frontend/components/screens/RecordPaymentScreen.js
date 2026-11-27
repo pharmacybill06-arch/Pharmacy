@@ -62,7 +62,7 @@ function targetKey(target) {
 export default function RecordPaymentScreen({
   distributor,
   userId,
-  allocationTargets = [],
+  allocationTargets = [], // deprecated: the screen loads the server preview itself
   onBack,
   onSave,
   onUploadAttachment, // (userId, uri, mimeType) => Promise<attachmentPath>
@@ -146,9 +146,9 @@ export default function RecordPaymentScreen({
   }, [distributor?.id, amountNum, isoDate, existingPayment?.id, wantedKey]);
 
   const previewFresh = !!preview && previewKey === wantedKey;
-  const targets = preview?.targets || [];
-  const autoPlan = { plan: preview?.plan || [], onAccount: preview?.onAccount || 0 };
-  const currentAllocations = preview?.currentAllocations || [];
+  const targets = useMemo(() => preview?.targets || [], [preview]);
+  const autoPlan = useMemo(() => ({ plan: preview?.plan || [], onAccount: preview?.onAccount || 0 }), [preview]);
+  const currentAllocations = useMemo(() => preview?.currentAllocations || [], [preview]);
   const currentBillTotal = round2(
     currentAllocations.filter((a) => a.allocationType !== 'on_account').reduce((s, a) => s + a.allocatedAmount, 0)
   );

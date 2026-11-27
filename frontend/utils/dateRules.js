@@ -9,6 +9,14 @@ import { ddmmyyyyToIso } from '@/utils/dateFormat';
 
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 
+/** DD-MM-YYYY (what users type) or YYYY-MM-DD (an <input type="date">) -> ISO, or null. */
+function toIso(value) {
+  const text = String(value || '').trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  return ddmmyyyyToIso(text);
+}
+
 export const DATE_MESSAGES = {
   missingNumber: 'Invoice number zaroori hai',
   missingDate: 'Invoice date zaroori hai',
@@ -63,7 +71,7 @@ export function checkBillHeader({ invoiceNumber, invoiceDate, dueDate }, now = n
   if (!String(invoiceNumber || '').trim()) errors.invoiceNumber = DATE_MESSAGES.missingNumber;
 
   const invText = String(invoiceDate || '').trim();
-  const invIso = invText ? ddmmyyyyToIso(invText) : null;
+  const invIso = invText ? toIso(invText) : null;
   const today = todayIstIso(now);
   if (!invText) errors.invoiceDate = DATE_MESSAGES.missingDate;
   else if (!invIso) errors.invoiceDate = DATE_MESSAGES.badDate;
@@ -72,7 +80,7 @@ export function checkBillHeader({ invoiceNumber, invoiceDate, dueDate }, now = n
 
   const dueText = String(dueDate || '').trim();
   if (dueText) {
-    const dueIso = ddmmyyyyToIso(dueText);
+    const dueIso = toIso(dueText);
     if (!dueIso) errors.dueDate = DATE_MESSAGES.badDate;
     else if (invIso && dueIso < invIso) errors.dueDate = DATE_MESSAGES.dueBeforeInvoice;
   }
@@ -82,7 +90,7 @@ export function checkBillHeader({ invoiceNumber, invoiceDate, dueDate }, now = n
 /** Line warning: does this item's expiry fall before the bill date? */
 export function isExpiryBeforeInvoice(expiryDate, invoiceDate) {
   const exp = expiryToIso(expiryDate);
-  const inv = ddmmyyyyToIso(invoiceDate);
+  const inv = toIso(invoiceDate);
   return !!exp && !!inv && exp < inv;
 }
 

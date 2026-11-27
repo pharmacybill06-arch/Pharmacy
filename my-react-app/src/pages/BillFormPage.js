@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { billApi, distributorApi, productApi, gstinApi } from '../services/api';
+import { billApi, distributorApi, productApi, gstinApi, ledgerApi } from '../services/api';
 import { Save, Plus, Trash2, Loader, Check, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { checkBillHeader, isExpiryBeforeInvoice, toIso, DATE_MESSAGES } from '../utils/dateRules';
 
 const emptyItem = {
   name: '', manufacturer: '', batchNumber: '', expiryDate: '',
@@ -16,7 +17,16 @@ export default function BillFormPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { parsedData, ocrText, draftId } = location.state || {};
+  const { parsedData, ocrText, draftId, imageFile } = location.state || {};
+  // Keep the bill photo next to the invoice fields while the user fills them in
+  const [imageUrl, setImageUrl] = useState(null);
+  useEffect(() => {
+    if (!imageFile || !/^image\//.test(imageFile.type || '')) return undefined;
+    const url = URL.createObjectURL(imageFile);
+    setImageUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+  const [serverErrors, setServerErrors] = useState({});
 
   const [billData, setBillData] = useState({
     invoiceNumber: '',
@@ -125,7 +135,8 @@ export default function BillFormPage() {
       setBillData(prev => ({
         ...prev,
         invoiceNumber: toStr(parsedData.invoiceNumber || parsedData.invoice_number),
-        invoiceDate: toStr(parsedData.invoiceDate || parsedData.invoice_date),
+        // <input type="date"> needs YYYY-MM-DD; the AI hands back DD-MM-YYYY
+        invoiceDate: toIso(toStr(parsedData.invoiceDate || parsedData.invoice_date)) || '',
         pharmacyName: toStr(parsedData.pharmacyName || parsedData.pharmacy_name || parsedData.distributorName),
         subtotal: toStr(parsedData.subtotal),
         cgst: toStr(parsedData.cgst),
@@ -313,7 +324,23 @@ export default function BillFormPage() {
     }
   };
 
-  const handleSave = async () => {
+  const headerCheck = checkBillHeader(billData);
+  const headerErrors = { ...serverErrors, ...headerCheck.errors };
+  const headerOk = Object.keys(headerCheck.errors).length === 0;
+
+  // "₹X advance pada hai, is bill me adjust karein?" — only on the user's yes
+  const askOnAccount = async (prompt) => {
+    if (!prompt) return;
+    if (!window.confirm(`${prompt.message}\n\nOK = Haan, adjust karein · Cancel = Na`)) return;
+    try {
+      const res = await ledgerApi.applyOnAccount(prompt.billId);
+      toast.success(`₹${Number(res.applied || 0).toLocaleString('en-IN')} advance adjust ho gaya`);
+    } catch (err) {
+      toast.error(err.message || 'Advance adjust nahi ho paya');
+    }
+  };
+
+  const handleSave = async (confirmOldDate = false) => {
     if (!items[0]?.name) {
       toast.error('Please add at least one item');
       return;
@@ -323,7 +350,16 @@ export default function BillFormPage() {
       toast.error(`Please verify ${pending} item row${pending === 1 ? '' : 's'} before saving.`);
       return;
     }
+    if (!headerOk) {
+      toast.error(Object.values(headerCheck.errors)[0]);
+      return;
+    }
+    if (headerCheck.oldDateWarning && !confirmOldDate) {
+      if (!window.confirm(DATE_MESSAGES.oldInvoice)) return;
+      confirmOldDate = true;
+    }
     setSaving(true);
+    setServerErrors({});
     try {
       const totals = calculateTotals();
       const saveData = {
@@ -338,7 +374,7 @@ export default function BillFormPage() {
         billType: 'purchase',
       };
 
-      await billApi.saveBill(user.id, saveData, ocrText || '', '');
+      const res = await billApi.saveBill(user.id, saveData, ocrText || '', '', { confirmOldDate });
 
       // If editing a draft, delete the draft after successful save
       if (draftId) {
@@ -351,12 +387,22 @@ export default function BillFormPage() {
       }
 
       toast.success(draftId ? 'Draft saved as bill!' : 'Bill saved successfully!');
+      await askOnAccount(res.onAccountPrompt);
       navigate('/bills');
     } catch (err) {
       // A duplicate isn't a failure to retry — the bill is already in the books and
       // saving again would double-count its stock. Same handling as the mobile app.
       if (err.status === 409) {
         toast.error(err.message || 'This invoice is already saved.', { duration: 6000 });
+      } else if (err.code === 'CONFIRM_OLD_INVOICE_DATE') {
+        setSaving(false);
+        if (window.confirm(DATE_MESSAGES.oldInvoice)) handleSave(true);
+        return;
+      } else if (err.code === 'INVALID_BILL_DETAILS') {
+        const fe = {};
+        for (const e of err.details?.errors || []) fe[e.field] = e.message;
+        setServerErrors(fe);
+        toast.error(err.message);
       } else {
         toast.error(err.message || 'Failed to save bill');
       }
@@ -388,11 +434,22 @@ export default function BillFormPage() {
           </p>
         </div>
         <button className="btn btn-secondary" style={{ marginRight: 8 }} onClick={handleSaveDraft} disabled={saving}>Save as Draft</button>
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+        <button className="btn btn-primary" onClick={() => handleSave(false)} disabled={saving || !headerOk}
+          title={headerOk ? undefined : 'Invoice number aur date sahi bharein'}>
           {saving ? <Loader size={16} className="spinner" /> : <Save size={16} />}
           Save Bill
         </button>
       </div>
+
+      {imageUrl && (
+        <div className="card" style={{ marginBottom: 16, position: 'sticky', top: 8, zIndex: 5 }}>
+          <div className="card-body" style={{ padding: 8 }}>
+            <a href={imageUrl} target="_blank" rel="noreferrer" title="Open full size">
+              <img src={imageUrl} alt="Bill" style={{ width: '100%', maxHeight: 260, objectFit: 'contain', background: '#0f172a', borderRadius: 8 }} />
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Bill Metadata */}
       <div className="card" style={{ marginBottom: 24 }}>
@@ -400,12 +457,14 @@ export default function BillFormPage() {
         <div className="card-body">
           <div className="form-row-3">
             <div className="form-group">
-              <label className="form-label">Invoice Number</label>
-              <input className="form-input" value={billData.invoiceNumber} onChange={e => updateBillField('invoiceNumber', e.target.value)} placeholder="INV-001" />
+              <label className="form-label">Invoice Number *</label>
+              <input className={`form-input ${headerErrors.invoiceNumber ? 'form-input-error' : ''}`} value={billData.invoiceNumber} onChange={e => updateBillField('invoiceNumber', e.target.value)} placeholder="INV-001" />
+              {headerErrors.invoiceNumber && <div className="form-error">{headerErrors.invoiceNumber}</div>}
             </div>
             <div className="form-group">
-              <label className="form-label">Invoice Date</label>
-              <input className="form-input" type="date" value={billData.invoiceDate} onChange={e => updateBillField('invoiceDate', e.target.value)} />
+              <label className="form-label">Invoice Date *</label>
+              <input className={`form-input ${headerErrors.invoiceDate ? 'form-input-error' : ''}`} type="date" value={billData.invoiceDate} onChange={e => updateBillField('invoiceDate', e.target.value)} />
+              {headerErrors.invoiceDate && <div className="form-error">{headerErrors.invoiceDate}</div>}
             </div>
             <div className="form-group">
               <label className="form-label">Payment Type</label>
@@ -539,7 +598,12 @@ export default function BillFormPage() {
                     </div>
                   </td>
                   <td><input id={`input-${index}-batchNumber`} className="form-input" value={item.batchNumber} onChange={e => updateItem(index, 'batchNumber', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'batchNumber')} placeholder="Batch" style={{ width: 80 }} /></td>
-                  <td><input id={`input-${index}-expiryDate`} className="form-input" value={item.expiryDate} onChange={e => updateItem(index, 'expiryDate', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'expiryDate')} placeholder="MM/YY" style={{ width: 80 }} /></td>
+                  <td>
+                    <input id={`input-${index}-expiryDate`} className="form-input" value={item.expiryDate} onChange={e => updateItem(index, 'expiryDate', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'expiryDate')} placeholder="MM/YY" style={{ width: 80 }} />
+                    {isExpiryBeforeInvoice(item.expiryDate, billData.invoiceDate) && (
+                      <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600, marginTop: 2 }}>⚠ {DATE_MESSAGES.expiryBeforeInvoice}</div>
+                    )}
+                  </td>
                   <td><input id={`input-${index}-quantity`} className="form-input" type="number" min="0" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'quantity')} style={{ width: 60 }} /></td>
                   <td><input id={`input-${index}-freeQuantity`} className="form-input" type="number" min="0" value={item.freeQuantity ?? ''} onChange={e => updateItem(index, 'freeQuantity', e.target.value)} onKeyDown={e => handleKeyDown(e, index, 'freeQuantity')} placeholder="0" style={{ width: 55 }} /></td>
                   <td style={{ color: '#4f46e5', fontWeight: 700, minWidth: 48 }}>

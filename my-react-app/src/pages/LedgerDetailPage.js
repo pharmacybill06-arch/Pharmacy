@@ -46,6 +46,23 @@ export default function LedgerDetailPage() {
   );
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
+  // Advance money on account + an open, complete bill: offer to adjust (only on "Haan")
+  const advanceBill = bills.find((b) => Number(b.balance) > 0.005 && !b.needsDetails);
+  const adjustAdvance = async () => {
+    if (!advanceBill) return;
+    try {
+      const { prompt } = await ledgerApi.getOnAccountPrompt(advanceBill.id);
+      if (!prompt) return;
+      const label = `${prompt.invoiceNumber || 'bill'}${prompt.invoiceDate ? ` (${formatDDMMYYYYOr(prompt.invoiceDate, '')})` : ''}`;
+      if (!window.confirm(`${prompt.message}\nBill: ${label}\n\nOK = Haan · Cancel = Na`)) return;
+      const res = await ledgerApi.applyOnAccount(prompt.billId);
+      toast.success(`${formatINR(res.applied)} advance adjust ho gaya`);
+      load();
+    } catch (err) {
+      toast.error(err.message || 'Advance adjust nahi ho paya');
+    }
+  };
+
   if (loading) return <div className="loading-spinner"><div className="spinner" /></div>;
   if (!distributor) {
     return (
@@ -100,6 +117,13 @@ export default function LedgerDetailPage() {
         </div>
       </div>
 
+      {distributor.onAccountAvailable > 0.005 && advanceBill && (
+        <button type="button" onClick={adjustAdvance} style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 16, borderRadius: 10, background: '#eef2ff', border: '1px solid #c7d2fe', color: '#3730a3', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+          <Wallet size={16} />
+          <span style={{ flex: 1 }}>{formatINR(distributor.onAccountAvailable)} advance pada hai — bill me adjust karein?</span>
+        </button>
+      )}
+
       <div className="tabs" style={{ marginBottom: 16 }}>
         {[
           { key: 'bills', label: `Bills (${bills.length})`, icon: FileText },
@@ -151,7 +175,10 @@ function BillsTab({ bills }) {
               const st = BILL_STATUS[b.status] || BILL_STATUS.unpaid;
               return (
                 <tr key={b.id}>
-                  <td><Link to={`/bills/${b.id}`} style={{ fontWeight: 500 }}>{b.invoiceNumber || 'N/A'}</Link></td>
+                  <td>
+                    <Link to={`/bills/${b.id}`} style={{ fontWeight: 500 }}>{b.invoiceNumber || 'N/A'}</Link>
+                    {b.needsDetails && <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Details baaki · auto-allocation me nahi</div>}
+                  </td>
                   <td>{billDisplayDateShort(b)}</td>
                   <td>{formatDDMMYYYYOr(b.dueDate, '—')}</td>
                   <td style={{ textAlign: 'right' }}>{formatINR(b.grandTotal)}</td>
@@ -190,12 +217,15 @@ function PaymentsTab({ payments, distributorId }) {
           <tbody>
             {payments.map((p) => {
               const settled = (p.allocations || [])
-                .map((a) => (a.allocationType === 'opening_balance' ? 'Opening balance' : a.bill?.invoiceNumber || 'Bill'))
+                .map((a) => (a.allocationType === 'opening_balance' ? 'Opening balance' : a.allocationType === 'on_account' ? 'On account' : a.bill?.invoiceNumber || 'Bill'))
                 .join(', ');
               return (
                 <tr key={p.id}>
                   <td>{formatDDMMYYYYOr(p.paymentDate, '—')}</td>
-                  <td><span className="badge badge-primary">{PAYMENT_MODE_LABEL[p.paymentMethod] || p.paymentMethod}</span></td>
+                  <td>
+                    <span className="badge badge-primary">{PAYMENT_MODE_LABEL[p.paymentMethod] || p.paymentMethod}</span>
+                    {p.isPostDated && <div style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700, marginTop: 2 }}>Post-dated cheque</div>}
+                  </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{p.referenceNumber || '—'}</td>
                   <td style={{ fontSize: 13, color: '#6b7280' }}>{settled || 'On account'}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatINR(p.amount)}</td>

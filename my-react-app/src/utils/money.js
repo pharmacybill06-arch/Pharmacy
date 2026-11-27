@@ -43,22 +43,8 @@ export const BILL_STATUS = {
   overdue: { label: 'Overdue', badge: 'badge-danger' },
 };
 
-/**
- * Mirrors the backend's FIFO allocation, for an on-screen preview of where a payment
- * will land. Same algorithm as mobile RecordPaymentScreen.autoAllocateFifo.
- */
-export function autoAllocateFifo(amount, targets) {
-  let remaining = round2(amount);
-  const plan = [];
-  for (const target of targets) {
-    if (remaining <= 0.005) break;
-    const take = round2(Math.min(remaining, target.remaining));
-    if (take <= 0.005) continue;
-    plan.push({ ...target, amount: take });
-    remaining = round2(remaining - take);
-  }
-  return { plan, onAccount: remaining > 0.005 ? remaining : 0 };
-}
+// Payment FIFO lives ONLY on the server now (backend allocationEngine.planFifo); the
+// payment form shows the server's allocation-preview instead of a local copy.
 
 export function allocationKey(target) {
   return target.allocationType === 'opening_balance' ? 'opening_balance' : target.billId;
