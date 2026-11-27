@@ -9,7 +9,8 @@
  */
 
 const prisma = require('../models/prisma');
-const { parseExpiryToUtcDate } = require('../utils/dateUtils');
+const { parseExpiryToUtcDate, parseInvoiceDate } = require('../utils/dateUtils');
+const { assertInteractiveBill, statusAfterEdit } = require('./billDetailsService');
 const { normalizeBatchNumber, round3, syncProductStock } = require('./batchService');
 
 function toLogValue(value) {
@@ -48,19 +49,44 @@ async function updateBillHeader(billId, changes) {
   const bill = await prisma.bill.findUnique({ where: { id: billId } });
   if (!bill) throw new Error('Bill not found');
 
+  // Day-first parse (DD-MM-YYYY or ISO). `new Date('09-03-2026')` reads it US-style.
+  const readDate = (value, field) => {
+    if (!value) return null;
+    const d = parseInvoiceDate(value);
+    if (!d) {
+      const err = new Error(`${field} samajh nahi aayi (DD-MM-YYYY)`);
+      err.status = 400;
+      err.code = 'INVALID_BILL_DETAILS';
+      throw err;
+    }
+    return d;
+  };
+
   const data = {};
   if ('invoiceNumber' in changes) data.invoiceNumber = changes.invoiceNumber?.trim() || null;
-  if ('invoiceDate' in changes) {
-    data.invoiceDate = changes.invoiceDate ? new Date(changes.invoiceDate) : null;
-  }
-  if ('dueDate' in changes) {
-    data.dueDate = changes.dueDate ? new Date(changes.dueDate) : null;
-  }
+  if ('invoiceDate' in changes) data.invoiceDate = readDate(changes.invoiceDate, 'Invoice date');
+  if ('dueDate' in changes) data.dueDate = readDate(changes.dueDate, 'Due date');
   if ('distributorId' in changes) data.distributorId = changes.distributorId || null;
 
-  const diffs = diffFields(bill, data, ['invoiceNumber', 'invoiceDate', 'dueDate', 'distributorId']);
+  // Date rules on the header as it will be after the edit. Missing number/date is not
+  // blocked here (that would trap old bills); it just sends the bill to "Needs details".
+  const merged = { ...bill, ...data };
+  const touchesDates = 'invoiceDate' in data || 'dueDate' in data;
+  let warnings = [];
+  if (touchesDates) {
+    ({ warnings } = assertInteractiveBill(
+      { invoiceNumber: merged.invoiceNumber, invoiceDate: merged.invoiceDate, dueDate: merged.dueDate },
+      { requireDetails: false, confirmOldDate: !!changes.confirmOldDate || !('invoiceDate' in data) }
+    ));
+  }
+
+  const nextStatus = statusAfterEdit(bill.status, merged);
+  if (nextStatus !== bill.status) data.status = nextStatus;
+  const completedNow = bill.status === 'needs_details' && nextStatus === 'completed';
+
+  const diffs = diffFields(bill, data, ['invoiceNumber', 'invoiceDate', 'dueDate', 'distributorId', 'status']);
   if (diffs.length === 0) {
-    return { bill, diffs: [] };
+    return { bill, diffs: [], warnings, completedNow: false };
   }
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -73,7 +99,7 @@ async function updateBillHeader(billId, changes) {
 
   // Ledger status (paid/overdue) is computed live from Bill.dueDate on every read
   // (see ledgerService.computeBillStatus) — no cache to invalidate here.
-  return { bill: updated, diffs };
+  return { bill: updated, diffs, warnings, completedNow };
 }
 
 /**

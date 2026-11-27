@@ -12,7 +12,9 @@
     "prisma:migrate": "npx prisma migrate dev",
     "prisma:migrate:deploy": "npx prisma migrate deploy",
     "prisma:studio": "npx prisma studio",
-    "prisma:seed": "node prisma/seed.js"
+    "prisma:seed": "node prisma/seed.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "report:bill-after-payment": "node scripts/report-bill-after-payment.js"
   },
   "keywords": [
     "pharmacy",

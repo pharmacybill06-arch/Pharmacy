@@ -62,6 +62,7 @@ function isSupportedAttachment(attachment) {
  * Shared with billController via dateUtils so both save paths agree.
  */
 const parseDateString = parseInvoiceDate;
+const { unattendedStatus } = require('./billDetailsService');
 
 function normalizeSpreadsheetKey(value) {
   return String(value || '')
@@ -1068,6 +1069,16 @@ async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'ema
     throw err;
   }
 
+  // Nobody is watching an email import, so never block it: a bill with a missing
+  // invoice number/date, or an impossible (future) date, is saved as "needs_details".
+  // Its stock still goes in and it still counts in the outstanding; it just stays out
+  // of FIFO auto-allocation until the user fills it in from the Home badge.
+  const billStatus = unattendedStatus({
+    invoiceNumber: parsedData.invoiceNumber,
+    invoiceDate: parsedData.invoiceDate,
+    dueDate: parsedData.dueDate,
+  });
+
   const bill = await prisma.bill.create({
     data: {
       userId,
@@ -1098,7 +1109,7 @@ async function saveBillFromParsedData(userId, parsedData, ocrText, source = 'ema
       ocrEngine: 'email-import',
       aiParser: 'openai',
       processedAt: new Date(),
-      status: 'completed',
+      status: billStatus,
 
       items: parsedData.items
         ? {

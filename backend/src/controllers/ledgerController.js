@@ -8,8 +8,16 @@ const paymentScreenshotService = require('../services/paymentScreenshotService')
 
 function handleServiceError(res, error, fallback) {
   console.error(fallback, error.message);
-  if (error.code === 'DUPLICATE_TRANSACTION') {
-    return res.status(409).json({ error: error.message, code: error.code, existingPaymentId: error.existingPaymentId });
+  if (error.code === 'DUPLICATE_TRANSACTION' || error.code === 'ARCHIVED_DUPLICATE_TRANSACTION') {
+    return res.status(409).json({
+      error: error.message,
+      code: error.code,
+      existingPaymentId: error.existingPaymentId,
+      existingPayment: error.existingPayment,
+    });
+  }
+  if (error.status) {
+    return res.status(error.status).json({ error: error.message, code: error.code, field: error.field });
   }
   if (error.message.includes('not found') || error.message.includes('does not belong')) {
     return res.status(404).json({ error: error.message });
@@ -68,6 +76,55 @@ exports.getAllocationTargets = async (req, res) => {
     res.json({ message: 'Allocation targets fetched successfully', targets });
   } catch (error) {
     handleServiceError(res, error, 'Failed to fetch allocation targets');
+  }
+};
+
+// FIFO preview for Record/Edit Payment — the same planFifo the save runs, so the
+// apps show exactly what will be stored. ?amount=&paymentDate=&paymentId=
+exports.previewAllocation = async (req, res) => {
+  try {
+    const { distributorId } = req.params;
+    const { amount, paymentDate, paymentId } = req.query;
+    const result = await ledgerService.previewAllocation(distributorId, { amount, paymentDate, paymentId });
+    res.json({ message: 'Allocation preview', ...result });
+  } catch (error) {
+    handleServiceError(res, error, 'Failed to preview allocation');
+  }
+};
+
+// Ask-before-adjust: is there on-account money that could go on this bill?
+exports.getOnAccountPrompt = async (req, res) => {
+  try {
+    const prompt = await ledgerService.buildOnAccountPrompt(req.params.billId);
+    res.json({ prompt });
+  } catch (error) {
+    handleServiceError(res, error, 'Failed to check on-account balance');
+  }
+};
+
+// The user said "Haan" — move on-account money onto this bill
+exports.applyOnAccount = async (req, res) => {
+  try {
+    const result = await ledgerService.applyOnAccountToBill(req.params.billId, req.body || {});
+    res.json({ message: 'Advance adjusted', ...result });
+  } catch (error) {
+    handleServiceError(res, error, 'Failed to adjust advance');
+  }
+};
+
+// Read-only report: allocations where the bill is dated after the payment. ?format=csv
+exports.getLateBillAllocations = async (req, res) => {
+  try {
+    const rows = await ledgerService.getLateBillAllocationsReport({ userId: req.params.userId });
+    if (req.query.format === 'csv') {
+      const { toCsv } = require('../utils/csv');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="bill-after-payment-allocations.csv"');
+      return res.send(toCsv(rows));
+    }
+    res.json({ message: 'Allocations where bill date is after payment date', count: rows.length, rows });
+  } catch (error) {
+    handleServiceError(res, error, 'Failed to build report');
   }
 };
 
